@@ -42,6 +42,63 @@ $f_priority = 'priorite';
 $f_date     = 'cree_le';
 $f_parent   = 'parent_id';
 
+/**
+ * Assainit le HTML d'un message (anti-XSS stocké).
+ * Les messages sont stockés en HTML (format_html=1) et rendus non échappés :
+ * on ne conserve donc qu'une liste blanche de balises de mise en forme et,
+ * pour les liens, seuls les schémas http/https/mailto. Tout le reste
+ * (script, on*, style, iframe, img, etc.) est réduit à son texte.
+ * Sans dépendance : basé sur DOMDocument.
+ */
+function msg_sanitize_html(string $html): string {
+    $html = trim($html);
+    if ($html === '') return '';
+    $allowed_tags  = ['b','strong','i','em','u','s','br','p','ul','ol','li','a','span','div','h1','h2','h3','h4','blockquote'];
+    $allowed_attrs = ['a' => ['href']];
+
+    $prev = libxml_use_internal_errors(true);
+    $dom  = new DOMDocument('1.0', 'UTF-8');
+    // <meta charset> pour préserver l'UTF-8 ; pas de DOCTYPE/html/body implicites parasites
+    $dom->loadHTML('<meta charset="utf-8"><body>' . $html . '</body>', LIBXML_HTML_NODEFDTD);
+    libxml_clear_errors();
+    libxml_use_internal_errors($prev);
+
+    $body = $dom->getElementsByTagName('body')->item(0);
+    if (!$body) return nl2br(htmlspecialchars(strip_tags($html)));
+
+    $clean = function (DOMNode $node) use (&$clean, $allowed_tags, $allowed_attrs, $dom) {
+        foreach (iterator_to_array($node->childNodes) as $child) {
+            if ($child->nodeType === XML_ELEMENT_NODE) {
+                $tag = strtolower($child->nodeName);
+                if (!in_array($tag, $allowed_tags, true)) {
+                    // Balise non autorisée → on ne garde que son texte (sous-arbre supprimé)
+                    $node->replaceChild($dom->createTextNode($child->textContent), $child);
+                    continue;
+                }
+                if ($child->hasAttributes()) {
+                    foreach (iterator_to_array($child->attributes) as $attr) {
+                        $an = strtolower($attr->nodeName);
+                        $ok = isset($allowed_attrs[$tag]) && in_array($an, $allowed_attrs[$tag], true);
+                        if (!$ok) { $child->removeAttribute($attr->nodeName); continue; }
+                        if ($tag === 'a' && $an === 'href'
+                            && !preg_match('#^\s*(https?:|mailto:)#i', (string)$attr->nodeValue)) {
+                            $child->removeAttribute('href');
+                        }
+                    }
+                }
+                $clean($child);
+            } elseif ($child->nodeType === XML_COMMENT_NODE) {
+                $node->removeChild($child);
+            }
+        }
+    };
+    $clean($body);
+
+    $out = '';
+    foreach ($body->childNodes as $c) $out .= $dom->saveHTML($c);
+    return trim($out);
+}
+
 // ── Suppression ───────────────────────────────────────────
 if ($delId) {
     csrf_check();
@@ -61,7 +118,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_draft'])) {
         $recv_raw = $_POST['receiver_id'] ?? '';
         $recv    = $recv_raw === 'all' ? null : ($recv_raw === 'group' ? null : ((int)$recv_raw ?: null));
         $subject = trim($_POST['subject'] ?? 'Sans objet');
-        $body    = trim($_POST['body'] ?? '');
+        $body    = msg_sanitize_html($_POST['body'] ?? '');
         $prio    = in_array($_POST['priority']??'', ['normale','haute','urgente']) ? $_POST['priority'] : 'normale';
         $sendAt  = !empty($_POST['send_at']) ? $_POST['send_at'] : null;
         $type    = $recv === null ? 'broadcast' : 'prive';
@@ -88,7 +145,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['send'])) {
     $recv_raw = $_POST['receiver_id'] ?? '';
     $recv_ids = $_POST['receiver_ids'] ?? [];
     $subject  = trim($_POST['subject'] ?? '');
-    $body     = trim($_POST['body'] ?? '');
+    $body     = msg_sanitize_html($_POST['body'] ?? '');
     $prio     = in_array($_POST['priority']??'', ['normale','haute','urgente']) ? $_POST['priority'] : 'normale';
     $parentId = (int)($_POST['parent_id'] ?? 0) ?: null;
     $sendAt   = !empty($_POST['send_at']) ? $_POST['send_at'] : null;
@@ -586,7 +643,7 @@ function av_init($name) { return strtoupper(mb_substr(trim($name) ?: '?', 0, 1))
 
     <div class="msg-body-area">
       <?php if($viewMsg['format_html']??0): ?>
-        <?= $viewMsg['contenu'] ?>
+        <?= msg_sanitize_html($viewMsg['contenu']) ?>
       <?php else: ?>
         <?= nl2br(h($viewMsg['contenu'])) ?>
       <?php endif; ?>
@@ -606,7 +663,7 @@ function av_init($name) { return strtoupper(mb_substr(trim($name) ?: '?', 0, 1))
             <span style="font-size:10px;color:var(--text3)"><?= date('d/m/Y à H:i',strtotime($t['cree_le'])) ?></span>
           </div>
           <div style="font-size:13px;line-height:1.75;color:var(--text)">
-            <?= ($t['format_html']??0) ? $t['contenu'] : nl2br(h($t['contenu'])) ?>
+            <?= ($t['format_html']??0) ? msg_sanitize_html($t['contenu']) : nl2br(h($t['contenu'])) ?>
           </div>
         </div>
       </div>
