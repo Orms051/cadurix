@@ -18,6 +18,9 @@ backups/*
 uploads/*
 !uploads/.htaccess
 
+# ── Réglages locaux (propres à chaque poste) ──────────────
+.claude/settings.local.json
+
 # ── Divers ────────────────────────────────────────────────
 .DS_Store
 Thumbs.db
