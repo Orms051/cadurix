@@ -348,7 +348,7 @@ require_once 'includes/header.php';
   <div class="rmp-scan" id="rmp-ia-loading"><div style="color:#fff;text-align:center;font-weight:600"><div style="font-size:2.4rem;margin-bottom:8px">🤖</div>Analyse IA en cours…</div></div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js"></script>
+<script src="/scanner/zxing-0.21.3.min.js"></script>
 <script src="/scanner/scanner-zxing.js"></script>
 <script>
 const RMP_CSRF = <?= json_encode(csrf_token()) ?>;

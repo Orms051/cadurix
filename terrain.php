@@ -877,7 +877,7 @@ body>canvas{display:none!important}
   </div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js"></script>
+<script src="/scanner/zxing-0.21.3.min.js"></script>
 <script src="/scanner/scanner-zxing.js"></script>
 <script>
 const CSRF = document.querySelector('meta[name="csrf-token"]')?.content || '';
