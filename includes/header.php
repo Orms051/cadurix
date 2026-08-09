@@ -256,6 +256,19 @@ if (site_actif()) {
 }
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 html { scroll-behavior: smooth; }
+
+/* ── Accessibilité : focus clavier visible + mouvement réduit ── */
+:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; border-radius: 4px; }
+/* Ne pas afficher l'anneau lors d'un clic souris (uniquement au clavier) */
+a:focus:not(:focus-visible), button:focus:not(:focus-visible),
+input:focus:not(:focus-visible), select:focus:not(:focus-visible),
+textarea:focus:not(:focus-visible) { outline: none; }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .001ms !important; animation-iteration-count: 1 !important;
+    transition-duration: .001ms !important; scroll-behavior: auto !important;
+  }
+}
 body { font-family: var(--font); background: var(--bg); color: var(--text); min-height: 100vh; display: flex; overflow-x: hidden; transition: background .3s, color .3s; }
 body::before {
   content: ''; position: fixed; inset: 0; z-index: 0; pointer-events: none;
