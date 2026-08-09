@@ -122,6 +122,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'enreg
 
         $nb_crees = 0; $nb_retires = 0;
 
+        // ── PUI du site (étape 2b) : le rempotage débite la PUI du même site ──
+        //    Débit UNIQUEMENT si une PUI existe. Si le rempotage vise la PUI
+        //    elle-même, c'est une réappro (simple ajout) → aucun débit.
+        $pui_ids        = [];
+        $pui_shortfalls = [];   // règle « autoriser + signaler » : manques non bloquants
+        $pui_debits     = 0;
+        $puis = $pdo->prepare("SELECT id FROM emplacements WHERE site_id=? AND type='pui' AND actif=1");
+        $puis->execute([$site_id]);
+        $pui_ids = array_map('intval', $puis->fetchAll(PDO::FETCH_COLUMN));
+        if ($pui_ids) {
+            $frontier = $pui_ids; $guard = 0;
+            while ($frontier && $guard++ < 12) {
+                $in = implode(',', array_map('intval', $frontier));
+                $q = $pdo->prepare("SELECT id FROM emplacements WHERE site_id=? AND parent_id IN ($in)");
+                $q->execute([$site_id]);
+                $children = array_map('intval', $q->fetchAll(PDO::FETCH_COLUMN));
+                $frontier = array_values(array_diff($children, $pui_ids));
+                $pui_ids  = array_merge($pui_ids, $frontier);
+            }
+        }
+        $do_pui_debit = $pui_ids && !in_array($empl_id, $pui_ids, true);
+
         foreach ($articles as $a) {
             $nom  = trim($a['nom']);
             $unit = $a['unite'] ?? 'unité';
@@ -165,6 +187,36 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'enreg
                 ->execute([$new_pid, currentUserId(), $oq, $qty, $nq]);
             $nb_crees++;
 
+            // 2bis) Débit de la PUI (transfert) — le neuf remis provient de la PUI du site.
+            //       Règle « autoriser + signaler » : on débite ce qui est dispo (jamais
+            //       de négatif), on ne bloque jamais ; le manque éventuel est noté.
+            if ($do_pui_debit) {
+                $inPui = implode(',', array_map('intval', $pui_ids));
+                $pl = $pdo->prepare("SELECT id, quantite, numero_lot, date_peremption
+                                     FROM produits
+                                     WHERE nom=? AND emplacement_id IN ($inPui) AND statut='actif' AND quantite > 0
+                                     ORDER BY date_peremption ASC, id ASC");
+                $pl->execute([$nom]);
+                $reste_pui = $qty;
+                foreach ($pl->fetchAll(PDO::FETCH_ASSOC) as $plot) {
+                    if ($reste_pui <= 0) break;
+                    $dispo_pui = (float)$plot['quantite'];
+                    $deb = min($dispo_pui, $reste_pui);
+                    if ($deb <= 0) continue;
+                    $nqp = $dispo_pui - $deb;
+                    $pdo->prepare("UPDATE produits SET quantite=? WHERE id=?")->execute([$nqp, $plot['id']]);
+                    $pdo->prepare("INSERT INTO mouvements_stock (produit_id, user_id, type, quantite_avant, quantite_delta, quantite_apres, motif)
+                                   VALUES (?, ?, 'sortie', ?, ?, ?, 'Rempotage — débit PUI')")
+                        ->execute([(int)$plot['id'], currentUserId(), $dispo_pui, -$deb, $nqp]);
+                    $reste_pui -= $deb;
+                    $pui_debits++;
+                }
+                if ($reste_pui > 0.0001) {
+                    $mq = rtrim(rtrim(number_format($reste_pui, 2, '.', ''), '0'), '.');
+                    $pui_shortfalls[] = "$nom (manque $mq $unit)";
+                }
+            }
+
             // 3) Sortie d'une quantité équivalente : lot indiqué d'abord (si choisi), sinon FEFO
             $chosen_id = (int)($a['lot_retire_id'] ?? 0);
             if ($chosen_id) {
@@ -196,10 +248,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'enreg
             // Si $reste > 0 : aucun ancien lot (produit neuf) → la quantité augmente légitimement.
         }
 
+        // Bilan PUI : « signaler » les manques en les inscrivant sur le rempotage
+        if ($pui_shortfalls) {
+            $manque_txt = 'PUI insuffisante : ' . implode(', ', $pui_shortfalls);
+            $note2 = trim(($note_final ? $note_final . ' — ' : '') . $manque_txt);
+            $pdo->prepare("UPDATE rempotages SET notes=? WHERE id=?")->execute([$note2, $remp_id]);
+        }
+
         $pdo->prepare("UPDATE rempotages SET nb_crees=?, nb_non_scannes=? WHERE id=?")->execute([$nb_crees, $nb_retires, $remp_id]);
         $pdo->commit();
-        if (function_exists('audit_log')) audit_log($pdo, 'REMPOTAGE', 'rempotages', $remp_id, null, ['remis'=>$nb_crees, 'sortis'=>$nb_retires]);
-        flashSuccess("✅ Rempotage enregistré : $nb_crees produit(s) remis.");
+        if (function_exists('audit_log')) audit_log($pdo, 'REMPOTAGE', 'rempotages', $remp_id, null, ['remis'=>$nb_crees, 'sortis'=>$nb_retires, 'pui_debits'=>$pui_debits, 'pui_manques'=>count($pui_shortfalls)]);
+        $msg = "✅ Rempotage enregistré : $nb_crees produit(s) remis.";
+        if ($do_pui_debit) $msg .= " Débité de la PUI : $pui_debits lot(s).";
+        flashSuccess($msg);
+        if ($pui_shortfalls) {
+            flashError("⚠️ Stock PUI insuffisant pour : " . implode(', ', $pui_shortfalls) . ". Rempotage enregistré, écart à régulariser.");
+        }
     } catch (Throwable $e) {
         if ($pdo->inTransaction()) $pdo->rollBack();
         flashError("Erreur : " . $e->getMessage());

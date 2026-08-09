@@ -129,7 +129,14 @@ donc `INSERT … ON DUPLICATE KEY UPDATE`. Surcharges par site : `site_role_perm
     défaut `standard`) + affichage PUI dans `locations.php` (icône entrepôt,
     badge violet « PUI », sélecteur de type au formulaire). Aucune logique de
     transfert touchée. ⚠️ Migration 030 encore à jouer EN PROD.
-  - ⏭️ Étape suivante : brancher le rempotage-transfert sur la PUI du site.
+  - ✅ **Étape 2a (faite)** : au rempotage, badge du stock PUI par produit
+    (dispo / insuffisant / rupture), lecture seule. Endpoint `?ajax=pui_stock`.
+  - ✅ **Étape 2b (faite)** : le rempotage **débite la PUI** du site (FEFO)
+    pour la quantité remise. Débit uniquement si une PUI existe ; si la cible
+    est la PUI elle-même = réappro, pas de débit. Règle « autoriser +
+    signaler » : jamais de négatif ni de blocage, le manque est noté sur le
+    rempotage + flash. Mouvement tracé `Rempotage — débit PUI`.
+  - ⏭️ Étape suivante : dotation (réel vs attendu) et nouveau visuel emplacements.
 - **Dotation** : composition attendue par sac (réel vs attendu, flag écarts).
 - **Nouveau visuel emplacements** (PUI en haut, sacs en cartes).
 - Tableau de bord d'accueil, historique contrôles scellés, alertes CRON, 2FA,
