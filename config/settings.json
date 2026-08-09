@@ -1,0 +1,15 @@
+{
+    "app_nom": "Cadurix",
+    "app_version": "5.0",
+    "app_description": "Gestion des péremptions médicales",
+    "mail_from": "noreply@cadurix.local",
+    "mail_from_name": "Cadurix— Alertes",
+    "alerte_jours_defaut": 30,
+    "max_tentatives_connexion": 3,
+    "blocage_minutes": 20,
+    "session_duree_minutes": 480,
+    "audit_retention_jours": 365,
+    "backup_garder_nombre": 5,
+    "cron_actif": false,
+    "session_timeout_minutes": 15
+}

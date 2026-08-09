@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(gh auth *)",
+      "Bash(git -C \"C:\\\\laragon\\\\www\\\\cadurix\" status)",
+      "Bash(gh --version)",
+      "PowerShell(Get-Command gh -ErrorAction SilentlyContinue)",
+      "PowerShell(Get-Command git -ErrorAction SilentlyContinue)",
+      "PowerShell(Get-Command winget -ErrorAction SilentlyContinue)",
+      "PowerShell(winget install --id GitHub.cli -e --source winget --accept-package-agreements --accept-source-agreements)",
+      "PowerShell($env:Path = [System.Environment]::GetEnvironmentVariable\\(\"Path\",\"Machine\"\\) + \";\" + [System.Environment]::GetEnvironmentVariable\\(\"Path\",\"User\"\\); gh --version)",
+      "PowerShell($env:Path = [System.Environment]::GetEnvironmentVariable\\(\"Path\",\"Machine\"\\) + \";\" + [System.Environment]::GetEnvironmentVariable\\(\"Path\",\"User\"\\); gh auth login --hostname github.com --git-protocol https --web)",
+      "PowerShell($env:Path = [System.Environment]::GetEnvironmentVariable\\(\"Path\",\"Machine\"\\) + \";\" + [System.Environment]::GetEnvironmentVariable\\(\"Path\",\"User\"\\); gh auth status)",
+      "PowerShell(Get-ChildItem -Path \"C:\\\\laragon\\\\www\\\\cadurix\" -Directory | Select-Object Name; Write-Output \"--- gros fichiers / logs ---\"; Get-ChildItem -Path \"C:\\\\laragon\\\\www\\\\cadurix\" -File | Where-Object { $_.Name -match 'log|\\\\.sql$|\\\\.zip$' } | Select-Object Name, @{n='KB';e={[math]::Round\\($_.Length/1KB,1\\)}})",
+      "PowerShell(foreach \\($d in @\\('backups','logs','uploads'\\)\\) { $p = \"C:\\\\laragon\\\\www\\\\cadurix\\\\$d\"; $c = \\(Get-ChildItem $p -Recurse -File -ErrorAction SilentlyContinue | Measure-Object\\).Count; Write-Output \"$d : $c fichier\\(s\\)\" })",
+      "PowerShell($env:Path = [System.Environment]::GetEnvironmentVariable\\(\"Path\",\"Machine\"\\) + \";\" + [System.Environment]::GetEnvironmentVariable\\(\"Path\",\"User\"\\); git -C \"C:\\\\laragon\\\\www\\\\cadurix\" init -b main; git -C \"C:\\\\laragon\\\\www\\\\cadurix\" config core.autocrlf false; git -C \"C:\\\\laragon\\\\www\\\\cadurix\" config core.safecrlf false; Write-Output \"--- config ---\"; git -C \"C:\\\\laragon\\\\www\\\\cadurix\" config --get core.autocrlf; git -C \"C:\\\\laragon\\\\www\\\\cadurix\" config --get user.name; git -C \"C:\\\\laragon\\\\www\\\\cadurix\" config --get user.email)",
+      "PowerShell($env:Path = [System.Environment]::GetEnvironmentVariable\\(\"Path\",\"Machine\"\\) + \";\" + [System.Environment]::GetEnvironmentVariable\\(\"Path\",\"User\"\\); git -C \"C:\\\\laragon\\\\www\\\\cadurix\" config user.name \"Orms051\"; git -C \"C:\\\\laragon\\\\www\\\\cadurix\" config user.email \"yoann.rolland@hotmail.fr\"; git -C \"C:\\\\laragon\\\\www\\\\cadurix\" add -A; Write-Output \"=== FICHIERS SENSIBLES ENCORE STAGES ? ===\"; git -C \"C:\\\\laragon\\\\www\\\\cadurix\" diff --cached --name-only | Select-String -Pattern 'db\\\\.php|\\\\.log$|error_log|backups/|uploads/')"
+    ]
+  }
+}

@@ -1,0 +1,139 @@
+# ============================================================
+#  Cadurix v5.2 — .htaccess Sécurité renforcée
+# ============================================================
+
+Options -Indexes -ExecCGI -MultiViews
+ServerSignature Off
+
+
+# ── Headers sécurité supplémentaires ──────────────────────────
+<IfModule mod_headers.c>
+  Header always set X-Permitted-Cross-Domain-Policies "none"
+  Header always set Expect-CT "max-age=86400, enforce"
+  Header always unset X-Powered-By
+  Header always unset Server
+  # Supprimer les headers qui révèlent la techno
+  Header unset X-Generator
+</IfModule>
+
+# ── Bloquer les méthodes HTTP dangereuses ──────────────────────
+<LimitExcept GET POST HEAD>
+  Deny from all
+</LimitExcept>
+
+# ── Bloquer les scanners et crawlers malveillants ──────────────
+<IfModule mod_setenvif.c>
+  SetEnvIfNoCase User-Agent "sqlmap" bad_bot
+  SetEnvIfNoCase User-Agent "nikto" bad_bot
+  SetEnvIfNoCase User-Agent "nmap" bad_bot
+  SetEnvIfNoCase User-Agent "masscan" bad_bot
+  SetEnvIfNoCase User-Agent "zgrab" bad_bot
+  SetEnvIfNoCase User-Agent "python-requests/2" bad_bot
+  Deny from env=bad_bot
+</IfModule>
+
+# ── Forcer HTTPS ──────────────────────────────────────────
+# ⚠️  DÉCOMMENTER EN PRODUCTION SUR O2SWITCH
+# <IfModule mod_rewrite.c>
+#   RewriteEngine On
+#   RewriteCond %{HTTPS} off
+#   RewriteRule ^(.*)$ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+# </IfModule>
+#
+# ⚠️  DÉCOMMENTER AUSSI LE HSTS DANS LES HEADERS CI-DESSOUS
+# Header always set Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+
+
+# ── Protection injections ─────────────────────────────────
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  # Bloquer tentatives d'injection SQL dans l'URL
+  RewriteCond %{QUERY_STRING} (union|select|insert|drop|delete|update|cast|create|char|convert|alter|declare|script|eval).*= [NC,OR]
+  RewriteCond %{QUERY_STRING} [<>'"();] [NC]
+  RewriteRule .* - [F,L]
+
+  # Bloquer user agents malveillants
+  RewriteCond %{HTTP_USER_AGENT} (sqlmap|nikto|nessus|masscan|zgrab|dirbuster|nuclei) [NC]
+  RewriteRule .* - [F,L]
+</IfModule>
+
+# ── Limiter méthodes HTTP ─────────────────────────────────
+<LimitExcept GET POST HEAD>
+  Deny from all
+</LimitExcept>
+
+# ── Autoriser assets PWA ─────────────────────────────────
+<IfModule mod_rewrite.c>
+  RewriteRule ^assets/icons/ - [L]
+</IfModule>
+
+# ── Protection dossiers sensibles ────────────────────────
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteRule ^config/     - [F,L]
+  RewriteRule ^backups/    - [F,L]
+  RewriteRule ^migrations/(?!migrate\.php) - [F,L]
+  RewriteRule ^includes/   - [F,L]
+  RewriteRule ^libs/tabler/ - [L]
+  RewriteRule ^libs/       - [F,L]
+</IfModule>
+
+# ── Bloquer fichiers sensibles ────────────────────────────
+<FilesMatch "\.(sql|log|sh|env|bak|old|tmp)$">
+  Order Allow,Deny
+  Deny from all
+</FilesMatch>
+
+# Bloquer JSON sauf manifest PWA
+<FilesMatch "^(?!manifest).*\.json$">
+  Order Allow,Deny
+  Deny from all
+</FilesMatch>
+
+# Autoriser service worker
+<Files "service-worker.js">
+  Order Allow,Deny
+  Allow from all
+</Files>
+<FilesMatch "^\.">
+  Order Allow,Deny
+  Deny from all
+</FilesMatch>
+
+# ── Headers sécurité ─────────────────────────────────────
+<IfModule mod_headers.c>
+  Header always set X-Frame-Options "SAMEORIGIN"
+  Header always set X-Content-Type-Options "nosniff"
+  Header always set X-XSS-Protection "1; mode=block"
+  Header always set Referrer-Policy "strict-origin-when-cross-origin"
+  Header always set Permissions-Policy "geolocation=(), microphone=()"
+  Header always set Content-Security-Policy "default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net; font-src 'self' https://fonts.gstatic.com https://cdn.jsdelivr.net; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; img-src 'self' data: blob:; connect-src 'self'; worker-src 'self';"
+  # HSTS (décommenter en production HTTPS uniquement)
+  # Header always set Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+  Header unset Server
+  Header unset X-Powered-By
+  # Empêcher le sniffing MIME
+  Header always set Cross-Origin-Resource-Policy "same-origin"
+  Header always set Cross-Origin-Opener-Policy "same-origin"
+</IfModule>
+
+# ── Pages erreur ──────────────────────────────────────────
+ErrorDocument 404 /errors/404.php
+ErrorDocument 500 /errors/500.php
+ErrorDocument 403 /errors/403.php
+
+# ── Cache assets ─────────────────────────────────────────
+<IfModule mod_expires.c>
+  ExpiresActive On
+  ExpiresByType text/css                  "access plus 1 month"
+  ExpiresByType application/javascript    "access plus 1 month"
+  ExpiresByType image/png                 "access plus 1 month"
+  ExpiresByType image/jpeg                "access plus 1 month"
+  ExpiresByType image/svg+xml             "access plus 1 month"
+  ExpiresByType font/woff2                "access plus 1 year"
+</IfModule>
+
+# ── Compression Gzip ──────────────────────────────────────
+<IfModule mod_deflate.c>
+  AddOutputFilterByType DEFLATE text/html text/css application/javascript text/plain application/json
+</IfModule>

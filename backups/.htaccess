@@ -1,0 +1,21 @@
+# Cadurix — Protection dossier sauvegardes
+# AUCUN accès public autorisé — données sensibles
+
+# Bloquer tout accès HTTP
+Order Allow,Deny
+Deny from all
+
+# Double protection sur les fichiers SQL
+<FilesMatch "\.sql$">
+  Order Allow,Deny
+  Deny from all
+</FilesMatch>
+
+# Désactiver le listage du répertoire
+Options -Indexes -ExecCGI
+
+# Empêcher l'exécution de scripts
+<FilesMatch "\.(php|php5|phtml|pl|py|sh|cgi)$">
+  Order Allow,Deny
+  Deny from all
+</FilesMatch>

@@ -1,0 +1,159 @@
+/*
+ * © Cadurix v5.4 — Moteur caméra ZXing partagé
+ * À placer dans : scanner/scanner-zxing.js
+ * Chargé par terrain.php ET scan.php, APRÈS la librairie ZXing.
+ *
+ * Union fidèle des deux wrappers d'origine :
+ *   - paramétrage videoId + callback (issu de scan.php)
+ *   - nettoyage des canvas parasites + MutationObserver (issu de terrain.php)
+ *   - hook onError fourni par chaque page (terrain → console.error ;
+ *     scan → log Debug Center + showNoCameraMsg)
+ *
+ * API :
+ *   CadurixScanner.start(videoId, onResult, { onError, canvasContainer })
+ *   CadurixScanner.stop()
+ *   CadurixScanner.switchCam()
+ *   CadurixScanner.isRunning()
+ *
+ *   onResult(code)  → reçoit la chaîne du code lu (anti-doublon + vibration déjà gérés)
+ *   onError(err)    → appelé si la caméra échoue (optionnel)
+ *   canvasContainer → sélecteur CSS ou élément où nettoyer les canvas (optionnel ;
+ *                     défaut : le parent de la vidéo)
+ */
+window.CadurixScanner = (function () {
+    var _reader     = null;
+    var _running    = false;
+    var _videoId    = null;
+    var _onResult   = null;
+    var _onError    = null;
+    var _canvasOpt  = null;   // option fournie par la page
+    var _canvasCont = null;   // conteneur résolu pour le nettoyage
+    var _observer   = null;
+    var _lastCode   = '';
+    var _lastTime   = 0;
+    var _cameras    = [];
+    var _camIdx     = 0;
+
+    function _resolveContainer(video) {
+        if (_canvasOpt) {
+            if (typeof _canvasOpt === 'string') return document.querySelector(_canvasOpt);
+            return _canvasOpt; // élément déjà fourni
+        }
+        return video ? video.parentElement : null;
+    }
+
+    function stop() {
+        _running = false;
+        _lastCode = '';   // oublier le dernier code scanné à chaque arrêt
+        _lastTime = 0;
+        if (_reader)   { try { _reader.reset(); } catch (e) {} _reader = null; }
+        if (_observer) { try { _observer.disconnect(); } catch (e) {} _observer = null; }
+
+        var v = _videoId ? document.getElementById(_videoId) : null;
+        if (v) {
+            try { v.pause(); } catch (e) {}
+            if (v.srcObject) {
+                v.srcObject.getTracks().forEach(function (t) { t.stop(); });
+                v.srcObject = null;
+            }
+        }
+        // Retrait des canvas parasites créés par ZXing (comportement terrain.php)
+        if (_canvasCont) {
+            _canvasCont.querySelectorAll('canvas').forEach(function (c) { c.remove(); });
+        }
+    }
+
+    function start(videoId, onResult, options) {
+        if (_running) return;          // guard anti-double init
+        options    = options || {};
+        stop();                        // reset d'un éventuel scan précédent
+        _videoId   = videoId;
+        _onResult  = onResult;
+        _onError   = options.onError || function (e) { if (window.console) console.error('[CadurixScanner]', e); };
+        _canvasOpt = options.canvasContainer || null;
+        _doStart();
+    }
+
+    async function _doStart() {
+        // Détection de la caméra arrière, une seule fois
+        try {
+            var devices = await navigator.mediaDevices.enumerateDevices();
+            _cameras = devices.filter(function (d) { return d.kind === 'videoinput'; });
+            var backIdx = _cameras.findIndex(function (d) { return /back|rear|environment/i.test(d.label); });
+            if (backIdx >= 0 && _camIdx === 0) _camIdx = backIdx;
+        } catch (e) {}
+        _startCamera();
+    }
+
+    async function _startCamera() {
+        _reader = new ZXing.BrowserMultiFormatReader();
+        var video = document.getElementById(_videoId);
+        if (!video) { _running = false; return; }
+
+        _canvasCont = _resolveContainer(video);
+
+        function onResult(result, err) {
+            if (!result) return;
+            var code = result.getText ? result.getText() : '';
+            if (!code) return;
+            // Anti-doublon : ignorer le même code dans les 2 secondes
+            var now = Date.now();
+            if (code === _lastCode && now - _lastTime < 2000) return;
+            _lastCode = code;
+            _lastTime = now;
+            if (navigator.vibrate) navigator.vibrate(50);
+            if (_onResult) _onResult(code);
+        }
+
+        _running = true;
+
+        // MutationObserver : masque les canvas dès que ZXing les crée (comportement terrain.php)
+        if (_canvasCont) {
+            _observer = new MutationObserver(function (mutations) {
+                mutations.forEach(function (m) {
+                    m.addedNodes.forEach(function (node) {
+                        if (node.nodeName === 'CANVAS') node.style.display = 'none';
+                    });
+                });
+                _canvasCont.querySelectorAll('canvas').forEach(function (c) { c.style.display = 'none'; });
+            });
+            _observer.observe(_canvasCont, { childList: true, subtree: true });
+            // Déconnecter après 3 s (ZXing a eu le temps de tout créer)
+            setTimeout(function () { if (_observer) { _observer.disconnect(); _observer = null; } }, 3000);
+        }
+
+        try {
+            // Priorité : caméra arrière exacte
+            await _reader.decodeFromConstraints(
+                { video: { facingMode: { exact: 'environment' } } },
+                video,
+                onResult
+            );
+        } catch (e) {
+            // Fallback : caméra arrière sans "exact" (iOS Safari)
+            try {
+                await _reader.decodeFromConstraints(
+                    { video: { facingMode: 'environment' } },
+                    video,
+                    onResult
+                );
+            } catch (e2) {
+                _running = false;
+                if (_onError) _onError(e2);
+            }
+        }
+    }
+
+    function switchCam() {
+        _camIdx = (_camIdx + 1) % Math.max(_cameras.length, 1);
+        stop();
+        _doStart();
+    }
+
+    return {
+        start:     start,
+        stop:      stop,
+        switchCam: switchCam,
+        isRunning: function () { return _running; }
+    };
+})();

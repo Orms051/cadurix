@@ -1,0 +1,25 @@
+# ── Secrets / configuration sensible ──────────────────────
+config/db.php
+config/maintenance.json
+
+# ── Logs ──────────────────────────────────────────────────
+error_log
+*.log
+logs/*
+!logs/.htaccess
+
+# ── Sauvegardes ───────────────────────────────────────────
+backups/*
+!backups/.htaccess
+*.sql.gz
+*.zip
+
+# ── Uploads utilisateurs ──────────────────────────────────
+uploads/*
+!uploads/.htaccess
+
+# ── Divers ────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+*.bak
+*.tmp

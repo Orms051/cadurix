@@ -1,0 +1,21 @@
+# Cadurix — Protection dossier uploads
+# Bloquer l'exécution de scripts PHP uploadés
+
+<FilesMatch "\.php$">
+    Order Allow,Deny
+    Deny from all
+</FilesMatch>
+
+<FilesMatch "\.php5$|\.phtml$|\.php7$|\.phar$">
+    Order Allow,Deny
+    Deny from all
+</FilesMatch>
+
+# Bloquer les fichiers exécutables et scripts
+<FilesMatch "\.(sh|cgi|pl|py|rb|exe|asp|aspx|jsp|cfm)$">
+    Order Allow,Deny
+    Deny from all
+</FilesMatch>
+
+Options -ExecCGI -Indexes
+AddType text/plain .php .php5 .phtml

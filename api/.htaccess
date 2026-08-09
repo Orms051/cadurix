@@ -1,0 +1,16 @@
+# Cadurix API — Sécurité
+# Autoriser uniquement les fichiers PHP de l'API
+Options -Indexes
+
+# CORS headers pour l'API
+<IfModule mod_headers.c>
+  Header always set Access-Control-Allow-Origin "*"
+  Header always set Access-Control-Allow-Methods "GET, POST, PUT, DELETE, OPTIONS"
+  Header always set Access-Control-Allow-Headers "Authorization, Content-Type"
+</IfModule>
+
+# Bloquer l'accès direct au middleware et libs
+<FilesMatch "^(middleware|jwt)\.php$">
+  Order Allow,Deny
+  Deny from all
+</FilesMatch>
