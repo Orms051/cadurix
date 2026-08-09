@@ -41,6 +41,47 @@ if (($_GET['ajax'] ?? '') === 'sac_produits') {
     exit;
 }
 
+/* ── AJAX : stock de la PUI du site (LECTURE SEULE — étape 2a) ──
+   Renvoie, par nom de produit, le stock total disponible dans la PUI du site
+   (emplacement type='pui' + ses sous-emplacements). Aucune écriture. */
+if (($_GET['ajax'] ?? '') === 'pui_stock') {
+    header('Content-Type: application/json');
+    // PUI(s) du site
+    $puis = $pdo->prepare("SELECT id FROM emplacements WHERE site_id=? AND type='pui' AND actif=1");
+    $puis->execute([$site_id]);
+    $ids = array_map('intval', $puis->fetchAll(PDO::FETCH_COLUMN));
+    if (!$ids) { echo json_encode(['pui'=>false, 'stock'=>[]]); exit; }
+
+    // Descendants (mêmes bornes que sac_produits)
+    $frontier = $ids; $guard = 0;
+    while ($frontier && $guard++ < 12) {
+        $in = implode(',', array_map('intval', $frontier));
+        $q = $pdo->prepare("SELECT id FROM emplacements WHERE site_id=? AND parent_id IN ($in)");
+        $q->execute([$site_id]);
+        $children = array_map('intval', $q->fetchAll(PDO::FETCH_COLUMN));
+        $frontier = array_values(array_diff($children, $ids));
+        $ids = array_merge($ids, $frontier);
+    }
+    $inIds = implode(',', array_map('intval', $ids));
+    $st = $pdo->query("SELECT nom,
+                              SUM(quantite) AS stock,
+                              COUNT(*) AS lots,
+                              MIN(unite) AS unite
+                       FROM produits
+                       WHERE emplacement_id IN ($inIds) AND statut='actif' AND quantite > 0
+                       GROUP BY nom");
+    $map = [];
+    foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $r) {
+        $map[$r['nom']] = [
+            'stock' => (float)$r['stock'],
+            'lots'  => (int)$r['lots'],
+            'unite' => $r['unite'],
+        ];
+    }
+    echo json_encode(['pui'=>true, 'stock'=>$map]);
+    exit;
+}
+
 /* ── AJAX : lookup code-barres (composant scanner partagé, jamais modifié) ── */
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'lookup_barcode') {
     header('Content-Type: application/json');
@@ -203,6 +244,10 @@ require_once 'includes/header.php';
 .rmp-lotopt{display:flex;align-items:center;gap:12px;padding:14px;border:2px solid var(--border);border-radius:10px;margin-bottom:8px;cursor:pointer;transition:.12s;-webkit-tap-highlight-color:transparent}
 .rmp-lotopt.sel{border-color:var(--primary);background:rgba(59,130,246,.14);box-shadow:0 0 0 1px var(--primary) inset}
 .rmp-lotopt input{width:22px;height:22px;flex-shrink:0;accent-color:var(--primary)}
+.pui-badge{display:inline-block;font-size:.68rem;font-weight:700;padding:2px 8px;border-radius:999px;vertical-align:middle;margin-left:6px;white-space:nowrap}
+.pui-b-ok{background:rgba(139,92,246,.14);color:#8B5CF6}
+.pui-b-low{background:rgba(239,159,39,.16);color:#EF9F27}
+.pui-b-out{background:rgba(226,75,74,.14);color:#E24B4A}
 </style>
 
 <div class="rmp-wrap">
@@ -309,6 +354,7 @@ require_once 'includes/header.php';
 const RMP_CSRF = <?= json_encode(csrf_token()) ?>;
 const RMP = {
   produits: [], lignes: [],
+  puiStock: {}, puiExists: false,   // étape 2a : stock PUI en lecture seule
   init(){
     document.getElementById('rmp-empl').addEventListener('change', e => this.loadSac(e.target.value));
     document.getElementById('rmp-search').addEventListener('input', e => this.renderCat(e.target.value));
@@ -316,6 +362,30 @@ const RMP = {
       e.preventDefault();
       if (this.lignes.length) this.askRetires();   // → ouvre l'écran « Indiquer les lots retirés ? »
     });
+    this.loadPui();
+  },
+
+  async loadPui(){
+    try {
+      const r = await fetch('/rempotage.php?ajax=pui_stock');
+      const d = await r.json();
+      this.puiExists = !!(d && d.pui);
+      this.puiStock  = (d && d.stock) || {};
+    } catch(e){ this.puiExists = false; this.puiStock = {}; }
+    if (this.lignes.length) this.renderLines();
+  },
+
+  // Badge « dispo PUI » pour une ligne (lecture seule, ne bloque rien)
+  puiBadge(nom, qty){
+    if (!this.puiExists) return '';
+    const info = this.puiStock[nom];
+    const stock = info ? info.stock : 0;
+    const need  = parseFloat(qty) || 0;
+    let cls, txt;
+    if (stock <= 0)        { cls = 'pui-b-out';  txt = 'PUI : rupture'; }
+    else if (stock < need) { cls = 'pui-b-low';  txt = 'PUI : ' + stock + ' (insuffisant)'; }
+    else                   { cls = 'pui-b-ok';   txt = 'PUI : ' + stock + ' dispo'; }
+    return '<span class="pui-badge '+cls+'">'+txt+'</span>';
   },
   esc(s){ return String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); },
   fmtExp(d){ if(!d) return 'pas de date'; const p=String(d).split('-'); return 'exp. '+(p[1]||'?')+'/'+(p[0]||'?'); },
@@ -347,7 +417,10 @@ const RMP = {
     this.lignes.push({nom:p.nom,unite:p.unite||'unité',emplacement_id:p.emplacement_id,numero_lot:'',date_peremption:'',quantite:1});
     this.renderLines();
   },
-  setField(i,f,v){ this.lignes[i][f] = (f==='quantite') ? Math.max(0.01,parseFloat(v)||1) : v; },
+  setField(i,f,v){
+    this.lignes[i][f] = (f==='quantite') ? Math.max(0.01,parseFloat(v)||1) : v;
+    if (f==='quantite') { const b=document.getElementById('pui-badge-'+i); if(b) b.innerHTML=this.puiBadge(this.lignes[i].nom,this.lignes[i].quantite); }
+  },
   remove(i){ this.lignes.splice(i,1); this.renderLines(); },
 
   askRetires(){
@@ -468,7 +541,7 @@ const RMP = {
     const box=document.getElementById('rmp-lines'), save=document.getElementById('rmp-save');
     if(!this.lignes.length){ box.innerHTML='<div class="rmp-empty">Ajoute des produits depuis la liste de gauche.</div>'; save.disabled=true; return; }
     box.innerHTML=this.lignes.map((l,i)=>'<div class="rmp-line">'+
-      '<div class="top"><div class="nom">'+this.esc(l.nom)+'</div><button type="button" class="rmp-del" onclick="RMP.remove('+i+')">🗑️</button></div>'+
+      '<div class="top"><div class="nom">'+this.esc(l.nom)+' <span id="pui-badge-'+i+'">'+this.puiBadge(l.nom,l.quantite)+'</span></div><button type="button" class="rmp-del" onclick="RMP.remove('+i+')">🗑️</button></div>'+
       '<div class="rmp-fields">'+
         '<div><label>Nouveau lot</label><input type="text" value="'+this.esc(l.numero_lot)+'" oninput="RMP.setField('+i+',\'numero_lot\',this.value)" placeholder="Lot"></div>'+
         '<div><label>Péremption</label><input type="month" value="'+this.esc(l.date_peremption)+'" oninput="RMP.setField('+i+',\'date_peremption\',this.value)"></div>'+
