@@ -49,7 +49,7 @@ if (isset($_GET['ajax'])) {
     if ($_GET['ajax'] === 'tree') {
         function buildTree(PDO $pdo, $parent_id, int $site_id): array {
             $stmt = $pdo->prepare("
-                SELECT e.id, e.nom, e.parent_id, e.chaine_froid,
+                SELECT e.id, e.nom, e.parent_id, e.chaine_froid, e.type,
                     COUNT(DISTINCT p.id) AS nb_produits,
                     SUM(CASE WHEN p.date_peremption < CURDATE() THEN 1 ELSE 0 END) AS nb_perimes,
                     SUM(CASE WHEN p.date_peremption >= CURDATE() AND DATEDIFF(p.date_peremption,CURDATE())<=7 THEN 1 ELSE 0 END) AS nb_crit
@@ -181,6 +181,8 @@ if (isset($_GET['ajax'])) {
 
         $data        = json_decode(file_get_contents('php://input'), true);
         $nom         = trim($data['nom']         ?? '');
+        $type        = in_array($data['type'] ?? 'standard', ['standard','pui','sac','vehicule'], true)
+                       ? $data['type'] : 'standard';
         $parent_id   = !empty($data['parent_id']) ? (int)$data['parent_id'] : null;
         $desc        = trim($data['description']  ?? '');
         $chaine_froid= !empty($data['chaine_froid']) ? 1 : 0;
@@ -191,14 +193,14 @@ if (isset($_GET['ajax'])) {
         if (!$nom) { echo json_encode(['error' => 'Nom obligatoire']); exit; }
 
         if ($id) {
-            $pdo->prepare("UPDATE emplacements SET nom=?,description=?,chaine_froid=?,temp_min=?,temp_max=?,parent_id=? WHERE id=? AND site_id=?")
-                ->execute([$nom,$desc,$chaine_froid,$temp_min,$temp_max,$parent_id,$id,$site_id]);
+            $pdo->prepare("UPDATE emplacements SET nom=?,type=?,description=?,chaine_froid=?,temp_min=?,temp_max=?,parent_id=? WHERE id=? AND site_id=?")
+                ->execute([$nom,$type,$desc,$chaine_froid,$temp_min,$temp_max,$parent_id,$id,$site_id]);
             audit_log($pdo,'MODIF_EMPLACEMENT','emplacements',$id);
         } else {
-            $pdo->prepare("INSERT INTO emplacements (site_id,parent_id,nom,description,chaine_froid,temp_min,temp_max,actif) VALUES(?,?,?,?,?,?,?,1)")
-                ->execute([$site_id,$parent_id,$nom,$desc,$chaine_froid,$temp_min,$temp_max]);
+            $pdo->prepare("INSERT INTO emplacements (site_id,parent_id,nom,type,description,chaine_froid,temp_min,temp_max,actif) VALUES(?,?,?,?,?,?,?,?,1)")
+                ->execute([$site_id,$parent_id,$nom,$type,$desc,$chaine_froid,$temp_min,$temp_max]);
             $id = (int)$pdo->lastInsertId();
-            audit_log($pdo,'CREATION_EMPLACEMENT','emplacements',$id,null,['nom'=>$nom,'site_id'=>$site_id]);
+            audit_log($pdo,'CREATION_EMPLACEMENT','emplacements',$id,null,['nom'=>$nom,'type'=>$type,'site_id'=>$site_id]);
         }
         echo json_encode(['success' => true, 'id' => $id]);
         exit;
@@ -352,6 +354,13 @@ require_once 'includes/header.php';
       <div class="form-group">
         <label for="editNom">Nom <span class="req" aria-hidden="true">*</span></label>
         <input type="text" id="editNom" placeholder="Ex: SAC ISP 1, Ambulance A1…" autocomplete="off">
+      </div>
+      <div class="form-group">
+        <label for="editType">Type</label>
+        <select id="editType">
+          <option value="standard">Emplacement standard (sac, sacoche, véhicule…)</option>
+          <option value="pui">PUI — Pharmacie à usage intérieur (stock central du site)</option>
+        </select>
       </div>
       <div class="form-group">
         <label for="editParent">Emplacement parent</label>
@@ -529,6 +538,12 @@ require_once 'includes/header.php';
 .n-pill.red   { background: rgba(226,75,74,.14); color: #E24B4A; }
 .n-pill.amber { background: rgba(239,159,39,.14); color: #EF9F27; }
 .n-pill.ok    { background: rgba(31,175,116,.14); color: #1FAF74; }
+.pui-tag {
+  font-size: 9px; font-weight: 800; letter-spacing: .06em;
+  padding: 1px 5px; border-radius: 5px; vertical-align: middle;
+  background: rgba(139,92,246,.16); color: #8B5CF6;
+}
+.pui-tag-lg { font-size: 11px; padding: 2px 8px; border-radius: 7px; margin-left: 4px; }
 .node-toggle {
   width: 20px; height: 20px; flex-shrink: 0;
   display: flex; align-items: center; justify-content: center;
@@ -1137,17 +1152,21 @@ function buildTreeDOM(nodes, depth, filter) {
       : crit > 0
       ? `<span class="n-pill amber">${crit} critique${crit>1?'s':''}</span>`
       : `<span class="n-pill ok">OK</span>`;
-    const iconCls = node.chaine_froid==1 ? 'ti-snowflake' : (depth===0 ? 'ti-ambulance' : 'ti-briefcase-medical');
+    const isPui   = node.type === 'pui';
+    const iconCls = isPui ? 'ti-building-warehouse'
+                  : node.chaine_froid==1 ? 'ti-snowflake'
+                  : (depth===0 ? 'ti-ambulance' : 'ti-briefcase-medical');
     let tileBg, tileFg;
     if (perimes > 0)                 { tileBg = 'rgba(226,75,74,.14)';  tileFg = '#E24B4A'; }  // périmés → rouge
     else if (crit > 0)               { tileBg = 'rgba(239,159,39,.14)'; tileFg = '#EF9F27'; }  // critiques → ambre
+    else if (isPui)                  { tileBg = 'rgba(139,92,246,.16)'; tileFg = '#8B5CF6'; }  // PUI → violet
     else if (node.chaine_froid == 1) { tileBg = 'rgba(96,165,250,.16)'; tileFg = '#60a5fa'; }  // froid → bleu
     else                             { tileBg = 'rgba(31,175,116,.14)';  tileFg = '#1FAF74'; }  // OK → vert
 
     nodeEl.innerHTML = `
       <span class="n-tile" style="background:${tileBg};color:${tileFg}"><i class="ti ${iconCls}" aria-hidden="true"></i></span>
       <div class="n-body">
-        <div class="n-name">${escHtml(node.nom)}</div>
+        <div class="n-name">${escHtml(node.nom)}${isPui ? ' <span class="pui-tag">PUI</span>' : ''}</div>
         <div class="n-meta">${meta}</div>
       </div>
       <div class="n-right">
@@ -1483,9 +1502,11 @@ function renderDetail({ node, breadcrumb, enfants, stats, last_remp }, products 
     <div class="loc-header">
       <div>
         <div class="loc-title">
-          <i class="ti ${node.chaine_froid==1?'ti-snowflake':'ti-map-pin'}" aria-hidden="true"></i>
+          <i class="ti ${node.type==='pui'?'ti-building-warehouse':(node.chaine_froid==1?'ti-snowflake':'ti-map-pin')}" aria-hidden="true"></i>
           ${escHtml(node.nom)}
+          ${node.type==='pui' ? '<span class="pui-tag pui-tag-lg">PUI</span>' : ''}
         </div>
+        ${node.type==='pui' ? `<div class="loc-subtitle" style="color:#8B5CF6">Pharmacie à usage intérieur — stock central du site</div>` : ''}
         ${node.description ? `<div class="loc-subtitle">${escHtml(node.description)}</div>` : ''}
         ${coldBlock}
       </div>
@@ -1561,6 +1582,7 @@ function buildParentSelect(excludeId = null) {
 function openModal(asSub = false) {
   document.getElementById('editId').value            = '';
   document.getElementById('editNom').value           = '';
+  document.getElementById('editType').value          = 'standard';
   document.getElementById('editDesc').value          = '';
   document.getElementById('editChaineFroid').checked = false;
   document.getElementById('editTempMin').value       = '';
@@ -1581,6 +1603,7 @@ async function openModalEdit(id) {
   const n = data.node;
   document.getElementById('editId').value            = n.id;
   document.getElementById('editNom').value           = n.nom;
+  document.getElementById('editType').value          = n.type || 'standard';
   document.getElementById('editDesc').value          = n.description || '';
   document.getElementById('editChaineFroid').checked = n.chaine_froid == 1;
   document.getElementById('editTempMin').value       = n.temp_min || '';
@@ -1613,6 +1636,7 @@ async function saveEmplacement() {
     body: JSON.stringify({
       id:           document.getElementById('editId').value || null,
       nom,
+      type:         document.getElementById('editType').value || 'standard',
       parent_id:    document.getElementById('editParent').value || null,
       description:  document.getElementById('editDesc').value.trim(),
       chaine_froid: document.getElementById('editChaineFroid').checked,

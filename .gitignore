@@ -20,6 +20,7 @@ uploads/*
 
 # ── Réglages locaux (propres à chaque poste) ──────────────
 .claude/settings.local.json
+.claude/launch.json
 
 # ── Divers ────────────────────────────────────────────────
 .DS_Store
