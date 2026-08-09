@@ -136,6 +136,11 @@ $score_global = max(0, $score_global);
 $score_color = $score_global >= 80 ? '#34d399' : ($score_global >= 60 ? '#fbbf24' : '#f87171');
 $score_label = $score_global >= 80 ? 'Bon' : ($score_global >= 60 ? 'Moyen' : 'Critique');
 
+// ── Date en français (sans dépendre de setlocale, peu fiable sur mutualisé) ──
+$jours_fr = ['dimanche','lundi','mardi','mercredi','jeudi','vendredi','samedi'];
+$mois_fr  = ['','janvier','février','mars','avril','mai','juin','juillet','août','septembre','octobre','novembre','décembre'];
+$date_fr  = $jours_fr[(int)date('w')].' '.(int)date('j').' '.$mois_fr[(int)date('n')].' '.date('Y');
+
 require_once 'includes/header.php';
 ?>
 <style>
@@ -180,6 +185,19 @@ require_once 'includes/header.php';
 
 /* ── Rappels ── */
 .rappel-strip{ background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.25);border-radius:10px;padding:10px 14px;margin-bottom:14px;display:flex;align-items:center;gap:10px; }
+
+/* ── À traiter maintenant ── */
+.db-todo{ background:var(--bg2);border:1px solid var(--border);border-left:4px solid #ef4444;border-radius:14px;overflow:hidden;margin-bottom:22px; }
+.db-todo-head{ display:flex;align-items:center;gap:10px;padding:12px 16px;background:rgba(239,68,68,.08); }
+.db-todo-head .t{ font-weight:800;font-size:.95rem; }
+.db-todo-head .c{ margin-left:auto;font-size:.72rem;font-weight:700;color:#ef4444;background:var(--bg2);border:1px solid var(--border);border-radius:20px;padding:2px 10px; }
+.db-todo-item{ display:flex;align-items:center;gap:13px;padding:12px 16px;border-top:1px solid var(--border);text-decoration:none;color:var(--text);transition:background .12s; }
+.db-todo-item:hover{ background:var(--glass); }
+.db-todo-ic{ width:34px;height:34px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:1rem;flex-shrink:0; }
+.db-todo-tx{ flex:1;min-width:0; }
+.db-todo-tt{ font-weight:700;font-size:.9rem; }
+.db-todo-sb{ font-size:.76rem;color:var(--text2);margin-top:1px; }
+.db-todo-go{ font-size:.78rem;font-weight:700;color:var(--primary);white-space:nowrap; }
 
 /* ── Graphique ── */
 .db-chart    { display:flex;align-items:flex-end;gap:5px;height:80px; }
@@ -437,7 +455,7 @@ require_once 'includes/header.php';
 <div class="db-hero">
   <div>
     <div style="font-size:1.3rem;font-weight:800"><?= $site_info ? h($site_info['org_nom'].' — '.$site_info['nom']) : '' ?></div>
-    <div style="font-size:.82rem;color:var(--text3);margin-top:2px">📅 <?= date('l d F Y') ?> · <?= date('H:i') ?></div>
+    <div style="font-size:.82rem;color:var(--text3);margin-top:2px">📅 <?= $date_fr ?> · <?= date('H:i') ?></div>
   </div>
   <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
     <?php if ($msg_non_lus > 0): ?>
@@ -455,15 +473,49 @@ require_once 'includes/header.php';
   </div>
 </div>
 
-<!-- ── Rappels actifs ── -->
-<?php if (!empty($rappels_actifs)): ?>
-<div class="rappel-strip">
-  <span style="font-size:1.3rem">🚨</span>
-  <div style="flex:1">
-    <div style="font-weight:700;color:#f87171;font-size:.88rem"><?= count($rappels_actifs) ?> rappel<?= count($rappels_actifs)>1?'s':'' ?> de lot actif<?= count($rappels_actifs)>1?'s':'' ?></div>
-    <div style="font-size:.75rem;color:var(--text2)"><?= implode(' · ', array_map(fn($r) => h($r['numero_lot']), $rappels_actifs)) ?></div>
+<!-- ── À traiter maintenant (actions urgentes consolidées) ── -->
+<?php
+$todo = [];
+if (!empty($rappels_actifs)) {
+    $n = count($rappels_actifs);
+    $todo[] = ['ic'=>'🧯','bg'=>'rgba(239,68,68,.12)',
+        'tt'=>"$n lot".($n>1?'s':'')." rappelé".($n>1?'s':'')." (ANSM)",
+        'sb'=>implode(' · ', array_map(fn($r)=>h($r['numero_lot']), array_slice($rappels_actifs,0,3))).' — à isoler',
+        'go'=>'Voir','lien'=>'tracabilite.php'];
+}
+if (nav_peut($nav_perms,'medicaments') && $expired > 0) {
+    $todo[] = ['ic'=>'🔴','bg'=>'rgba(239,68,68,.12)',
+        'tt'=>"$expired produit".($expired>1?'s':'')." périmé".($expired>1?'s':''),
+        'sb'=>'À retirer du stock','go'=>'Retirer','lien'=>'alerts.php'];
+}
+if (nav_peut($nav_perms,'dotations') && $dot_non_conformes > 0) {
+    $todo[] = ['ic'=>'📋','bg'=>'rgba(245,158,11,.14)',
+        'tt'=>"$dot_non_conformes dotation".($dot_non_conformes>1?'s':'')." non conforme".($dot_non_conformes>1?'s':''),
+        'sb'=>'Sous le minimum réglementaire','go'=>'Compléter','lien'=>'dotations.php'];
+}
+if (nav_peut($nav_perms,'biomed') && $biomed_hs > 0) {
+    $todo[] = ['ic'=>'🔧','bg'=>'rgba(239,68,68,.12)',
+        'tt'=>"$biomed_hs matériel".($biomed_hs>1?'s':'')." hors service",
+        'sb'=>'Intervention nécessaire','go'=>'Voir','lien'=>'materiel.php'];
+}
+if (!empty($todo)):
+?>
+<div class="db-todo">
+  <div class="db-todo-head">
+    <span style="font-size:1.15rem">🚨</span>
+    <span class="t">À traiter maintenant</span>
+    <span class="c"><?= count($todo) ?> action<?= count($todo)>1?'s':'' ?></span>
   </div>
-  <a href="tracabilite.php" class="btn btn-sm" style="background:rgba(239,68,68,.15);color:#f87171;border:1px solid rgba(239,68,68,.3);white-space:nowrap">Voir →</a>
+  <?php foreach ($todo as $it): ?>
+  <a href="<?= $it['lien'] ?>" class="db-todo-item">
+    <span class="db-todo-ic" style="background:<?= $it['bg'] ?>"><?= $it['ic'] ?></span>
+    <span class="db-todo-tx">
+      <span class="db-todo-tt" style="display:block"><?= $it['tt'] ?></span>
+      <span class="db-todo-sb" style="display:block"><?= $it['sb'] ?></span>
+    </span>
+    <span class="db-todo-go"><?= $it['go'] ?> →</span>
+  </a>
+  <?php endforeach; ?>
 </div>
 <?php endif; ?>
 
