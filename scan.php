@@ -424,7 +424,7 @@ require_once 'includes/header.php';
 <!-- JsBarcode (une seule fois) -->
 <script src="/assets/js/jsbarcode.all.min.js"></script>
 <!-- ZXing 0.21.3 — une seule fois -->
-<script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js"></script>
+<script src="/scanner/zxing-0.21.3.min.js"></script>
 <script src="/scanner/scanner-zxing.js"></script>
 
 <style>

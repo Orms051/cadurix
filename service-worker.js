@@ -1,10 +1,11 @@
 // Cadurix — Service Worker v5.5
-const CACHE_NAME = 'cadurix-v5.8'; // ⬆️ bump : JS/CSS en network-first (fini le JS figé en cache)
+const CACHE_NAME = 'cadurix-v5.9'; // ⬆️ bump : ZXing auto-hébergé (scanner hors-ligne)
 
 // Uniquement les assets statiques — JAMAIS de PHP, jamais '/', jamais /admin
 const PRECACHE = [
   '/manifest.json',
   '/assets/js/chart.umd.min.js',
+  '/scanner/zxing-0.21.3.min.js', // scanner ZXing auto-hébergé → dispo hors-ligne
 ];
 
 const EXTERNAL_DOMAINS = [
