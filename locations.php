@@ -18,11 +18,6 @@ if (!$site_id) {
 
 $csrf = $_SESSION['csrf_token'] ?? '';
 
-// ─── CSRF ──────────────────────────────────────────────────────────────────
-function _csrf_ok(): bool {
-    return hash_equals($_SESSION['csrf_token'] ?? '', $_POST['csrf_token'] ?? '');
-}
-
 // ─── Stats emplacement + enfants ───────────────────────────────────────────
 function getEmplStats(PDO $pdo, int $id): array {
     $ids = [$id];
@@ -177,6 +172,7 @@ if (isset($_GET['ajax'])) {
 
     // ── Sauvegarde AJAX ────────────────────────────────────────────────────
     if ($_GET['ajax'] === 'save' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+        if (!csrf_verifier()) { echo json_encode(['error' => 'Jeton CSRF invalide. Rechargez la page.']); exit; }
         if (!peut_faire(ROLE_GESTIONNAIRE)) { echo json_encode(['error' => 'Permission refusée']); exit; }
 
         $data        = json_decode(file_get_contents('php://input'), true);
@@ -208,6 +204,7 @@ if (isset($_GET['ajax'])) {
 
     // ── Suppression AJAX ───────────────────────────────────────────────────
     if ($_GET['ajax'] === 'delete' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+        if (!csrf_verifier()) { echo json_encode(['error' => 'Jeton CSRF invalide. Rechargez la page.']); exit; }
         if (!peut_faire(ROLE_GESTIONNAIRE)) { echo json_encode(['error' => 'Permission refusée']); exit; }
 
         $data = json_decode(file_get_contents('php://input'), true);
@@ -231,6 +228,7 @@ if (isset($_GET['ajax'])) {
     }
 
     if ($_GET['ajax'] === 'controle' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+        if (!csrf_verifier()) { echo json_encode(['error' => 'Jeton CSRF invalide. Rechargez la page.']); exit; }
         if (!peut_faire(ROLE_GESTIONNAIRE)) { echo json_encode(['error' => 'Permission refusée']); exit; }
         $eid    = (int)($_POST['emplacement_id'] ?? 0);
         $scelle = trim($_POST['scelle_numero'] ?? '') ?: null;
@@ -1632,7 +1630,7 @@ async function saveEmplacement() {
 
   const res  = await fetch('locations.php?ajax=save', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': '<?= $csrf ?>' },
     body: JSON.stringify({
       id:           document.getElementById('editId').value || null,
       nom,
@@ -1656,7 +1654,7 @@ async function deleteEmplacement(id) {
   if (!confirm('Supprimer cet emplacement ?\n(Impossible s\'il contient des produits actifs ou des sous-emplacements)')) return;
   const res  = await fetch('locations.php?ajax=delete', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': '<?= $csrf ?>' },
     body: JSON.stringify({ id })
   });
   const data = await res.json();

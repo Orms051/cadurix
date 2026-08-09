@@ -9,6 +9,7 @@ if (!defined('ADMIN_HUB')) die('Accès direct interdit.');
 $success = $error = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    csrf_check();
     $action = $_POST['action'] ?? '';
 
     if ($action === 'create_token') {

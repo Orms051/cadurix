@@ -14,6 +14,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $stmt = $pdo->prepare("SELECT p.id,p.nom,p.quantite,p.unite,p.date_peremption,p.numero_lot,e.nom AS emplacement,e.id AS emplacement_id FROM produits p LEFT JOIN emplacements e ON e.id=p.emplacement_id WHERE (p.site_id=? OR e.site_id=?) AND p.nom LIKE ? AND p.statut='actif' ORDER BY p.nom LIMIT 10");
         $stmt->execute([$site_id_ajax,$site_id_ajax,"%$q%"]); echo json_encode($stmt->fetchAll(PDO::FETCH_ASSOC)); exit;
     }
+    // CSRF : les actions d'écriture exigent un jeton valide (envoyé par le JS)
+    if (!csrf_verifier()) { echo json_encode(['ok'=>false,'error'=>'Jeton CSRF invalide. Rechargez la page.']); exit; }
     try {
         switch ($_POST['action']) {
             case 'save_intervention':
