@@ -16,7 +16,13 @@ et le matériel répartis dans des sacs d'urgence, sacoches, véhicules, par cen
 
 ## 🛠️ Stack technique
 
-- **PHP 8.3**, **MySQL 8.4**
+- **Local (Laragon)** : PHP 8.3, **MySQL 8.4**
+- **Prod (o2switch)** : PHP 8.4, **MariaDB 11.4**
+- ⚠️ **Écart local/prod** : le SGBD n'est pas le même. Éviter la syntaxe
+  propre à MariaDB refusée par MySQL (ex. `ALTER TABLE … ADD COLUMN IF NOT
+  EXISTS`) et inversement. Écrire les migrations en **SQL standard** et les
+  jouer une seule fois. Les migrations sont testées en local, puis Yoann les
+  exécute en prod via phpMyAdmin o2switch.
 - **Vanilla PHP** — PAS de framework (pas de Laravel/Symfony), pas de Composer
   pour le cœur. Requêtes via **PDO** (requêtes préparées partout).
 - Front : HTML/CSS/JS **vanilla** (pas de build, pas de bundler)
@@ -119,6 +125,11 @@ donc `INSERT … ON DUPLICATE KEY UPDATE`. Surcharges par site : `site_role_perm
   (type d'emplacement `pui`), le rempotage devient un **transfert** qui débite
   la PUI du même `site_id` que le sac (auto, sans question). Retrait sac =
   consommé (disparaît). Réappro PUI = simple ajout.
+  - ✅ **Étape 1 (faite)** : colonne `emplacements.type` (migration `030`,
+    défaut `standard`) + affichage PUI dans `locations.php` (icône entrepôt,
+    badge violet « PUI », sélecteur de type au formulaire). Aucune logique de
+    transfert touchée. ⚠️ Migration 030 encore à jouer EN PROD.
+  - ⏭️ Étape suivante : brancher le rempotage-transfert sur la PUI du site.
 - **Dotation** : composition attendue par sac (réel vs attendu, flag écarts).
 - **Nouveau visuel emplacements** (PUI en haut, sacs en cartes).
 - Tableau de bord d'accueil, historique contrôles scellés, alertes CRON, 2FA,
