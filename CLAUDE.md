@@ -27,6 +27,10 @@ et le matériel répartis dans des sacs d'urgence, sacoches, véhicules, par cen
   pour le cœur. Requêtes via **PDO** (requêtes préparées partout).
 - Front : HTML/CSS/JS **vanilla** (pas de build, pas de bundler)
 - PWA (manifest, service worker)
+- **Secrets BDD** : `config/db.php` (gitignoré) contient la connexion. Un modèle
+  `config/db.example.php` documente le pattern recommandé (variables
+  d'environnement `DB_HOST/DB_NAME/DB_USER/DB_PASS`, repli local). Ne jamais
+  committer d'identifiants réels ; en prod, préférer l'environnement au code.
 
 ## ⚠️ RÈGLES CRITIQUES (pièges déjà rencontrés)
 
