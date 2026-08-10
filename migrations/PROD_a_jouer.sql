@@ -23,6 +23,13 @@ ALTER TABLE `emplacements`
     COMMENT 'Emoji d''icone choisi pour l''emplacement (optionnel)'
     AFTER `type`;
 
+-- 032 — Rattachement d'un sac à une PUI (multi-PUI)
+ALTER TABLE `emplacements`
+  ADD COLUMN IF NOT EXISTS `pui_id` INT UNSIGNED NULL DEFAULT NULL
+    COMMENT 'PUI de rattachement (emplacements.id de type pui) — NULL si non rattache'
+    AFTER `type`;
+CREATE INDEX IF NOT EXISTS `idx_emplacements_pui` ON `emplacements` (`pui_id`);
+
 -- ============================================================
 --  Fin. Après exécution : téléverser les fichiers PHP, puis
 --  vérifier la page Emplacements + le rempotage.

@@ -49,7 +49,7 @@ if (isset($_GET['ajax'])) {
     if ($_GET['ajax'] === 'tree') {
         function buildTree(PDO $pdo, $parent_id, int $site_id): array {
             $stmt = $pdo->prepare("
-                SELECT e.id, e.nom, e.parent_id, e.chaine_froid, e.type, e.controle_le, e.icone,
+                SELECT e.id, e.nom, e.parent_id, e.chaine_froid, e.type, e.controle_le, e.icone, e.pui_id,
                     COUNT(DISTINCT p.id) AS nb_produits,
                     SUM(CASE WHEN p.date_peremption < CURDATE() THEN 1 ELSE 0 END) AS nb_perimes,
                     SUM(CASE WHEN p.date_peremption >= CURDATE() AND DATEDIFF(p.date_peremption,CURDATE())<=7 THEN 1 ELSE 0 END) AS nb_crit
@@ -171,6 +171,15 @@ if (isset($_GET['ajax'])) {
                        ? $data['type'] : 'standard';
         $icone       = in_array($data['icone'] ?? '', $ICON_CHOICES, true) ? $data['icone'] : null;
         $parent_id   = !empty($data['parent_id']) ? (int)$data['parent_id'] : null;
+        // PUI de rattachement : doit être une PUI du site ; une PUI n'est pas rattachée.
+        $pui_id      = !empty($data['pui_id']) ? (int)$data['pui_id'] : null;
+        if ($type === 'pui') {
+            $pui_id = null;
+        } elseif ($pui_id) {
+            $chk = $pdo->prepare("SELECT 1 FROM emplacements WHERE id=? AND site_id=? AND type='pui'");
+            $chk->execute([$pui_id, $site_id]);
+            if (!$chk->fetchColumn()) $pui_id = null;
+        }
         $desc        = trim($data['description']  ?? '');
         $chaine_froid= !empty($data['chaine_froid']) ? 1 : 0;
         $temp_min    = isset($data['temp_min']) && $data['temp_min'] !== '' ? (float)$data['temp_min'] : null;
@@ -180,12 +189,12 @@ if (isset($_GET['ajax'])) {
         if (!$nom) { echo json_encode(['error' => 'Nom obligatoire']); exit; }
 
         if ($id) {
-            $pdo->prepare("UPDATE emplacements SET nom=?,type=?,icone=?,description=?,chaine_froid=?,temp_min=?,temp_max=?,parent_id=? WHERE id=? AND site_id=?")
-                ->execute([$nom,$type,$icone,$desc,$chaine_froid,$temp_min,$temp_max,$parent_id,$id,$site_id]);
+            $pdo->prepare("UPDATE emplacements SET nom=?,type=?,icone=?,pui_id=?,description=?,chaine_froid=?,temp_min=?,temp_max=?,parent_id=? WHERE id=? AND site_id=?")
+                ->execute([$nom,$type,$icone,$pui_id,$desc,$chaine_froid,$temp_min,$temp_max,$parent_id,$id,$site_id]);
             audit_log($pdo,'MODIF_EMPLACEMENT','emplacements',$id);
         } else {
-            $pdo->prepare("INSERT INTO emplacements (site_id,parent_id,nom,type,icone,description,chaine_froid,temp_min,temp_max,actif) VALUES(?,?,?,?,?,?,?,?,?,1)")
-                ->execute([$site_id,$parent_id,$nom,$type,$icone,$desc,$chaine_froid,$temp_min,$temp_max]);
+            $pdo->prepare("INSERT INTO emplacements (site_id,parent_id,nom,type,icone,pui_id,description,chaine_froid,temp_min,temp_max,actif) VALUES(?,?,?,?,?,?,?,?,?,?,1)")
+                ->execute([$site_id,$parent_id,$nom,$type,$icone,$pui_id,$desc,$chaine_froid,$temp_min,$temp_max]);
             $id = (int)$pdo->lastInsertId();
             audit_log($pdo,'CREATION_EMPLACEMENT','emplacements',$id,null,['nom'=>$nom,'type'=>$type,'site_id'=>$site_id]);
         }
@@ -360,6 +369,12 @@ require_once 'includes/header.php';
         <label for="editParent">Emplacement parent</label>
         <select id="editParent">
           <option value="">— Aucun (racine) —</option>
+        </select>
+      </div>
+      <div class="form-group" id="puiRow">
+        <label for="editPui">PUI de rattachement</label>
+        <select id="editPui">
+          <option value="">— Aucune —</option>
         </select>
       </div>
       <div class="form-group">
@@ -657,6 +672,13 @@ require_once 'includes/header.php';
 .stat-val.ok     { color: var(--primary); }
 .stat-val.muted  { color: var(--text2); }
 .stat-lbl { font-size: 11px; color: var(--text2); margin-top: 4px; }
+/* Santé compacte (remplace les 4 grosses cartes) */
+.loc-health { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 20px; }
+.loc-hchip { flex: 1; min-width: 110px; background: var(--bg2); border: 1px solid var(--border); border-radius: 12px; padding: 11px 14px; }
+.loc-hchip .hn { font-size: 1.5rem; font-weight: 800; line-height: 1; color: var(--text); font-variant-numeric: tabular-nums; }
+.loc-hchip .hn.danger { color: #E24B4A; }
+.loc-hchip .hn.warn { color: #EF9F27; }
+.loc-hchip .hl { font-size: .7rem; text-transform: uppercase; letter-spacing: .05em; color: var(--text3); margin-top: 4px; }
 
 /* Section */
 .section-title {
@@ -1124,17 +1146,26 @@ function flattenTree(nodes, arr, depth = 0) {
 function renderTree(filter = '') {
   const c = document.getElementById('treeContainer');
   c.innerHTML = '';
-  // La/les PUI s'affichent en tête ; les autres emplacements (sacs, véhicules…)
-  // sont décalés dessous (rail violet) pour montrer que la PUI les chapeaute.
-  // Purement visuel : la hiérarchie réelle (parent_id) n'est pas modifiée.
+  // Chaque PUI est suivie de SES sacs rattachés (pui_id), décalés dessous
+  // (rail violet). Les sacs non rattachés sont listés à la fin. Purement
+  // visuel/organisationnel : la hiérarchie réelle (parent_id) n'est pas modifiée.
   const puis   = treeData.filter(n => n.type === 'pui');
   const autres = treeData.filter(n => n.type !== 'pui');
   if (puis.length) {
-    c.appendChild(buildTreeDOM(puis, 0, filter));
-    const under = document.createElement('div');
-    under.className = 'under-pui';
-    under.appendChild(buildTreeDOM(autres, 0, filter));
-    c.appendChild(under);
+    const puiIds = new Set(puis.map(p => String(p.id)));
+    puis.forEach(pui => {
+      c.appendChild(buildTreeDOM([pui], 0, filter));
+      const sacs = autres.filter(b => String(b.pui_id) === String(pui.id));
+      if (sacs.length) {
+        const under = document.createElement('div');
+        under.className = 'under-pui';
+        under.appendChild(buildTreeDOM(sacs, 0, filter));
+        c.appendChild(under);
+      }
+    });
+    // Sacs non rattachés à une PUI (ou PUI inexistante) → en bas, sans rail
+    const orphelins = autres.filter(b => !b.pui_id || !puiIds.has(String(b.pui_id)));
+    if (orphelins.length) c.appendChild(buildTreeDOM(orphelins, 0, filter));
   } else {
     c.appendChild(buildTreeDOM(autres, 0, filter));
   }
@@ -1545,44 +1576,14 @@ function renderDetail({ node, breadcrumb, enfants, stats, last_remp }, products 
       ${canEdit ? `<button class="btn-ghost" data-ctrl-id="${node.id}" data-ctrl-nom="${escHtml(node.nom||'')}" onclick="openControle(this)">🔒 Contrôler le scellé</button>` : ''}
     </div>
 
-    <div class="stats-grid">
-      <div class="stat-card">
-        <div class="stat-val">${total}</div>
-        <div class="stat-lbl">produits stockés</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-val ${perimes>0?'danger':'muted'}">${perimes}</div>
-        <div class="stat-lbl">périmés</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-val ${crit>0?'warn':'muted'}">${crit}</div>
-        <div class="stat-lbl">critiques (&lt;7j)</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-val ${rempClass}">${rempText}</div>
-        <div class="stat-lbl">dernier rempotage</div>
-      </div>
+    <div class="loc-health">
+      <div class="loc-hchip"><div class="hn">${total}</div><div class="hl">Produits</div></div>
+      <div class="loc-hchip"><div class="hn ${perimes>0?'danger':''}">${perimes}</div><div class="hl">Périmé${perimes>1?'s':''}</div></div>
+      <div class="loc-hchip"><div class="hn ${crit>0?'warn':''}">${crit}</div><div class="hl">Critiques &lt; 7j</div></div>
+      <div class="loc-hchip"><div class="hn">${rempText}</div><div class="hl">Dernier rempotage</div></div>
     </div>
-
-    ${enfantsHtml}
 
     ${produitsHtml}
-
-    <div class="section-title">Actions rapides</div>
-    <div style="display:flex;gap:7px;flex-wrap:wrap">
-      <a href="products.php?emplacement=${node.id}" class="btn-ghost">
-        <i class="ti ti-pill" aria-hidden="true"></i> Voir tous les médicaments
-      </a>
-      <a href="rempotages.php?emplacement_id=${node.id}" class="btn-ghost">
-        <i class="ti ti-refresh" aria-hidden="true"></i> Rempotages
-      </a>
-      <a href="qrcodes.php?emplacement_id=${node.id}" class="btn-ghost">
-        <i class="ti ti-qrcode" aria-hidden="true"></i> QR Code
-      </a>
-      <a href="alerts.php?emplacement_id=${node.id}" class="btn-ghost">
-        <i class="ti ti-bell" aria-hidden="true"></i> Alertes
-      </a>
-    </div>
   `;
   document.getElementById('mainContent').style.display = 'block';
 }
@@ -1621,6 +1622,18 @@ function renderIconePicker(selected) {
   });
 }
 
+function buildPuiSelect(selectedId) {
+  const sel  = document.getElementById('editPui');
+  const puis = (treeData || []).filter(n => n.type === 'pui');
+  sel.innerHTML = '<option value="">— Aucune —</option>' +
+    puis.map(p => `<option value="${p.id}">${escHtml(p.nom)}</option>`).join('');
+  sel.value = selectedId ? String(selectedId) : '';
+}
+function togglePuiRow() {
+  const isPui = document.getElementById('editType').value === 'pui';
+  document.getElementById('puiRow').style.display = isPui ? 'none' : '';
+}
+
 function openModal(asSub = false) {
   document.getElementById('editId').value            = '';
   document.getElementById('editNom').value           = '';
@@ -1633,6 +1646,8 @@ function openModal(asSub = false) {
   document.getElementById('modalError').classList.remove('show');
   document.getElementById('modalTitle').textContent  = asSub ? 'Nouveau sous-emplacement' : 'Nouvel emplacement';
   renderIconePicker('');
+  buildPuiSelect('');
+  togglePuiRow();
   buildParentSelect();
   if (asSub && activeId) document.getElementById('editParent').value = activeId;
   document.getElementById('modalOverlay').classList.add('open');
@@ -1655,6 +1670,8 @@ async function openModalEdit(id) {
   document.getElementById('modalError').classList.remove('show');
   document.getElementById('modalTitle').textContent  = 'Modifier l\'emplacement';
   renderIconePicker(n.icone || '');
+  buildPuiSelect(n.pui_id || '');
+  togglePuiRow();
   buildParentSelect(n.id);
   document.getElementById('editParent').value = n.parent_id || '';
   document.getElementById('modalOverlay').classList.add('open');
@@ -1668,6 +1685,7 @@ function closeModal() {
 document.getElementById('editChaineFroid').addEventListener('change', function() {
   document.getElementById('tempRow').style.display = this.checked ? 'grid' : 'none';
 });
+document.getElementById('editType').addEventListener('change', togglePuiRow);
 
 async function saveEmplacement() {
   const nom   = document.getElementById('editNom').value.trim();
@@ -1682,6 +1700,7 @@ async function saveEmplacement() {
       nom,
       type:         document.getElementById('editType').value || 'standard',
       icone:        document.getElementById('editIcone').value || null,
+      pui_id:       document.getElementById('editPui').value || null,
       parent_id:    document.getElementById('editParent').value || null,
       description:  document.getElementById('editDesc').value.trim(),
       chaine_froid: document.getElementById('editChaineFroid').checked,
