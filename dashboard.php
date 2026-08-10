@@ -519,45 +519,35 @@ if (!empty($todo)):
 </div>
 <?php endif; ?>
 
-<?php if (nav_peut($nav_perms,'medicaments')): ?>
-<!-- ── KPIs groupe 1 : Médicaments ── -->
-<div class="db-section-title">💊 Médicaments & stocks</div>
-<div class="db-kpi-grid" style="margin-bottom:20px">
-  <?php
-  $kpis1 = [
-    ['v'=>$total,    'l'=>'Total produits',  'i'=>'💊','c'=>'var(--primary)',   'link'=>'products.php',  'alert'=>false],
-    ['v'=>$expired,  'l'=>'Périmés',         'i'=>'🔴','c'=>'#ef4444',          'link'=>'alerts.php',    'alert'=>$expired>0],
-    ['v'=>$critical, 'l'=>'Critiques < 7j',  'i'=>'🟠','c'=>'#f97316',          'link'=>'alerts.php',    'alert'=>$critical>0],
-    ['v'=>$warning,  'l'=>'Alertes < 30j',   'i'=>'🟡','c'=>'#eab308',          'link'=>'alerts.php',    'alert'=>false],
-  ];
-  foreach ($kpis1 as $k): $al = $k['alert'] && $k['v']>0; ?>
-  <a href="<?= $k['link'] ?>" class="db-kpi" style="border-top-color:<?= $k['c'] ?>;<?= $al?'background:rgba(239,68,68,.04);border-color:rgba(239,68,68,.25)':'' ?>">
-    <div class="db-kpi-icon"><?= $k['i'] ?></div>
-    <div class="db-kpi-n" style="color:<?= $k['c'] ?>"><?= $k['v'] ?></div>
-    <div class="db-kpi-l"><?= $k['l'] ?></div>
-  </a>
-  <?php endforeach; ?>
-</div>
-<?php endif; ?>
-
 <?php
-$kpis2 = [];
-if (nav_peut($nav_perms,'biomed')) {
-  $kpis2[] = ['v'=>$biomed_total,'l'=>'Matériel biomédical','i'=>'🩺','c'=>'#3b82f6','link'=>'biomed/dashboard.php','alert'=>false];
-  $kpis2[] = ['v'=>$biomed_hs,'l'=>'Hors service','i'=>'🔧','c'=>'#ef4444','link'=>'materiel.php','alert'=>$biomed_hs>0];
+// ── Chiffres clés (allégés : l'essentiel, 4 max) — étape 2 ──
+// Les détails (biomed, SSE, graphique…) restent dans les cartes plus bas ;
+// les urgences sont déjà dans « À traiter maintenant » en haut.
+$kpis = [];
+if (nav_peut($nav_perms,'medicaments')) {
+  $kpis[] = ['v'=>$total,'l'=>'Produits en stock','i'=>'💊','c'=>'var(--primary)','link'=>'products.php','alert'=>false];
+  $al_per = $expired + $critical;
+  $kpis[] = ['v'=>$al_per,'l'=>'Alertes péremption','i'=>'⚠️','c'=>$al_per>0?'#ef4444':'#34d399','link'=>'alerts.php','alert'=>$al_per>0];
 }
-if (nav_peut($nav_perms,'dotations')) {
-  $kpis2[] = ['v'=>$dot_total>0?$dot_taux.'%':'-','l'=>'Conformité dotations','i'=>'📋','c'=>$dot_taux>=90?'#34d399':($dot_taux>=70?'#fbbf24':'#f87171'),'link'=>'dotations.php','alert'=>$dot_non_conformes>0];
+if (nav_peut($nav_perms,'dotations') && $dot_total > 0) {
+  $kpis[] = ['v'=>$dot_taux.'%','l'=>'Conformité dotations','i'=>'📋','c'=>$dot_taux>=90?'#34d399':($dot_taux>=70?'#fbbf24':'#f87171'),'link'=>'dotations.php','alert'=>$dot_non_conformes>0];
 }
-if (nav_peut($nav_perms,'sse')) {
-  $kpis2[] = ['v'=>$sse_alerte,'l'=>'Alertes SSE/NRBC','i'=>'🧪','c'=>'#8b5cf6','link'=>'sse.php','alert'=>$sse_alerte>0];
+if (nav_peut($nav_perms,'messagerie')) {
+  $kpis[] = ['v'=>$msg_non_lus,'l'=>'Messages non lus','i'=>'💬','c'=>$msg_non_lus>0?'#60a5fa':'var(--text2)','link'=>'messaging.php','alert'=>false];
 }
-if (!empty($kpis2)):
+if (count($kpis) < 4 && nav_peut($nav_perms,'biomed') && $biomed_total > 0) {
+  $kpis[] = ['v'=>$biomed_hs,'l'=>'Biomédical HS','i'=>'🩺','c'=>$biomed_hs>0?'#ef4444':'#34d399','link'=>'materiel.php','alert'=>$biomed_hs>0];
+}
+if (count($kpis) < 4 && nav_peut($nav_perms,'sse')) {
+  $kpis[] = ['v'=>$sse_alerte,'l'=>'Alertes SSE/NRBC','i'=>'🧪','c'=>$sse_alerte>0?'#8b5cf6':'var(--text2)','link'=>'sse.php','alert'=>$sse_alerte>0];
+}
+$kpis = array_slice($kpis, 0, 4);
+if (!empty($kpis)):
 ?>
-<!-- ── KPIs groupe 2 : Opérationnel ── -->
-<div class="db-section-title">⚙️ État opérationnel</div>
+<!-- ── Chiffres clés (essentiel) ── -->
+<div class="db-section-title">Chiffres clés</div>
 <div class="db-kpi-grid" style="margin-bottom:24px">
-  <?php foreach ($kpis2 as $k): $al = $k['alert'] && $k['v']!=0 && $k['v']!='0'; ?>
+  <?php foreach ($kpis as $k): $al = $k['alert']; ?>
   <a href="<?= $k['link'] ?>" class="db-kpi" style="border-top-color:<?= $k['c'] ?>;<?= $al?'background:rgba(239,68,68,.04);border-color:rgba(239,68,68,.25)':'' ?>">
     <div class="db-kpi-icon"><?= $k['i'] ?></div>
     <div class="db-kpi-n" style="color:<?= $k['c'] ?>"><?= $k['v'] ?></div>
@@ -696,59 +686,46 @@ if (!empty($kpis2)):
   </div>
   <?php endif; ?>
 
-  <!-- Activité récente -->
-  <?php if (nav_peut($nav_perms,'rempotages') && !empty($recent_remp)): ?>
+  <!-- Activité récente (rempotages + fiches + interventions consolidés) -->
+  <?php
+  $activite = [];
+  if (nav_peut($nav_perms,'rempotages') && !empty($recent_remp)) {
+    foreach ($recent_remp as $r) $activite[] = [
+      'ic'=>'🔄','col'=>'#10b981','d'=>$r['cree_le'],
+      'tt'=>'Rempotage — '.h($r['empl_nom'] ?? '—'),
+      'sb'=>((int)$r['nb']).' article(s) · '.h($r['prenom'] ?? ''),
+    ];
+  }
+  if (nav_peut($nav_perms,'fiches') && !empty($recent_fiches)) {
+    foreach ($recent_fiches as $f) $activite[] = [
+      'ic'=>'📋','col'=>$f['statut']==='anomalie'?'#ef4444':'#10b981','d'=>$f['cree_le'],
+      'tt'=>h($f['modele_nom']),
+      'sb'=>h($f['prenom'] ?? '').' · '.($f['statut']==='anomalie'?'<span style="color:#f87171">Anomalie</span>':'<span style="color:#34d399">OK</span>'),
+    ];
+  }
+  if (nav_peut($nav_perms,'terrain') && !empty($recent_inter)) {
+    foreach ($recent_inter as $it) $activite[] = [
+      'ic'=>'🚑','col'=>$it['statut']==='termine'?'#10b981':'#f59e0b','d'=>$it['cree_le'],
+      'tt'=>'Intervention '.($it['reference']?h($it['reference']):'sans réf.'),
+      'sb'=>((int)$it['nb']).' article(s) · '.h($it['prenom'] ?? ''),
+    ];
+  }
+  usort($activite, fn($a,$b)=>strtotime($b['d']) <=> strtotime($a['d']));
+  $activite = array_slice($activite, 0, 6);
+  if (!empty($activite)):
+  ?>
   <div class="db-card">
     <div class="db-card-head">
-      <div class="db-card-title">🔄 Rempotages</div>
-      <a href="rempotages.php" style="font-size:.72rem;color:var(--primary);text-decoration:none">Voir →</a>
+      <div class="db-card-title">🕑 Activité récente</div>
     </div>
-    <?php foreach ($recent_remp as $r): ?>
+    <?php foreach ($activite as $a): ?>
     <div class="db-row">
-      <div class="db-dot" style="background:#10b981"></div>
+      <div class="db-dot" style="background:<?= $a['col'] ?>"></div>
       <div style="flex:1;min-width:0">
-        <div style="font-size:.8rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><?= h($r['empl_nom'] ?? '—') ?></div>
-        <div style="font-size:.68rem;color:var(--text3)"><?= $r['nb'] ?> article(s) · <?= h($r['prenom']) ?></div>
+        <div style="font-size:.8rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><?= $a['ic'] ?> <?= $a['tt'] ?></div>
+        <div style="font-size:.68rem;color:var(--text3)"><?= $a['sb'] ?></div>
       </div>
-      <div style="font-size:.68rem;color:var(--text3);white-space:nowrap"><?= date('d/m H:i',strtotime($r['cree_le'])) ?></div>
-    </div>
-    <?php endforeach; ?>
-  </div>
-  <?php endif; ?>
-
-  <?php if (nav_peut($nav_perms,'fiches') && !empty($recent_fiches)): ?>
-  <div class="db-card">
-    <div class="db-card-head">
-      <div class="db-card-title">📋 Fiches récentes</div>
-      <a href="fiches.php" style="font-size:.72rem;color:var(--primary);text-decoration:none">Voir →</a>
-    </div>
-    <?php foreach ($recent_fiches as $f): ?>
-    <div class="db-row">
-      <div class="db-dot" style="background:<?= $f['statut']==='anomalie'?'#ef4444':'#10b981' ?>"></div>
-      <div style="flex:1;min-width:0">
-        <div style="font-size:.8rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><?= h($f['modele_nom']) ?></div>
-        <div style="font-size:.68rem;color:var(--text3)"><?= h($f['prenom']) ?> · <?= $f['statut']==='anomalie'?'<span style="color:#f87171">Anomalie</span>':'<span style="color:#34d399">OK</span>' ?></div>
-      </div>
-      <div style="font-size:.68rem;color:var(--text3);white-space:nowrap"><?= date('d/m H:i',strtotime($f['cree_le'])) ?></div>
-    </div>
-    <?php endforeach; ?>
-  </div>
-  <?php endif; ?>
-
-  <?php if (nav_peut($nav_perms,'terrain') && !empty($recent_inter)): ?>
-  <div class="db-card">
-    <div class="db-card-head">
-      <div class="db-card-title">🚑 Interventions</div>
-      <a href="rempotages.php" style="font-size:.72rem;color:var(--primary);text-decoration:none">Voir →</a>
-    </div>
-    <?php foreach ($recent_inter as $i): ?>
-    <div class="db-row">
-      <div class="db-dot" style="background:<?= $i['statut']==='termine'?'#10b981':'#f59e0b' ?>"></div>
-      <div style="flex:1;min-width:0">
-        <div style="font-size:.8rem;font-weight:600"><?= $i['reference']?h($i['reference']):'Sans réf.' ?></div>
-        <div style="font-size:.68rem;color:var(--text3)"><?= $i['nb'] ?> article(s) · <?= h($i['prenom']) ?></div>
-      </div>
-      <div style="font-size:.68rem;color:var(--text3);white-space:nowrap"><?= date('d/m H:i',strtotime($i['cree_le'])) ?></div>
+      <div style="font-size:.68rem;color:var(--text3);white-space:nowrap"><?= date('d/m H:i',strtotime($a['d'])) ?></div>
     </div>
     <?php endforeach; ?>
   </div>
