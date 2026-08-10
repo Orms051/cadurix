@@ -1474,7 +1474,7 @@ function renderDetail({ node, breadcrumb, enfants, stats, last_remp }, products 
     };
     const actionCell = (id, rq, nom) => `
             <div style="display:flex;gap:6px;justify-content:flex-end;align-items:center">
-              ${canMod ? `<a href="products.php?emplacement=${node.id}&edit=${id}" class="mt-edit" title="Modifier"><i class="ti ti-edit" aria-hidden="true"></i></a>` : ''}
+              ${canMod ? `<a href="products.php?emplacement=${node.id}&edit=${id}&ret=${node.id}" class="mt-edit" title="Modifier"><i class="ti ti-edit" aria-hidden="true"></i></a>` : ''}
               ${canRenew ? `<a href="products.php?emplacement=${node.id}&renew=${id}${rq?('&rq='+rq):''}&ret=${node.id}" class="mt-edit" title="Renouveler">♻️</a>` : ''}
               ${canDel ? `<a href="#" class="mt-edit" title="Supprimer" data-del-id="${id}" data-del-nom="${escHtml(nom||'')}" data-del-ret="${node.id}" onclick="openDelete(this);return false;">🗑️</a>` : ''}
             </div>`;
