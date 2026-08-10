@@ -132,7 +132,7 @@ donc `INSERT … ON DUPLICATE KEY UPDATE`. Surcharges par site : `site_role_perm
   - ✅ **Étape 1 (faite)** : colonne `emplacements.type` (migration `030`,
     défaut `standard`) + affichage PUI dans `locations.php` (icône entrepôt,
     badge violet « PUI », sélecteur de type au formulaire). Aucune logique de
-    transfert touchée. ⚠️ Migration 030 encore à jouer EN PROD.
+    transfert touchée. ✅ Migrations 030 + 031 (icone) + 032 (pui_id) jouées EN PROD (2026-08-10).
   - ✅ **Étape 2a (faite)** : au rempotage, badge du stock PUI par produit
     (dispo / insuffisant / rupture), lecture seule. Endpoint `?ajax=pui_stock`.
   - ✅ **Étape 2b (faite)** : le rempotage **débite la PUI** du site (FEFO)
@@ -140,9 +140,12 @@ donc `INSERT … ON DUPLICATE KEY UPDATE`. Surcharges par site : `site_role_perm
     est la PUI elle-même = réappro, pas de débit. Règle « autoriser +
     signaler » : jamais de négatif ni de blocage, le manque est noté sur le
     rempotage + flash. Mouvement tracé `Rempotage — débit PUI`.
-  - ⏭️ Étape suivante : dotation (réel vs attendu) et nouveau visuel emplacements.
+  - ✅ **Nouveau visuel emplacements (fait, PR #18)** : arbre PUI en tête + sacs
+    rattachés (multi-PUI via `pui_id`), icônes (emoji + SVG maison sac/dos/perf),
+    en-tête fusionné, tableau produits (Produit/Lot/Péremption/Dotation/Qté/Statut),
+    badge « contrôle en retard ». Desktop uniquement.
+  - ⏭️ Étape suivante : dotation (réel vs attendu).
 - **Dotation** : composition attendue par sac (réel vs attendu, flag écarts).
-- **Nouveau visuel emplacements** (PUI en haut, sacs en cartes).
 - Tableau de bord d'accueil, historique contrôles scellés, alertes CRON, 2FA,
   import BDPM.
 
