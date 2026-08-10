@@ -621,13 +621,25 @@ require_once 'includes/header.php';
 .scelle-sub { color:var(--text2); font-size:13px; }
 .scelle-never { color:#d97706; }
 
-/* En-tête */
+/* En-tête fusionné (carte : titre + actions + ligne scellé) */
 .loc-header {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 16px 18px;
+  margin-bottom: 16px;
+}
+.loc-header-top {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  margin-bottom: 18px;
   gap: 12px;
+  flex-wrap: wrap;
+}
+.loc-seal {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border);
+  font-size: 13px; color: var(--text2);
 }
 .loc-title {
   font-size: 20px;
@@ -1352,11 +1364,11 @@ function _selFromUrl(){
   document.head.appendChild(st);
 })();
 function renderDetail({ node, breadcrumb, enfants, stats, last_remp }, products = []) {
-  const bcHtml = breadcrumb.map((b, i) =>
-    i < breadcrumb.length - 1
-      ? `<a onclick="selectNode(${b.id})">${escHtml(b.nom)}</a><span class="sep">/</span>`
-      : `<span class="cur">${escHtml(b.nom)}</span>`
-  ).join('');
+  // Fil d'ariane : uniquement les parents (on ne répète pas le nom courant,
+  // déjà affiché dans le titre). Vide pour un emplacement de 1er niveau.
+  const bcHtml = breadcrumb.slice(0, -1).map(b =>
+    `<a onclick="selectNode(${b.id})">${escHtml(b.nom)}</a>`
+  ).join('<span class="sep">›</span>');
 
   const perimes = parseInt(stats.exp)   || 0;
   const crit    = parseInt(stats.crit)  || 0;
@@ -1428,16 +1440,13 @@ function renderDetail({ node, breadcrumb, enfants, stats, last_remp }, products 
   const canMod   = <?php echo action_permise('modifier')   ? 'true' : 'false'; ?>;
   const canRenew = <?php echo action_permise('renouveler') ? 'true' : 'false'; ?>;
   const canDel   = <?php echo action_permise('supprimer')  ? 'true' : 'false'; ?>;
-  const actionsBtn = canEdit ? `
-    <button class="btn-ghost" onclick="openModal(true)">
-      <i class="ti ti-plus" aria-hidden="true"></i> Sous-emplacement
-    </button>
-    <button class="btn-ghost" onclick="openModalEdit(${node.id})">
-      <i class="ti ti-edit" aria-hidden="true"></i> Modifier
-    </button>
-    <button class="btn-danger-ghost" onclick="deleteEmplacement(${node.id})">
-      <i class="ti ti-trash" aria-hidden="true"></i>
-    </button>` : '';
+  const canQr    = <?php echo nav_peut($nav_perms,'qrcodes') ? 'true' : 'false'; ?>;
+  let actionsBtn = '';
+  if (canQr)   actionsBtn += `<a class="btn-ghost" href="qrcodes.php?emplacement_id=${node.id}">▦ QR Code</a>`;
+  if (canEdit) actionsBtn += `<button class="btn-primary" data-ctrl-id="${node.id}" data-ctrl-nom="${escHtml(node.nom||'')}" onclick="openControle(this)">🔒 Contrôler le scellé</button>`;
+  if (canEdit) actionsBtn += `<button class="btn-ghost" onclick="openModal(true)">➕ Sous-emplacement</button>`;
+  if (canEdit) actionsBtn += `<button class="btn-ghost" onclick="openModalEdit(${node.id})">✏️ Modifier</button>`;
+  if (canDel)  actionsBtn += `<button class="btn-danger-ghost" onclick="deleteEmplacement(${node.id})">🗑️</button>`;
 
   // ── Liste des produits — tableau propre ──
   let produitsHtml = '';
@@ -1554,26 +1563,24 @@ function renderDetail({ node, breadcrumb, enfants, stats, last_remp }, products 
   document.getElementById('mainContent').innerHTML = `
     ${breadcrumb.length > 1 ? `<div class="loc-breadcrumb">${bcHtml}</div>` : ''}
     <div class="loc-header">
-      <div>
-        <div class="loc-title">
-          <span class="loc-emoji">${node.icone ? node.icone : (node.type==='pui'?'🏢':(node.chaine_froid==1?'❄️':'🚑'))}</span>
-          ${escHtml(node.nom)}
-          ${node.type==='pui' ? '<span class="pui-tag pui-tag-lg">PUI</span>' : ''}
+      <div class="loc-header-top">
+        <div>
+          <div class="loc-title">
+            <span class="loc-emoji">${node.icone ? node.icone : (node.type==='pui'?'🏢':(node.chaine_froid==1?'❄️':'🚑'))}</span>
+            ${escHtml(node.nom)}
+            ${node.type==='pui' ? '<span class="pui-tag pui-tag-lg">PUI</span>' : ''}
+          </div>
+          ${node.type==='pui' ? `<div class="loc-subtitle" style="color:#8B5CF6">Pharmacie à usage intérieur — stock central du site</div>` : ''}
+          ${node.description ? `<div class="loc-subtitle">${escHtml(node.description)}</div>` : ''}
+          ${coldBlock}
         </div>
-        ${node.type==='pui' ? `<div class="loc-subtitle" style="color:#8B5CF6">Pharmacie à usage intérieur — stock central du site</div>` : ''}
-        ${node.description ? `<div class="loc-subtitle">${escHtml(node.description)}</div>` : ''}
-        ${coldBlock}
+        <div class="loc-actions">${actionsBtn}</div>
       </div>
-      <div class="loc-actions">${actionsBtn}</div>
-    </div>
-
-    <div class="scelle-bar">
-      <div class="scelle-info">
+      <div class="loc-seal">
         <span aria-hidden="true">🔒</span>
         ${node.scelle_numero ? `Scellé <b>n°${escHtml(node.scelle_numero)}</b>` : '<span class="scelle-never">Aucun scellé</span>'}
         ${node.controle_le ? `<span class="scelle-sub">· contrôlé le ${new Date(node.controle_le).toLocaleDateString('fr-FR')}${node.controle_par_nom ? ' par '+escHtml(node.controle_par_nom) : ''}</span>` : `<span class="scelle-sub scelle-never">· jamais contrôlé</span>`}
       </div>
-      ${canEdit ? `<button class="btn-ghost" data-ctrl-id="${node.id}" data-ctrl-nom="${escHtml(node.nom||'')}" onclick="openControle(this)">🔒 Contrôler le scellé</button>` : ''}
     </div>
 
     <div class="loc-health">
