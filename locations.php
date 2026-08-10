@@ -1143,26 +1143,21 @@ function buildTreeDOM(nodes, depth, filter) {
     nodeEl.style.paddingLeft = (10 + depth * 16) + 'px';
     nodeEl.dataset.id = node.id;
 
-    const nbProd  = parseInt(node.nb_produits) || 0;
-    const nbChild = hasChildren ? node.children.length : 0;
-    let meta      = (hasChildren ? `${nbChild} compartiment${nbChild>1?'s':''} · ` : '')
-                  + `${nbProd} produit${nbProd>1?'s':''}`;
-    // Scellé : signaler « contrôle en retard » sur un sac (niveau racine, hors PUI)
-    // dont le dernier contrôle date de plus de SEAL_OVERDUE_DAYS jours.
+    // Méta compacte : on ne garde que ce qui compte (périmés + contrôle scellé
+    // en retard). On retire « X compartiments · Y produits » pour alléger le nœud.
+    const metaParts = [];
+    if (perimes > 0) metaParts.push(`<span style="color:#E24B4A;font-weight:600">${perimes} périmé${perimes>1?'s':''}</span>`);
     const SEAL_OVERDUE_DAYS = 30;
     if (depth === 0 && node.type !== 'pui' && node.controle_le) {
       const _d = Math.floor((Date.now() - new Date(node.controle_le).getTime()) / 86400000);
-      if (_d > SEAL_OVERDUE_DAYS) meta += ` · <span class="seal-late">⏰ contrôle en retard</span>`;
+      if (_d > SEAL_OVERDUE_DAYS) metaParts.push(`<span class="seal-late">⏰ contrôle en retard</span>`);
     }
-    const statusPill = perimes > 0
-      ? `<span class="n-pill red">${perimes} périmé${perimes>1?'s':''}</span>`
-      : crit > 0
-      ? `<span class="n-pill amber">${crit} critique${crit>1?'s':''}</span>`
-      : `<span class="n-pill ok">OK</span>`;
+    const meta = metaParts.join(' · ');
+    // Icônes emoji (comme la maquette validée)
     const isPui   = node.type === 'pui';
-    const iconCls = isPui ? 'ti-building-warehouse'
-                  : node.chaine_froid==1 ? 'ti-snowflake'
-                  : (depth===0 ? 'ti-ambulance' : 'ti-briefcase-medical');
+    const emoji   = isPui ? '🏢'
+                  : node.chaine_froid==1 ? '❄️'
+                  : (depth===0 ? '🚑' : '💊');
     let tileBg, tileFg;
     if (perimes > 0)                 { tileBg = 'rgba(226,75,74,.14)';  tileFg = '#E24B4A'; }  // périmés → rouge
     else if (crit > 0)               { tileBg = 'rgba(239,159,39,.14)'; tileFg = '#EF9F27'; }  // critiques → ambre
@@ -1171,13 +1166,12 @@ function buildTreeDOM(nodes, depth, filter) {
     else                             { tileBg = 'rgba(31,175,116,.14)';  tileFg = '#1FAF74'; }  // OK → vert
 
     nodeEl.innerHTML = `
-      <span class="n-tile" style="background:${tileBg};color:${tileFg}"><i class="ti ${iconCls}" aria-hidden="true"></i></span>
+      <span class="n-tile" style="background:${tileBg};color:${tileFg};font-size:18px">${emoji}</span>
       <div class="n-body">
         <div class="n-name">${escHtml(node.nom)}${isPui ? ' <span class="pui-tag">PUI</span>' : ''}</div>
-        <div class="n-meta">${meta}</div>
+        ${meta ? `<div class="n-meta">${meta}</div>` : ''}
       </div>
       <div class="n-right">
-        ${statusPill}
         <span class="node-toggle ${hasChildren ? (isOpen?'open':'') : 'leaf'}" data-toggle="${node.id}">
           <i class="ti ti-chevron-right" aria-hidden="true"></i>
         </span>
