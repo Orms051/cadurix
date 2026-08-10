@@ -1040,6 +1040,9 @@ require_once 'includes/header.php';
   margin-bottom: 24px;
 }
 .med-table { width: 100%; border-collapse: collapse; }
+.mt-card-head { display: flex; align-items: center; justify-content: space-between; padding: 11px 16px; border-bottom: 1px solid var(--border); }
+.mt-card-title { font-weight: 700; font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--text2); }
+.mt-th-lot, .mt-td-lot { font-size: 12.5px; color: var(--text2); font-variant-numeric: tabular-nums; }
 .mt-th {
   padding: 10px 14px;
   font-size: 10px; font-weight: 700;
@@ -1497,15 +1500,15 @@ function renderDetail({ node, breadcrumb, enfants, stats, last_remp }, products 
 
       let html = `
         <tr class="mt-row ${st.rowCls}" ${expandable ? `onclick="toggleLotGroup('g${gi}')" style="cursor:pointer"` : ''}>
-          <td class="mt-td mt-td-num">${gi+1}</td>
           <td class="mt-td mt-td-nom">
             <span class="mt-dot ${st.dot}"></span>
             <span class="mt-nom">${escHtml(nom)}</span>
-            ${expandable ? `<span class="mt-lotbadge">${totalUnits} unités <i class="ti ti-chevron-down" id="chev-g${gi}"></i></span>` : `<span class="mt-note">Lot ${escHtml(first.numero_lot||'—')}</span>`}
+            ${expandable ? `<span class="mt-lotbadge">${totalUnits} unités <i class="ti ti-chevron-down" id="chev-g${gi}"></i></span>` : ''}
           </td>
+          <td class="mt-td mt-td-lot">${expandable ? '<span style="color:var(--text3)">—</span>' : escHtml(first.numero_lot||'—')}</td>
+          <td class="mt-td mt-td-date">${st.dateStr}</td>
           <td class="mt-td mt-td-qty">${dotation>0?dotation:'—'}</td>
           <td class="mt-td mt-td-qty"><span class="mt-qty" style="${qtyStyle}">${totalUnits}</span> <span class="mt-unit">${unite}</span></td>
-          <td class="mt-td mt-td-date">${st.dateStr}</td>
           <td class="mt-td mt-td-status">${st.pill ? `<span class="mt-pill ${st.pillCls}">${st.pill}</span>` : ''}</td>
           <td class="mt-td mt-td-action">${expandable ? '' : actionCell(first.id, null, nom)}</td>
         </tr>`;
@@ -1519,14 +1522,14 @@ function renderDetail({ node, breadcrumb, enfants, stats, last_remp }, products 
             un++;
             html += `
         <tr class="mt-sublot sub-g${gi}" style="display:none">
-          <td class="mt-td"></td>
           <td class="mt-td mt-td-nom" style="padding-left:24px">
             <span class="mt-dot ${ls.dot}"></span>
-            <span class="mt-sublotlabel">${un} · Lot ${escHtml(l.numero_lot||'—')}</span>
+            <span class="mt-sublotlabel">unité ${un}</span>
           </td>
+          <td class="mt-td mt-td-lot">${escHtml(l.numero_lot||'—')}</td>
+          <td class="mt-td mt-td-date">${ls.dateStr}</td>
           <td class="mt-td mt-td-qty"></td>
           <td class="mt-td mt-td-qty"><span class="mt-qty">1</span> <span class="mt-unit">${escHtml(l.unite||'')}</span></td>
-          <td class="mt-td mt-td-date">${ls.dateStr}</td>
           <td class="mt-td mt-td-status">${ls.pill ? `<span class="mt-pill ${ls.pillCls}">${ls.pill}</span>` : ''}</td>
           <td class="mt-td mt-td-action">${actionCell(l.id, 1, nom)}</td>
         </tr>`;
@@ -1537,29 +1540,16 @@ function renderDetail({ node, breadcrumb, enfants, stats, last_remp }, products 
     }).join('');
 
     produitsHtml = `
-      <div class="section-label" style="margin-top:8px">
-        <i class="ti ti-pill" aria-hidden="true"></i>
-        Contenu <span class="section-count">${products.length}</span>
-      </div>
-      <div class="mt-summary">
-        <div class="mt-sum-chip mt-sum-total">
-          <span class="mt-sum-nb">${products.length}</span>
-          <span class="mt-sum-lbl">produits</span>
-        </div>
-        ${nbExp  > 0 ? `<div class="mt-sum-chip mt-sum-expired"><span class="mt-sum-nb">${nbExp}</span><span class="mt-sum-lbl">périmé${nbExp>1?'s':''}</span></div>` : ''}
-        ${nbCrit > 0 ? `<div class="mt-sum-chip mt-sum-critical"><span class="mt-sum-nb">${nbCrit}</span><span class="mt-sum-lbl">critique${nbCrit>1?'s':''}</span></div>` : ''}
-        ${nbWarn > 0 ? `<div class="mt-sum-chip mt-sum-warning"><span class="mt-sum-nb">${nbWarn}</span><span class="mt-sum-lbl">avert.</span></div>` : ''}
-        <div class="mt-sum-chip mt-sum-ok"><span class="mt-sum-nb">${nbOk}</span><span class="mt-sum-lbl">ok</span></div>
-      </div>
       <div class="med-table-wrap">
+        <div class="mt-card-head"><span class="mt-card-title">Produits</span><span class="section-count">${products.length}</span></div>
         <table class="med-table">
           <thead>
             <tr>
-              <th class="mt-th mt-th-num">#</th>
-              <th class="mt-th mt-th-nom">Désignation</th>
-              <th class="mt-th mt-th-qty">Dotation</th>
-              <th class="mt-th mt-th-qty">Quantité</th>
+              <th class="mt-th mt-th-nom">Produit</th>
+              <th class="mt-th mt-th-lot">Lot</th>
               <th class="mt-th mt-th-date">Péremption</th>
+              <th class="mt-th mt-th-qty">Dotation</th>
+              <th class="mt-th mt-th-qty">Qté</th>
               <th class="mt-th mt-th-status">Statut</th>
               <th class="mt-th mt-th-action"></th>
             </tr>
