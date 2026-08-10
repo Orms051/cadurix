@@ -155,21 +155,6 @@ if (isset($_GET['ajax'])) {
         exit;
     }
 
-    // ── Produits d'un emplacement ──────────────────────────────────────────
-    if ($_GET['ajax'] === 'products' && isset($_GET['id'])) {
-        $id = (int)$_GET['id'];
-        $stmt = $pdo->prepare("
-            SELECT id, nom, quantite, unite, date_peremption, notes,
-                   DATEDIFF(date_peremption, CURDATE()) AS jours_restants
-            FROM produits
-            WHERE emplacement_id = ? AND statut = 'actif'
-            ORDER BY date_peremption ASC
-        ");
-        $stmt->execute([$id]);
-        echo json_encode($stmt->fetchAll(PDO::FETCH_ASSOC));
-        exit;
-    }
-
     // ── Sauvegarde AJAX ────────────────────────────────────────────────────
     if ($_GET['ajax'] === 'save' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         if (!csrf_verifier()) { echo json_encode(['error' => 'Jeton CSRF invalide. Rechargez la page.']); exit; }

@@ -133,9 +133,12 @@ function headers_securite(): void {
     header("X-Frame-Options: DENY");
     header("X-XSS-Protection: 1; mode=block");
     header("Referrer-Policy: strict-origin-when-cross-origin");
-    header("Permissions-Policy: geolocation=(), microphone=(), camera=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()");
+    // Ne PAS bloquer camera=() : le scanner et la photo IA utilisent getUserMedia.
+    // Aligné sur le .htaccess (source de vérité en prod, qui écrase ce header PHP).
+    header("Permissions-Policy: geolocation=(), microphone=()");
     header("Cross-Origin-Resource-Policy: same-origin");
     header("Cross-Origin-Opener-Policy: same-origin");
-    header("Cross-Origin-Embedder-Policy: require-corp");
-    header("Content-Security-Policy: default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; worker-src 'self' blob:;");
+    // CSP alignée sur le .htaccess : autorise les CDN utilisés (ZXing, polices).
+    // (COEP require-corp retiré : absent du .htaccess et bloquait les scripts CDN.)
+    header("Content-Security-Policy: default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net; font-src 'self' https://fonts.gstatic.com https://cdn.jsdelivr.net; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; img-src 'self' data: blob:; connect-src 'self'; worker-src 'self';");
 }
