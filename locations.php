@@ -20,8 +20,26 @@ $csrf = $_SESSION['csrf_token'] ?? '';
 
 // Palette d'icônes proposées pour un emplacement (source unique : validation
 // serveur + sélecteur côté formulaire). Toute valeur hors liste est ignorée.
-$ICON_CHOICES = ['💊','🩹','💉','💨','💧','🧴','🩺','🌡️','🧪','🧯','🩸','🧤',
-                 '✂️','🚑','🚐','🚒','🎒','🧰','📦','❄️','🏢','🔴','🟠','⭐'];
+$ICON_CHOICES = [
+  // Médicaments & injections
+  '💊','💉','🧪','🩸','💧','🧴','🧫',
+  // Soins & matériel
+  '🩹','🩺','🌡️','🧤','🥽','✂️','🩼','🫀','🫁','🦴','🦷',
+  // Respiratoire / oxygène
+  '💨','🫧',
+  // Contenants / sacs (différents)
+  '🎒','🧰','📦','💼','👜','🧳',
+  // Véhicules
+  '🚑','🚐','🚒','🚗','🚁',
+  // Froid / énergie
+  '❄️','🧊','🔋','🔦',
+  // Lieux / repères
+  '🏥','🏢','🚩','📍',
+  // Sécurité / NRBC
+  '🧯','⚠️','🚨','☢️','☣️','🆘',
+  // Pastilles de couleur
+  '🔴','🟠','🟡','🟢','🔵','🟣','⭐',
+];
 
 // ─── Stats emplacement + enfants ───────────────────────────────────────────
 function getEmplStats(PDO $pdo, int $id): array {
@@ -885,7 +903,7 @@ require_once 'includes/header.php';
 .toggle-label input[type=checkbox] { accent-color: var(--primary); width: 15px; height: 15px; flex-shrink: 0; }
 .form-row-temp { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 /* Sélecteur d'icône */
-.icone-picker { display: flex; flex-wrap: wrap; gap: 6px; }
+.icone-picker { display: flex; flex-wrap: wrap; gap: 6px; max-height: 172px; overflow-y: auto; padding: 2px; }
 .icone-opt {
   width: 34px; height: 34px; border: 1px solid var(--border); border-radius: 9px;
   background: var(--bg); display: flex; align-items: center; justify-content: center;
