@@ -27,8 +27,8 @@ $ICON_CHOICES = [
   '🩹','🩺','🌡️','🧤','🥽','✂️','🩼','🫀','🫁','🦴','🦷',
   // Respiratoire / oxygène
   '💨','🫧',
-  // Contenants / sacs (différents)
-  '🎒','🧰','📦','💼','👜','🧳',
+  // Sacs / sacoches / mallettes (différents)
+  '🎒','👝','👜','🧳','💼','🛍️','🧰','📦',
   // Véhicules
   '🚑','🚐','🚒','🚗','🚁',
   // Froid / énergie
