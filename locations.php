@@ -266,7 +266,7 @@ require_once 'includes/header.php';
   <!-- ═══ SIDEBAR ARBRE ═══ -->
   <aside class="loc-sidebar">
     <div class="sidebar-head">
-      <span class="sb-tile"><i class="ti ti-map-pin" aria-hidden="true"></i></span>
+      <span class="sb-tile">📍</span>
       <div class="sb-titles">
         <div class="sb-title">Emplacements</div>
         <div class="sb-sub" id="treeSummary">…</div>
@@ -283,7 +283,7 @@ require_once 'includes/header.php';
       </div>
     </div>
     <div class="sidebar-search">
-      <i class="ti ti-search" aria-hidden="true"></i>
+      <span aria-hidden="true" style="font-size:15px">🔎</span>
       <input type="text" id="searchTree" placeholder="Rechercher un emplacement…" autocomplete="off" aria-label="Rechercher un emplacement">
     </div>
     <div class="tree-container" id="treeContainer">
