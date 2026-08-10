@@ -187,7 +187,10 @@ if (isset($_GET['ajax'])) {
         $nom         = trim($data['nom']         ?? '');
         $type        = in_array($data['type'] ?? 'standard', ['standard','pui','sac','vehicule'], true)
                        ? $data['type'] : 'standard';
-        $icone       = in_array($data['icone'] ?? '', $ICON_CHOICES, true) ? $data['icone'] : null;
+        $icone_val   = $data['icone'] ?? '';
+        $icone       = (in_array($icone_val, $ICON_CHOICES, true)
+                        || preg_match('/^(sac|dos|perf)-(red|org|amb|grn|teal|blue|vio|pink|grey|navy)$/', $icone_val))
+                       ? $icone_val : null;
         $parent_id   = !empty($data['parent_id']) ? (int)$data['parent_id'] : null;
         // PUI de rattachement : doit être une PUI du site ; une PUI n'est pas rattachée.
         $pui_id      = !empty($data['pui_id']) ? (int)$data['pui_id'] : null;
@@ -903,7 +906,9 @@ require_once 'includes/header.php';
 .toggle-label input[type=checkbox] { accent-color: var(--primary); width: 15px; height: 15px; flex-shrink: 0; }
 .form-row-temp { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 /* Sélecteur d'icône */
-.icone-picker { display: flex; flex-wrap: wrap; gap: 6px; max-height: 172px; overflow-y: auto; padding: 2px; }
+.icone-picker { display: flex; flex-wrap: wrap; gap: 6px; max-height: 200px; overflow-y: auto; padding: 2px; }
+.icone-sep { flex-basis: 100%; font-size: 10px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--text3); margin: 8px 2px 1px; }
+.icone-opt svg { display: block; }
 .icone-opt {
   width: 34px; height: 34px; border: 1px solid var(--border); border-radius: 9px;
   background: var(--bg); display: flex; align-items: center; justify-content: center;
@@ -1174,6 +1179,24 @@ function flattenTree(nodes, arr, depth = 0) {
 }
 
 // ══════════════════════════════════════════
+// ICÔNES (SVG couleur : sacs, sacs à dos, perfusion — ou emoji)
+// ══════════════════════════════════════════
+const ICON_COLORS = {red:'#E24B4A',org:'#F97316',amb:'#F59E0B',grn:'#10B981',teal:'#14B8A6',blue:'#3B82F6',vio:'#8B5CF6',pink:'#EC4899',grey:'#64748B',navy:'#1E2A4A'};
+const ICON_COLOR_ORDER = ['red','org','amb','grn','teal','blue','vio','pink','grey','navy'];
+function _svgSac(c,s){return `<svg viewBox="0 0 48 48" width="${s}" height="${s}" aria-hidden="true"><path d="M16 17a8 8 0 0 1 16 0" fill="none" stroke="${c}" stroke-width="2.6" stroke-linecap="round" opacity=".55"/><rect x="7" y="16" width="34" height="23" rx="6" fill="${c}"/><rect x="7" y="16" width="34" height="10" rx="6" fill="#fff" opacity=".14"/><rect x="21.4" y="21.5" width="5.2" height="12" rx="1.6" fill="#fff"/><rect x="18" y="25" width="12" height="5.2" rx="1.6" fill="#fff"/></svg>`;}
+function _svgDos(c,s){return `<svg viewBox="0 0 48 48" width="${s}" height="${s}" aria-hidden="true"><path d="M16 17a8 8 0 0 1 16 0" fill="none" stroke="${c}" stroke-width="2.6" stroke-linecap="round" opacity=".55"/><rect x="8" y="13" width="32" height="30" rx="9" fill="${c}"/><rect x="8" y="13" width="32" height="10" rx="9" fill="#fff" opacity=".12"/><rect x="16" y="25" width="16" height="15" rx="4" fill="#fff" opacity=".92"/><rect x="22.4" y="28" width="3.2" height="9" rx="1.2" fill="${c}"/><rect x="19" y="31" width="10" height="3.2" rx="1.2" fill="${c}"/></svg>`;}
+function _svgPerf(c,s){return `<svg viewBox="0 0 48 48" width="${s}" height="${s}" aria-hidden="true"><rect x="16" y="9" width="16" height="22" rx="6" fill="${c}"/><rect x="16" y="9" width="16" height="8" rx="6" fill="#fff" opacity=".18"/><rect x="22.5" y="31" width="3" height="6" fill="${c}" opacity=".6"/><path d="M24 37c3 3 3 6 0 6s-3-3 0-6z" fill="${c}"/></svg>`;}
+function isSvgIcon(code){ return /^(sac|dos|perf)-\w+$/.test(code||''); }
+function iconHtml(code, size){
+  const m = /^(sac|dos|perf)-(\w+)$/.exec(code||'');
+  if (m && ICON_COLORS[m[2]]) {
+    const c = ICON_COLORS[m[2]];
+    return m[1]==='sac' ? _svgSac(c,size) : m[1]==='dos' ? _svgDos(c,size) : _svgPerf(c,size);
+  }
+  return code ? `<span style="font-size:${Math.round(size*0.8)}px">${code}</span>` : '';
+}
+
+// ══════════════════════════════════════════
 // ARBRE
 // ══════════════════════════════════════════
 function renderTree(filter = '') {
@@ -1238,21 +1261,21 @@ function buildTreeDOM(nodes, depth, filter) {
       if (_d > SEAL_OVERDUE_DAYS) metaParts.push(`<span class="seal-late">⏰ contrôle en retard</span>`);
     }
     const meta = metaParts.join(' · ');
-    // Icône : celle choisie par l'utilisateur, sinon une icône par défaut
+    // Icône : celle choisie (SVG couleur ou emoji), sinon une icône par défaut
     const isPui   = node.type === 'pui';
-    const emoji   = node.icone ? node.icone
-                  : isPui ? '🏢'
-                  : node.chaine_froid==1 ? '❄️'
-                  : (depth===0 ? '🚑' : '💊');
+    const defEmoji = isPui ? '🏢' : node.chaine_froid==1 ? '❄️' : (depth===0 ? '🚑' : '💊');
+    const iconMk  = node.icone ? iconHtml(node.icone, 26) : `<span style="font-size:16px">${defEmoji}</span>`;
     let tileBg, tileFg;
     if (perimes > 0)                 { tileBg = 'rgba(226,75,74,.14)';  tileFg = '#E24B4A'; }  // périmés → rouge
     else if (crit > 0)               { tileBg = 'rgba(239,159,39,.14)'; tileFg = '#EF9F27'; }  // critiques → ambre
     else if (isPui)                  { tileBg = 'rgba(139,92,246,.16)'; tileFg = '#8B5CF6'; }  // PUI → violet
     else if (node.chaine_froid == 1) { tileBg = 'rgba(96,165,250,.16)'; tileFg = '#60a5fa'; }  // froid → bleu
     else                             { tileBg = 'rgba(31,175,116,.14)';  tileFg = '#1FAF74'; }  // OK → vert
+    // Tuile neutre quand l'icône est un SVG coloré (elle porte déjà sa couleur)
+    if (isSvgIcon(node.icone)) { tileBg = 'var(--bg3)'; }
 
     nodeEl.innerHTML = `
-      <span class="n-tile" style="background:${tileBg};color:${tileFg};font-size:15px">${emoji}</span>
+      <span class="n-tile" style="background:${tileBg};color:${tileFg}">${iconMk}</span>
       <div class="n-body">
         <div class="n-name">${escHtml(node.nom)}${isPui ? ' <span class="pui-tag">PUI</span>' : ''}</div>
         ${meta ? `<div class="n-meta">${meta}</div>` : ''}
@@ -1583,7 +1606,7 @@ function renderDetail({ node, breadcrumb, enfants, stats, last_remp }, products 
       <div class="loc-header-top">
         <div>
           <div class="loc-title">
-            <span class="loc-emoji">${node.icone ? node.icone : (node.type==='pui'?'🏢':(node.chaine_froid==1?'❄️':'🚑'))}</span>
+            <span class="loc-emoji">${node.icone ? iconHtml(node.icone, 28) : (node.type==='pui'?'🏢':(node.chaine_froid==1?'❄️':'🚑'))}</span>
             ${escHtml(node.nom)}
             ${node.type==='pui' ? '<span class="pui-tag pui-tag-lg">PUI</span>' : ''}
           </div>
@@ -1632,10 +1655,14 @@ function renderIconePicker(selected) {
   const box    = document.getElementById('editIconePicker');
   const hidden = document.getElementById('editIcone');
   hidden.value = selected || '';
-  const opt = (val, label, cls) =>
-    `<div class="icone-opt ${cls||''} ${((selected||'')===val)?'sel':''}" data-ic="${val}">${label}</div>`;
+  const opt = (val, inner, cls) =>
+    `<div class="icone-opt ${cls||''} ${((selected||'')===val)?'sel':''}" data-ic="${val}">${inner}</div>`;
+  const sep = (t) => `<div class="icone-sep">${t}</div>`;
   let html = opt('', 'Défaut', 'none');
-  ICON_CHOICES.forEach(e => html += opt(e, e));
+  html += sep('Sacs');            ICON_COLOR_ORDER.forEach(k => html += opt('sac-'+k,  _svgSac(ICON_COLORS[k], 24)));
+  html += sep('Sacs à dos');      ICON_COLOR_ORDER.forEach(k => html += opt('dos-'+k,  _svgDos(ICON_COLORS[k], 24)));
+  html += sep('Perfusion');       ICON_COLOR_ORDER.forEach(k => html += opt('perf-'+k, _svgPerf(ICON_COLORS[k], 24)));
+  html += sep('Autres (emoji)');  ICON_CHOICES.forEach(e => html += opt(e, e));
   box.innerHTML = html;
   box.querySelectorAll('.icone-opt').forEach(el => {
     el.addEventListener('click', () => {
