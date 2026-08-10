@@ -89,6 +89,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($_FILES['photo']['error'][$i] !== UPLOAD_ERR_OK) continue;
             $ext  = strtolower(pathinfo($fname, PATHINFO_EXTENSION));
             if (!in_array($ext, ['jpg','jpeg','png','webp'])) continue;
+            // Valider le contenu reel (MIME) et la taille, pas seulement l'extension
+            $mime = @mime_content_type($_FILES['photo']['tmp_name'][$i]);
+            if (!in_array($mime, ['image/jpeg','image/png','image/webp'], true)) continue;
+            if ($_FILES['photo']['size'][$i] > 5 * 1024 * 1024) continue; // max 5 Mo
             $file = $dir.'inter_'.$inter_id.'_'.$i.'_'.time().'.'.$ext;
             move_uploaded_file($_FILES['photo']['tmp_name'][$i], $file);
             $pdo->prepare("INSERT INTO materiel_photos (materiel_id,intervention_id,type,fichier) VALUES(?,?,?,?)")
