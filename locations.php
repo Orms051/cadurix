@@ -490,9 +490,9 @@ require_once 'includes/header.php';
 
 /* ── Nœuds (version riche) ── */
 .tree-node {
-  display: flex; align-items: center; gap: 11px;
-  padding: 9px 10px; margin: 2px 6px;
-  border-radius: 12px; cursor: pointer; position: relative;
+  display: flex; align-items: center; gap: 9px;
+  padding: 6px 9px; margin: 1px 6px;
+  border-radius: 10px; cursor: pointer; position: relative;
   transition: background .12s; user-select: none;
 }
 .tree-node:hover { background: rgba(var(--primary-rgb), .05); }
@@ -502,20 +502,20 @@ require_once 'includes/header.php';
   width: 3px; border-radius: 3px; background: var(--primary);
 }
 .n-tile {
-  width: 36px; height: 36px; flex-shrink: 0; border-radius: 11px;
+  width: 30px; height: 30px; flex-shrink: 0; border-radius: 9px;
   display: flex; align-items: center; justify-content: center;
-  background: var(--primary-bg); color: var(--primary); font-size: 17px;
+  background: var(--primary-bg); color: var(--primary); font-size: 15px;
 }
 .n-tile.cold { background: rgba(96,165,250,.14); color: #60a5fa; }
 .tree-node.active .n-tile { background: var(--primary); color: #fff; }
 .tree-node.active .n-tile.cold { background: #60a5fa; color: #fff; }
 .n-body { flex: 1; min-width: 0; }
 .n-name {
-  font-size: 14px; font-weight: 700; color: var(--text);
+  font-size: 13px; font-weight: 700; color: var(--text);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .tree-node.active .n-name { color: var(--primary); }
-.n-meta { font-size: 11.5px; color: var(--text3); font-weight: 500; margin-top: 1px; }
+.n-meta { font-size: 11px; color: var(--text3); font-weight: 500; margin-top: 1px; }
 .n-right { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
 .n-pill { font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 7px; white-space: nowrap; }
 .n-pill.red   { background: rgba(226,75,74,.14); color: #E24B4A; }
@@ -1166,7 +1166,7 @@ function buildTreeDOM(nodes, depth, filter) {
     else                             { tileBg = 'rgba(31,175,116,.14)';  tileFg = '#1FAF74'; }  // OK → vert
 
     nodeEl.innerHTML = `
-      <span class="n-tile" style="background:${tileBg};color:${tileFg};font-size:18px">${emoji}</span>
+      <span class="n-tile" style="background:${tileBg};color:${tileFg};font-size:15px">${emoji}</span>
       <div class="n-body">
         <div class="n-name">${escHtml(node.nom)}${isPui ? ' <span class="pui-tag">PUI</span>' : ''}</div>
         ${meta ? `<div class="n-meta">${meta}</div>` : ''}
@@ -1499,11 +1499,11 @@ function renderDetail({ node, breadcrumb, enfants, stats, last_remp }, products 
   }
 
   document.getElementById('mainContent').innerHTML = `
-    <div class="loc-breadcrumb">${bcHtml}</div>
+    ${breadcrumb.length > 1 ? `<div class="loc-breadcrumb">${bcHtml}</div>` : ''}
     <div class="loc-header">
       <div>
         <div class="loc-title">
-          <i class="ti ${node.type==='pui'?'ti-building-warehouse':(node.chaine_froid==1?'ti-snowflake':'ti-map-pin')}" aria-hidden="true"></i>
+          <span class="loc-emoji">${node.type==='pui'?'🏢':(node.chaine_froid==1?'❄️':'🚑')}</span>
           ${escHtml(node.nom)}
           ${node.type==='pui' ? '<span class="pui-tag pui-tag-lg">PUI</span>' : ''}
         </div>
@@ -1516,11 +1516,11 @@ function renderDetail({ node, breadcrumb, enfants, stats, last_remp }, products 
 
     <div class="scelle-bar">
       <div class="scelle-info">
-        <i class="ti ti-lock" aria-hidden="true"></i>
+        <span aria-hidden="true">🔒</span>
         ${node.scelle_numero ? `Scellé <b>n°${escHtml(node.scelle_numero)}</b>` : '<span class="scelle-never">Aucun scellé</span>'}
         ${node.controle_le ? `<span class="scelle-sub">· contrôlé le ${new Date(node.controle_le).toLocaleDateString('fr-FR')}${node.controle_par_nom ? ' par '+escHtml(node.controle_par_nom) : ''}</span>` : `<span class="scelle-sub scelle-never">· jamais contrôlé</span>`}
       </div>
-      ${canEdit ? `<button class="btn-ghost" data-ctrl-id="${node.id}" data-ctrl-nom="${escHtml(node.nom||'')}" onclick="openControle(this)"><i class="ti ti-lock" aria-hidden="true"></i> Contrôler le scellé</button>` : ''}
+      ${canEdit ? `<button class="btn-ghost" data-ctrl-id="${node.id}" data-ctrl-nom="${escHtml(node.nom||'')}" onclick="openControle(this)">🔒 Contrôler le scellé</button>` : ''}
     </div>
 
     <div class="stats-grid">
