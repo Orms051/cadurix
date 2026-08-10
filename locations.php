@@ -154,7 +154,7 @@ if (isset($_GET['ajax'])) {
     // u2500u2500 Produits d'un emplacement u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500
     if ($_GET['ajax'] === 'products' && isset($_GET['id'])) {
         $id = (int)$_GET['id'];
-        $stmt = $pdo->prepare("SELECT id, nom, numero_lot, quantite, unite, date_peremption, notes, DATEDIFF(date_peremption, CURDATE()) AS jours_restants FROM produits WHERE emplacement_id = ? AND statut = 'actif' ORDER BY nom, date_peremption ASC");
+        $stmt = $pdo->prepare("SELECT id, nom, numero_lot, quantite, quantite_min, unite, date_peremption, notes, DATEDIFF(date_peremption, CURDATE()) AS jours_restants FROM produits WHERE emplacement_id = ? AND statut = 'actif' ORDER BY nom, date_peremption ASC");
         $stmt->execute([$id]);
         echo json_encode($stmt->fetchAll(PDO::FETCH_ASSOC));
         exit;
@@ -1488,6 +1488,12 @@ function renderDetail({ node, breadcrumb, enfants, stats, last_remp }, products 
       const st = statusOf(first);
       const unite = escHtml(first.unite||'');
       const expandable = totalUnits > 1;
+      // Dotation = quantité minimale attendue (quantite_min). Qté colorée :
+      // rouge si sous la dotation, bleu s'il y en a plus, normale si pile.
+      const dotation = Math.max(0, Math.round(parseFloat(first.quantite_min)||0));
+      let qtyStyle = '';
+      if (dotation > 0 && totalUnits < dotation)      qtyStyle = 'color:#C0271F;font-weight:700';
+      else if (dotation > 0 && totalUnits > dotation) qtyStyle = 'color:#3B82F6;font-weight:700';
 
       let html = `
         <tr class="mt-row ${st.rowCls}" ${expandable ? `onclick="toggleLotGroup('g${gi}')" style="cursor:pointer"` : ''}>
@@ -1497,7 +1503,8 @@ function renderDetail({ node, breadcrumb, enfants, stats, last_remp }, products 
             <span class="mt-nom">${escHtml(nom)}</span>
             ${expandable ? `<span class="mt-lotbadge">${totalUnits} unités <i class="ti ti-chevron-down" id="chev-g${gi}"></i></span>` : `<span class="mt-note">Lot ${escHtml(first.numero_lot||'—')}</span>`}
           </td>
-          <td class="mt-td mt-td-qty"><span class="mt-qty">${totalUnits}</span> <span class="mt-unit">${unite}</span></td>
+          <td class="mt-td mt-td-qty">${dotation>0?dotation:'—'}</td>
+          <td class="mt-td mt-td-qty"><span class="mt-qty" style="${qtyStyle}">${totalUnits}</span> <span class="mt-unit">${unite}</span></td>
           <td class="mt-td mt-td-date">${st.dateStr}</td>
           <td class="mt-td mt-td-status">${st.pill ? `<span class="mt-pill ${st.pillCls}">${st.pill}</span>` : ''}</td>
           <td class="mt-td mt-td-action">${expandable ? '' : actionCell(first.id, null, nom)}</td>
@@ -1517,6 +1524,7 @@ function renderDetail({ node, breadcrumb, enfants, stats, last_remp }, products 
             <span class="mt-dot ${ls.dot}"></span>
             <span class="mt-sublotlabel">${un} · Lot ${escHtml(l.numero_lot||'—')}</span>
           </td>
+          <td class="mt-td mt-td-qty"></td>
           <td class="mt-td mt-td-qty"><span class="mt-qty">1</span> <span class="mt-unit">${escHtml(l.unite||'')}</span></td>
           <td class="mt-td mt-td-date">${ls.dateStr}</td>
           <td class="mt-td mt-td-status">${ls.pill ? `<span class="mt-pill ${ls.pillCls}">${ls.pill}</span>` : ''}</td>
@@ -1549,6 +1557,7 @@ function renderDetail({ node, breadcrumb, enfants, stats, last_remp }, products 
             <tr>
               <th class="mt-th mt-th-num">#</th>
               <th class="mt-th mt-th-nom">Désignation</th>
+              <th class="mt-th mt-th-qty">Dotation</th>
               <th class="mt-th mt-th-qty">Quantité</th>
               <th class="mt-th mt-th-date">Péremption</th>
               <th class="mt-th mt-th-status">Statut</th>
