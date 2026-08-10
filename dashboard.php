@@ -686,59 +686,46 @@ if (!empty($kpis)):
   </div>
   <?php endif; ?>
 
-  <!-- Activité récente -->
-  <?php if (nav_peut($nav_perms,'rempotages') && !empty($recent_remp)): ?>
+  <!-- Activité récente (rempotages + fiches + interventions consolidés) -->
+  <?php
+  $activite = [];
+  if (nav_peut($nav_perms,'rempotages') && !empty($recent_remp)) {
+    foreach ($recent_remp as $r) $activite[] = [
+      'ic'=>'🔄','col'=>'#10b981','d'=>$r['cree_le'],
+      'tt'=>'Rempotage — '.h($r['empl_nom'] ?? '—'),
+      'sb'=>((int)$r['nb']).' article(s) · '.h($r['prenom'] ?? ''),
+    ];
+  }
+  if (nav_peut($nav_perms,'fiches') && !empty($recent_fiches)) {
+    foreach ($recent_fiches as $f) $activite[] = [
+      'ic'=>'📋','col'=>$f['statut']==='anomalie'?'#ef4444':'#10b981','d'=>$f['cree_le'],
+      'tt'=>h($f['modele_nom']),
+      'sb'=>h($f['prenom'] ?? '').' · '.($f['statut']==='anomalie'?'<span style="color:#f87171">Anomalie</span>':'<span style="color:#34d399">OK</span>'),
+    ];
+  }
+  if (nav_peut($nav_perms,'terrain') && !empty($recent_inter)) {
+    foreach ($recent_inter as $it) $activite[] = [
+      'ic'=>'🚑','col'=>$it['statut']==='termine'?'#10b981':'#f59e0b','d'=>$it['cree_le'],
+      'tt'=>'Intervention '.($it['reference']?h($it['reference']):'sans réf.'),
+      'sb'=>((int)$it['nb']).' article(s) · '.h($it['prenom'] ?? ''),
+    ];
+  }
+  usort($activite, fn($a,$b)=>strtotime($b['d']) <=> strtotime($a['d']));
+  $activite = array_slice($activite, 0, 6);
+  if (!empty($activite)):
+  ?>
   <div class="db-card">
     <div class="db-card-head">
-      <div class="db-card-title">🔄 Rempotages</div>
-      <a href="rempotages.php" style="font-size:.72rem;color:var(--primary);text-decoration:none">Voir →</a>
+      <div class="db-card-title">🕑 Activité récente</div>
     </div>
-    <?php foreach ($recent_remp as $r): ?>
+    <?php foreach ($activite as $a): ?>
     <div class="db-row">
-      <div class="db-dot" style="background:#10b981"></div>
+      <div class="db-dot" style="background:<?= $a['col'] ?>"></div>
       <div style="flex:1;min-width:0">
-        <div style="font-size:.8rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><?= h($r['empl_nom'] ?? '—') ?></div>
-        <div style="font-size:.68rem;color:var(--text3)"><?= $r['nb'] ?> article(s) · <?= h($r['prenom']) ?></div>
+        <div style="font-size:.8rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><?= $a['ic'] ?> <?= $a['tt'] ?></div>
+        <div style="font-size:.68rem;color:var(--text3)"><?= $a['sb'] ?></div>
       </div>
-      <div style="font-size:.68rem;color:var(--text3);white-space:nowrap"><?= date('d/m H:i',strtotime($r['cree_le'])) ?></div>
-    </div>
-    <?php endforeach; ?>
-  </div>
-  <?php endif; ?>
-
-  <?php if (nav_peut($nav_perms,'fiches') && !empty($recent_fiches)): ?>
-  <div class="db-card">
-    <div class="db-card-head">
-      <div class="db-card-title">📋 Fiches récentes</div>
-      <a href="fiches.php" style="font-size:.72rem;color:var(--primary);text-decoration:none">Voir →</a>
-    </div>
-    <?php foreach ($recent_fiches as $f): ?>
-    <div class="db-row">
-      <div class="db-dot" style="background:<?= $f['statut']==='anomalie'?'#ef4444':'#10b981' ?>"></div>
-      <div style="flex:1;min-width:0">
-        <div style="font-size:.8rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><?= h($f['modele_nom']) ?></div>
-        <div style="font-size:.68rem;color:var(--text3)"><?= h($f['prenom']) ?> · <?= $f['statut']==='anomalie'?'<span style="color:#f87171">Anomalie</span>':'<span style="color:#34d399">OK</span>' ?></div>
-      </div>
-      <div style="font-size:.68rem;color:var(--text3);white-space:nowrap"><?= date('d/m H:i',strtotime($f['cree_le'])) ?></div>
-    </div>
-    <?php endforeach; ?>
-  </div>
-  <?php endif; ?>
-
-  <?php if (nav_peut($nav_perms,'terrain') && !empty($recent_inter)): ?>
-  <div class="db-card">
-    <div class="db-card-head">
-      <div class="db-card-title">🚑 Interventions</div>
-      <a href="rempotages.php" style="font-size:.72rem;color:var(--primary);text-decoration:none">Voir →</a>
-    </div>
-    <?php foreach ($recent_inter as $i): ?>
-    <div class="db-row">
-      <div class="db-dot" style="background:<?= $i['statut']==='termine'?'#10b981':'#f59e0b' ?>"></div>
-      <div style="flex:1;min-width:0">
-        <div style="font-size:.8rem;font-weight:600"><?= $i['reference']?h($i['reference']):'Sans réf.' ?></div>
-        <div style="font-size:.68rem;color:var(--text3)"><?= $i['nb'] ?> article(s) · <?= h($i['prenom']) ?></div>
-      </div>
-      <div style="font-size:.68rem;color:var(--text3);white-space:nowrap"><?= date('d/m H:i',strtotime($i['cree_le'])) ?></div>
+      <div style="font-size:.68rem;color:var(--text3);white-space:nowrap"><?= date('d/m H:i',strtotime($a['d'])) ?></div>
     </div>
     <?php endforeach; ?>
   </div>
