@@ -3,6 +3,10 @@
  * Cadurix v5 — Gestion des sessions, CSRF, brute-force
  */
 
+// Fuseau horaire : sans ça, PHP tourne en UTC (heure affichée en retard de
+// 1 à 2 h selon l'heure d'été). Chargé partout via auth.php → corrige toute l'app.
+date_default_timezone_set('Europe/Paris');
+
 if (session_status() === PHP_SESSION_NONE) {
     ini_set('session.cookie_httponly', 1);
     ini_set('session.cookie_samesite', 'Strict');
