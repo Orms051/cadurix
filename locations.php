@@ -18,6 +18,29 @@ if (!$site_id) {
 
 $csrf = $_SESSION['csrf_token'] ?? '';
 
+// Palette d'icônes proposées pour un emplacement (source unique : validation
+// serveur + sélecteur côté formulaire). Toute valeur hors liste est ignorée.
+$ICON_CHOICES = [
+  // Médicaments & injections
+  '💊','💉','🧪','🩸','💧','🧴','🧫',
+  // Soins & matériel
+  '🩹','🩺','🌡️','🧤','🥽','✂️','🩼','🫀','🫁','🦴','🦷',
+  // Respiratoire / oxygène
+  '💨','🫧',
+  // Sacs / sacoches / mallettes (différents)
+  '🎒','👝','👜','🧳','💼','🛍️','🧰','📦',
+  // Véhicules
+  '🚑','🚐','🚒','🚗','🚁',
+  // Froid / énergie
+  '❄️','🧊','🔋','🔦',
+  // Lieux / repères
+  '🏥','🏢','🚩','📍',
+  // Sécurité / NRBC
+  '🧯','⚠️','🚨','☢️','☣️','🆘',
+  // Pastilles de couleur
+  '🔴','🟠','🟡','🟢','🔵','🟣','⭐',
+];
+
 // ─── Stats emplacement + enfants ───────────────────────────────────────────
 function getEmplStats(PDO $pdo, int $id): array {
     $ids = [$id];
@@ -44,7 +67,7 @@ if (isset($_GET['ajax'])) {
     if ($_GET['ajax'] === 'tree') {
         function buildTree(PDO $pdo, $parent_id, int $site_id): array {
             $stmt = $pdo->prepare("
-                SELECT e.id, e.nom, e.parent_id, e.chaine_froid, e.type, e.controle_le,
+                SELECT e.id, e.nom, e.parent_id, e.chaine_froid, e.type, e.controle_le, e.icone, e.pui_id,
                     COUNT(DISTINCT p.id) AS nb_produits,
                     SUM(CASE WHEN p.date_peremption < CURDATE() THEN 1 ELSE 0 END) AS nb_perimes,
                     SUM(CASE WHEN p.date_peremption >= CURDATE() AND DATEDIFF(p.date_peremption,CURDATE())<=7 THEN 1 ELSE 0 END) AS nb_crit
@@ -149,7 +172,7 @@ if (isset($_GET['ajax'])) {
     // u2500u2500 Produits d'un emplacement u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500
     if ($_GET['ajax'] === 'products' && isset($_GET['id'])) {
         $id = (int)$_GET['id'];
-        $stmt = $pdo->prepare("SELECT id, nom, numero_lot, quantite, unite, date_peremption, notes, DATEDIFF(date_peremption, CURDATE()) AS jours_restants FROM produits WHERE emplacement_id = ? AND statut = 'actif' ORDER BY nom, date_peremption ASC");
+        $stmt = $pdo->prepare("SELECT id, nom, numero_lot, quantite, quantite_min, unite, date_peremption, notes, DATEDIFF(date_peremption, CURDATE()) AS jours_restants FROM produits WHERE emplacement_id = ? AND statut = 'actif' ORDER BY nom, date_peremption ASC");
         $stmt->execute([$id]);
         echo json_encode($stmt->fetchAll(PDO::FETCH_ASSOC));
         exit;
@@ -164,7 +187,20 @@ if (isset($_GET['ajax'])) {
         $nom         = trim($data['nom']         ?? '');
         $type        = in_array($data['type'] ?? 'standard', ['standard','pui','sac','vehicule'], true)
                        ? $data['type'] : 'standard';
+        $icone_val   = $data['icone'] ?? '';
+        $icone       = (in_array($icone_val, $ICON_CHOICES, true)
+                        || preg_match('/^(sac|dos|perf)-(red|org|amb|grn|teal|blue|vio|pink|grey|navy)$/', $icone_val))
+                       ? $icone_val : null;
         $parent_id   = !empty($data['parent_id']) ? (int)$data['parent_id'] : null;
+        // PUI de rattachement : doit être une PUI du site ; une PUI n'est pas rattachée.
+        $pui_id      = !empty($data['pui_id']) ? (int)$data['pui_id'] : null;
+        if ($type === 'pui') {
+            $pui_id = null;
+        } elseif ($pui_id) {
+            $chk = $pdo->prepare("SELECT 1 FROM emplacements WHERE id=? AND site_id=? AND type='pui'");
+            $chk->execute([$pui_id, $site_id]);
+            if (!$chk->fetchColumn()) $pui_id = null;
+        }
         $desc        = trim($data['description']  ?? '');
         $chaine_froid= !empty($data['chaine_froid']) ? 1 : 0;
         $temp_min    = isset($data['temp_min']) && $data['temp_min'] !== '' ? (float)$data['temp_min'] : null;
@@ -174,12 +210,12 @@ if (isset($_GET['ajax'])) {
         if (!$nom) { echo json_encode(['error' => 'Nom obligatoire']); exit; }
 
         if ($id) {
-            $pdo->prepare("UPDATE emplacements SET nom=?,type=?,description=?,chaine_froid=?,temp_min=?,temp_max=?,parent_id=? WHERE id=? AND site_id=?")
-                ->execute([$nom,$type,$desc,$chaine_froid,$temp_min,$temp_max,$parent_id,$id,$site_id]);
+            $pdo->prepare("UPDATE emplacements SET nom=?,type=?,icone=?,pui_id=?,description=?,chaine_froid=?,temp_min=?,temp_max=?,parent_id=? WHERE id=? AND site_id=?")
+                ->execute([$nom,$type,$icone,$pui_id,$desc,$chaine_froid,$temp_min,$temp_max,$parent_id,$id,$site_id]);
             audit_log($pdo,'MODIF_EMPLACEMENT','emplacements',$id);
         } else {
-            $pdo->prepare("INSERT INTO emplacements (site_id,parent_id,nom,type,description,chaine_froid,temp_min,temp_max,actif) VALUES(?,?,?,?,?,?,?,?,1)")
-                ->execute([$site_id,$parent_id,$nom,$type,$desc,$chaine_froid,$temp_min,$temp_max]);
+            $pdo->prepare("INSERT INTO emplacements (site_id,parent_id,nom,type,icone,pui_id,description,chaine_froid,temp_min,temp_max,actif) VALUES(?,?,?,?,?,?,?,?,?,?,1)")
+                ->execute([$site_id,$parent_id,$nom,$type,$icone,$pui_id,$desc,$chaine_froid,$temp_min,$temp_max]);
             $id = (int)$pdo->lastInsertId();
             audit_log($pdo,'CREATION_EMPLACEMENT','emplacements',$id,null,['nom'=>$nom,'type'=>$type,'site_id'=>$site_id]);
         }
@@ -251,7 +287,7 @@ require_once 'includes/header.php';
   <!-- ═══ SIDEBAR ARBRE ═══ -->
   <aside class="loc-sidebar">
     <div class="sidebar-head">
-      <span class="sb-tile"><i class="ti ti-map-pin" aria-hidden="true"></i></span>
+      <span class="sb-tile">📍</span>
       <div class="sb-titles">
         <div class="sb-title">Emplacements</div>
         <div class="sb-sub" id="treeSummary">…</div>
@@ -268,7 +304,7 @@ require_once 'includes/header.php';
       </div>
     </div>
     <div class="sidebar-search">
-      <i class="ti ti-search" aria-hidden="true"></i>
+      <span aria-hidden="true" style="font-size:15px">🔎</span>
       <input type="text" id="searchTree" placeholder="Rechercher un emplacement…" autocomplete="off" aria-label="Rechercher un emplacement">
     </div>
     <div class="tree-container" id="treeContainer">
@@ -346,9 +382,20 @@ require_once 'includes/header.php';
         </select>
       </div>
       <div class="form-group">
+        <label>Icône</label>
+        <div id="editIconePicker" class="icone-picker"></div>
+        <input type="hidden" id="editIcone" value="">
+      </div>
+      <div class="form-group">
         <label for="editParent">Emplacement parent</label>
         <select id="editParent">
           <option value="">— Aucun (racine) —</option>
+        </select>
+      </div>
+      <div class="form-group" id="puiRow">
+        <label for="editPui">PUI de rattachement</label>
+        <select id="editPui">
+          <option value="">— Aucune —</option>
         </select>
       </div>
       <div class="form-group">
@@ -490,9 +537,9 @@ require_once 'includes/header.php';
 
 /* ── Nœuds (version riche) ── */
 .tree-node {
-  display: flex; align-items: center; gap: 11px;
-  padding: 9px 10px; margin: 2px 6px;
-  border-radius: 12px; cursor: pointer; position: relative;
+  display: flex; align-items: center; gap: 9px;
+  padding: 6px 9px; margin: 1px 6px;
+  border-radius: 10px; cursor: pointer; position: relative;
   transition: background .12s; user-select: none;
 }
 .tree-node:hover { background: rgba(var(--primary-rgb), .05); }
@@ -502,20 +549,20 @@ require_once 'includes/header.php';
   width: 3px; border-radius: 3px; background: var(--primary);
 }
 .n-tile {
-  width: 36px; height: 36px; flex-shrink: 0; border-radius: 11px;
+  width: 30px; height: 30px; flex-shrink: 0; border-radius: 9px;
   display: flex; align-items: center; justify-content: center;
-  background: var(--primary-bg); color: var(--primary); font-size: 17px;
+  background: var(--primary-bg); color: var(--primary); font-size: 15px;
 }
 .n-tile.cold { background: rgba(96,165,250,.14); color: #60a5fa; }
 .tree-node.active .n-tile { background: var(--primary); color: #fff; }
 .tree-node.active .n-tile.cold { background: #60a5fa; color: #fff; }
 .n-body { flex: 1; min-width: 0; }
 .n-name {
-  font-size: 14px; font-weight: 700; color: var(--text);
+  font-size: 13px; font-weight: 700; color: var(--text);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .tree-node.active .n-name { color: var(--primary); }
-.n-meta { font-size: 11.5px; color: var(--text3); font-weight: 500; margin-top: 1px; }
+.n-meta { font-size: 11px; color: var(--text3); font-weight: 500; margin-top: 1px; }
 .n-right { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
 .n-pill { font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 7px; white-space: nowrap; }
 .n-pill.red   { background: rgba(226,75,74,.14); color: #E24B4A; }
@@ -595,13 +642,25 @@ require_once 'includes/header.php';
 .scelle-sub { color:var(--text2); font-size:13px; }
 .scelle-never { color:#d97706; }
 
-/* En-tête */
+/* En-tête fusionné (carte : titre + actions + ligne scellé) */
 .loc-header {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 16px 18px;
+  margin-bottom: 16px;
+}
+.loc-header-top {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  margin-bottom: 18px;
   gap: 12px;
+  flex-wrap: wrap;
+}
+.loc-seal {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border);
+  font-size: 13px; color: var(--text2);
 }
 .loc-title {
   font-size: 20px;
@@ -646,6 +705,13 @@ require_once 'includes/header.php';
 .stat-val.ok     { color: var(--primary); }
 .stat-val.muted  { color: var(--text2); }
 .stat-lbl { font-size: 11px; color: var(--text2); margin-top: 4px; }
+/* Santé compacte (remplace les 4 grosses cartes) */
+.loc-health { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 20px; }
+.loc-hchip { flex: 1; min-width: 110px; background: var(--bg2); border: 1px solid var(--border); border-radius: 12px; padding: 11px 14px; }
+.loc-hchip .hn { font-size: 1.5rem; font-weight: 800; line-height: 1; color: var(--text); font-variant-numeric: tabular-nums; }
+.loc-hchip .hn.danger { color: #E24B4A; }
+.loc-hchip .hn.warn { color: #EF9F27; }
+.loc-hchip .hl { font-size: .7rem; text-transform: uppercase; letter-spacing: .05em; color: var(--text3); margin-top: 4px; }
 
 /* Section */
 .section-title {
@@ -839,6 +905,18 @@ require_once 'includes/header.php';
 .toggle-label { font-size: 13px !important; color: var(--text) !important; display: flex; align-items: center; gap: 8px; }
 .toggle-label input[type=checkbox] { accent-color: var(--primary); width: 15px; height: 15px; flex-shrink: 0; }
 .form-row-temp { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+/* Sélecteur d'icône */
+.icone-picker { display: flex; flex-wrap: wrap; gap: 6px; max-height: 200px; overflow-y: auto; padding: 2px; }
+.icone-sep { flex-basis: 100%; font-size: 10px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--text3); margin: 8px 2px 1px; }
+.icone-opt svg { display: block; }
+.icone-opt {
+  width: 34px; height: 34px; border: 1px solid var(--border); border-radius: 9px;
+  background: var(--bg); display: flex; align-items: center; justify-content: center;
+  font-size: 18px; cursor: pointer; transition: border-color .12s, background .12s;
+}
+.icone-opt:hover { border-color: var(--primary); }
+.icone-opt.sel { border-color: var(--primary); background: var(--primary-bg); box-shadow: 0 0 0 1px var(--primary) inset; }
+.icone-opt.none { font-size: 10px; color: var(--text3); font-weight: 700; }
 .modal-error {
   font-size: 12px; color: #E24B4A; display: none;
   padding: 6px 10px;
@@ -985,6 +1063,9 @@ require_once 'includes/header.php';
   margin-bottom: 24px;
 }
 .med-table { width: 100%; border-collapse: collapse; }
+.mt-card-head { display: flex; align-items: center; justify-content: space-between; padding: 11px 16px; border-bottom: 1px solid var(--border); }
+.mt-card-title { font-weight: 700; font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--text2); }
+.mt-th-lot, .mt-td-lot { font-size: 12.5px; color: var(--text2); font-variant-numeric: tabular-nums; }
 .mt-th {
   padding: 10px 14px;
   font-size: 10px; font-weight: 700;
@@ -1098,22 +1179,49 @@ function flattenTree(nodes, arr, depth = 0) {
 }
 
 // ══════════════════════════════════════════
+// ICÔNES (SVG couleur : sacs, sacs à dos, perfusion — ou emoji)
+// ══════════════════════════════════════════
+const ICON_COLORS = {red:'#E24B4A',org:'#F97316',amb:'#F59E0B',grn:'#10B981',teal:'#14B8A6',blue:'#3B82F6',vio:'#8B5CF6',pink:'#EC4899',grey:'#64748B',navy:'#1E2A4A'};
+const ICON_COLOR_ORDER = ['red','org','amb','grn','teal','blue','vio','pink','grey','navy'];
+function _svgSac(c,s){return `<svg viewBox="0 0 48 48" width="${s}" height="${s}" aria-hidden="true"><path d="M16 17a8 8 0 0 1 16 0" fill="none" stroke="${c}" stroke-width="2.6" stroke-linecap="round" opacity=".55"/><rect x="7" y="16" width="34" height="23" rx="6" fill="${c}"/><rect x="7" y="16" width="34" height="10" rx="6" fill="#fff" opacity=".14"/><rect x="21.4" y="21.5" width="5.2" height="12" rx="1.6" fill="#fff"/><rect x="18" y="25" width="12" height="5.2" rx="1.6" fill="#fff"/></svg>`;}
+function _svgDos(c,s){return `<svg viewBox="0 0 48 48" width="${s}" height="${s}" aria-hidden="true"><path d="M16 17a8 8 0 0 1 16 0" fill="none" stroke="${c}" stroke-width="2.6" stroke-linecap="round" opacity=".55"/><rect x="8" y="13" width="32" height="30" rx="9" fill="${c}"/><rect x="8" y="13" width="32" height="10" rx="9" fill="#fff" opacity=".12"/><rect x="16" y="25" width="16" height="15" rx="4" fill="#fff" opacity=".92"/><rect x="22.4" y="28" width="3.2" height="9" rx="1.2" fill="${c}"/><rect x="19" y="31" width="10" height="3.2" rx="1.2" fill="${c}"/></svg>`;}
+function _svgPerf(c,s){return `<svg viewBox="0 0 48 48" width="${s}" height="${s}" aria-hidden="true"><rect x="16" y="9" width="16" height="22" rx="6" fill="${c}"/><rect x="16" y="9" width="16" height="8" rx="6" fill="#fff" opacity=".18"/><rect x="22.5" y="31" width="3" height="6" fill="${c}" opacity=".6"/><path d="M24 37c3 3 3 6 0 6s-3-3 0-6z" fill="${c}"/></svg>`;}
+function isSvgIcon(code){ return /^(sac|dos|perf)-\w+$/.test(code||''); }
+function iconHtml(code, size){
+  const m = /^(sac|dos|perf)-(\w+)$/.exec(code||'');
+  if (m && ICON_COLORS[m[2]]) {
+    const c = ICON_COLORS[m[2]];
+    return m[1]==='sac' ? _svgSac(c,size) : m[1]==='dos' ? _svgDos(c,size) : _svgPerf(c,size);
+  }
+  return code ? `<span style="font-size:${Math.round(size*0.8)}px">${code}</span>` : '';
+}
+
+// ══════════════════════════════════════════
 // ARBRE
 // ══════════════════════════════════════════
 function renderTree(filter = '') {
   const c = document.getElementById('treeContainer');
   c.innerHTML = '';
-  // La/les PUI s'affichent en tête ; les autres emplacements (sacs, véhicules…)
-  // sont décalés dessous (rail violet) pour montrer que la PUI les chapeaute.
-  // Purement visuel : la hiérarchie réelle (parent_id) n'est pas modifiée.
+  // Chaque PUI est suivie de SES sacs rattachés (pui_id), décalés dessous
+  // (rail violet). Les sacs non rattachés sont listés à la fin. Purement
+  // visuel/organisationnel : la hiérarchie réelle (parent_id) n'est pas modifiée.
   const puis   = treeData.filter(n => n.type === 'pui');
   const autres = treeData.filter(n => n.type !== 'pui');
   if (puis.length) {
-    c.appendChild(buildTreeDOM(puis, 0, filter));
-    const under = document.createElement('div');
-    under.className = 'under-pui';
-    under.appendChild(buildTreeDOM(autres, 0, filter));
-    c.appendChild(under);
+    const puiIds = new Set(puis.map(p => String(p.id)));
+    puis.forEach(pui => {
+      c.appendChild(buildTreeDOM([pui], 0, filter));
+      const sacs = autres.filter(b => String(b.pui_id) === String(pui.id));
+      if (sacs.length) {
+        const under = document.createElement('div');
+        under.className = 'under-pui';
+        under.appendChild(buildTreeDOM(sacs, 0, filter));
+        c.appendChild(under);
+      }
+    });
+    // Sacs non rattachés à une PUI (ou PUI inexistante) → en bas, sans rail
+    const orphelins = autres.filter(b => !b.pui_id || !puiIds.has(String(b.pui_id)));
+    if (orphelins.length) c.appendChild(buildTreeDOM(orphelins, 0, filter));
   } else {
     c.appendChild(buildTreeDOM(autres, 0, filter));
   }
@@ -1143,41 +1251,36 @@ function buildTreeDOM(nodes, depth, filter) {
     nodeEl.style.paddingLeft = (10 + depth * 16) + 'px';
     nodeEl.dataset.id = node.id;
 
-    const nbProd  = parseInt(node.nb_produits) || 0;
-    const nbChild = hasChildren ? node.children.length : 0;
-    let meta      = (hasChildren ? `${nbChild} compartiment${nbChild>1?'s':''} · ` : '')
-                  + `${nbProd} produit${nbProd>1?'s':''}`;
-    // Scellé : signaler « contrôle en retard » sur un sac (niveau racine, hors PUI)
-    // dont le dernier contrôle date de plus de SEAL_OVERDUE_DAYS jours.
+    // Méta compacte : on ne garde que ce qui compte (périmés + contrôle scellé
+    // en retard). On retire « X compartiments · Y produits » pour alléger le nœud.
+    const metaParts = [];
+    if (perimes > 0) metaParts.push(`<span style="color:#E24B4A;font-weight:600">${perimes} périmé${perimes>1?'s':''}</span>`);
     const SEAL_OVERDUE_DAYS = 30;
     if (depth === 0 && node.type !== 'pui' && node.controle_le) {
       const _d = Math.floor((Date.now() - new Date(node.controle_le).getTime()) / 86400000);
-      if (_d > SEAL_OVERDUE_DAYS) meta += ` · <span class="seal-late">⏰ contrôle en retard</span>`;
+      if (_d > SEAL_OVERDUE_DAYS) metaParts.push(`<span class="seal-late">⏰ contrôle en retard</span>`);
     }
-    const statusPill = perimes > 0
-      ? `<span class="n-pill red">${perimes} périmé${perimes>1?'s':''}</span>`
-      : crit > 0
-      ? `<span class="n-pill amber">${crit} critique${crit>1?'s':''}</span>`
-      : `<span class="n-pill ok">OK</span>`;
+    const meta = metaParts.join(' · ');
+    // Icône : celle choisie (SVG couleur ou emoji), sinon une icône par défaut
     const isPui   = node.type === 'pui';
-    const iconCls = isPui ? 'ti-building-warehouse'
-                  : node.chaine_froid==1 ? 'ti-snowflake'
-                  : (depth===0 ? 'ti-ambulance' : 'ti-briefcase-medical');
+    const defEmoji = isPui ? '🏢' : node.chaine_froid==1 ? '❄️' : (depth===0 ? '🚑' : '💊');
+    const iconMk  = node.icone ? iconHtml(node.icone, 26) : `<span style="font-size:16px">${defEmoji}</span>`;
     let tileBg, tileFg;
     if (perimes > 0)                 { tileBg = 'rgba(226,75,74,.14)';  tileFg = '#E24B4A'; }  // périmés → rouge
     else if (crit > 0)               { tileBg = 'rgba(239,159,39,.14)'; tileFg = '#EF9F27'; }  // critiques → ambre
     else if (isPui)                  { tileBg = 'rgba(139,92,246,.16)'; tileFg = '#8B5CF6'; }  // PUI → violet
     else if (node.chaine_froid == 1) { tileBg = 'rgba(96,165,250,.16)'; tileFg = '#60a5fa'; }  // froid → bleu
     else                             { tileBg = 'rgba(31,175,116,.14)';  tileFg = '#1FAF74'; }  // OK → vert
+    // Tuile neutre quand l'icône est un SVG coloré (elle porte déjà sa couleur)
+    if (isSvgIcon(node.icone)) { tileBg = 'var(--bg3)'; }
 
     nodeEl.innerHTML = `
-      <span class="n-tile" style="background:${tileBg};color:${tileFg}"><i class="ti ${iconCls}" aria-hidden="true"></i></span>
+      <span class="n-tile" style="background:${tileBg};color:${tileFg}">${iconMk}</span>
       <div class="n-body">
         <div class="n-name">${escHtml(node.nom)}${isPui ? ' <span class="pui-tag">PUI</span>' : ''}</div>
-        <div class="n-meta">${meta}</div>
+        ${meta ? `<div class="n-meta">${meta}</div>` : ''}
       </div>
       <div class="n-right">
-        ${statusPill}
         <span class="node-toggle ${hasChildren ? (isOpen?'open':'') : 'leaf'}" data-toggle="${node.id}">
           <i class="ti ti-chevron-right" aria-hidden="true"></i>
         </span>
@@ -1305,11 +1408,11 @@ function _selFromUrl(){
   document.head.appendChild(st);
 })();
 function renderDetail({ node, breadcrumb, enfants, stats, last_remp }, products = []) {
-  const bcHtml = breadcrumb.map((b, i) =>
-    i < breadcrumb.length - 1
-      ? `<a onclick="selectNode(${b.id})">${escHtml(b.nom)}</a><span class="sep">/</span>`
-      : `<span class="cur">${escHtml(b.nom)}</span>`
-  ).join('');
+  // Fil d'ariane : uniquement les parents (on ne répète pas le nom courant,
+  // déjà affiché dans le titre). Vide pour un emplacement de 1er niveau.
+  const bcHtml = breadcrumb.slice(0, -1).map(b =>
+    `<a onclick="selectNode(${b.id})">${escHtml(b.nom)}</a>`
+  ).join('<span class="sep">›</span>');
 
   const perimes = parseInt(stats.exp)   || 0;
   const crit    = parseInt(stats.crit)  || 0;
@@ -1381,16 +1484,13 @@ function renderDetail({ node, breadcrumb, enfants, stats, last_remp }, products 
   const canMod   = <?php echo action_permise('modifier')   ? 'true' : 'false'; ?>;
   const canRenew = <?php echo action_permise('renouveler') ? 'true' : 'false'; ?>;
   const canDel   = <?php echo action_permise('supprimer')  ? 'true' : 'false'; ?>;
-  const actionsBtn = canEdit ? `
-    <button class="btn-ghost" onclick="openModal(true)">
-      <i class="ti ti-plus" aria-hidden="true"></i> Sous-emplacement
-    </button>
-    <button class="btn-ghost" onclick="openModalEdit(${node.id})">
-      <i class="ti ti-edit" aria-hidden="true"></i> Modifier
-    </button>
-    <button class="btn-danger-ghost" onclick="deleteEmplacement(${node.id})">
-      <i class="ti ti-trash" aria-hidden="true"></i>
-    </button>` : '';
+  const canQr    = <?php echo nav_peut($nav_perms,'qrcodes') ? 'true' : 'false'; ?>;
+  let actionsBtn = '';
+  if (canQr)   actionsBtn += `<a class="btn-ghost" href="qrcodes.php?emplacement_id=${node.id}">▦ QR Code</a>`;
+  if (canEdit) actionsBtn += `<button class="btn-primary" data-ctrl-id="${node.id}" data-ctrl-nom="${escHtml(node.nom||'')}" onclick="openControle(this)">🔒 Contrôler le scellé</button>`;
+  if (canEdit) actionsBtn += `<button class="btn-ghost" onclick="openModal(true)">➕ Sous-emplacement</button>`;
+  if (canEdit) actionsBtn += `<button class="btn-ghost" onclick="openModalEdit(${node.id})">✏️ Modifier</button>`;
+  if (canDel)  actionsBtn += `<button class="btn-danger-ghost" onclick="deleteEmplacement(${node.id})">🗑️</button>`;
 
   // ── Liste des produits — tableau propre ──
   let produitsHtml = '';
@@ -1415,7 +1515,7 @@ function renderDetail({ node, breadcrumb, enfants, stats, last_remp }, products 
     };
     const actionCell = (id, rq, nom) => `
             <div style="display:flex;gap:6px;justify-content:flex-end;align-items:center">
-              ${canMod ? `<a href="products.php?emplacement=${node.id}&edit=${id}" class="mt-edit" title="Modifier"><i class="ti ti-edit" aria-hidden="true"></i></a>` : ''}
+              ${canMod ? `<a href="products.php?emplacement=${node.id}&edit=${id}&ret=${node.id}" class="mt-edit" title="Modifier"><i class="ti ti-edit" aria-hidden="true"></i></a>` : ''}
               ${canRenew ? `<a href="products.php?emplacement=${node.id}&renew=${id}${rq?('&rq='+rq):''}&ret=${node.id}" class="mt-edit" title="Renouveler">♻️</a>` : ''}
               ${canDel ? `<a href="#" class="mt-edit" title="Supprimer" data-del-id="${id}" data-del-nom="${escHtml(nom||'')}" data-del-ret="${node.id}" onclick="openDelete(this);return false;">🗑️</a>` : ''}
             </div>`;
@@ -1432,17 +1532,24 @@ function renderDetail({ node, breadcrumb, enfants, stats, last_remp }, products 
       const st = statusOf(first);
       const unite = escHtml(first.unite||'');
       const expandable = totalUnits > 1;
+      // Dotation = quantité minimale attendue (quantite_min). Qté colorée :
+      // rouge si sous la dotation, bleu s'il y en a plus, normale si pile.
+      const dotation = Math.max(0, Math.round(parseFloat(first.quantite_min)||0));
+      let qtyStyle = '';
+      if (dotation > 0 && totalUnits < dotation)      qtyStyle = 'color:#C0271F;font-weight:700';
+      else if (dotation > 0 && totalUnits > dotation) qtyStyle = 'color:#3B82F6;font-weight:700';
 
       let html = `
         <tr class="mt-row ${st.rowCls}" ${expandable ? `onclick="toggleLotGroup('g${gi}')" style="cursor:pointer"` : ''}>
-          <td class="mt-td mt-td-num">${gi+1}</td>
           <td class="mt-td mt-td-nom">
             <span class="mt-dot ${st.dot}"></span>
             <span class="mt-nom">${escHtml(nom)}</span>
-            ${expandable ? `<span class="mt-lotbadge">${totalUnits} unités <i class="ti ti-chevron-down" id="chev-g${gi}"></i></span>` : `<span class="mt-note">Lot ${escHtml(first.numero_lot||'—')}</span>`}
+            ${expandable ? `<span class="mt-lotbadge">${totalUnits} unités <i class="ti ti-chevron-down" id="chev-g${gi}"></i></span>` : ''}
           </td>
-          <td class="mt-td mt-td-qty"><span class="mt-qty">${totalUnits}</span> <span class="mt-unit">${unite}</span></td>
+          <td class="mt-td mt-td-lot">${expandable ? '<span style="color:var(--text3)">—</span>' : escHtml(first.numero_lot||'—')}</td>
           <td class="mt-td mt-td-date">${st.dateStr}</td>
+          <td class="mt-td mt-td-qty">${dotation>0?dotation:'—'}</td>
+          <td class="mt-td mt-td-qty"><span class="mt-qty" style="${qtyStyle}">${totalUnits}</span> <span class="mt-unit">${unite}</span></td>
           <td class="mt-td mt-td-status">${st.pill ? `<span class="mt-pill ${st.pillCls}">${st.pill}</span>` : ''}</td>
           <td class="mt-td mt-td-action">${expandable ? '' : actionCell(first.id, null, nom)}</td>
         </tr>`;
@@ -1456,13 +1563,14 @@ function renderDetail({ node, breadcrumb, enfants, stats, last_remp }, products 
             un++;
             html += `
         <tr class="mt-sublot sub-g${gi}" style="display:none">
-          <td class="mt-td"></td>
           <td class="mt-td mt-td-nom" style="padding-left:24px">
             <span class="mt-dot ${ls.dot}"></span>
-            <span class="mt-sublotlabel">${un} · Lot ${escHtml(l.numero_lot||'—')}</span>
+            <span class="mt-sublotlabel">unité ${un}</span>
           </td>
-          <td class="mt-td mt-td-qty"><span class="mt-qty">1</span> <span class="mt-unit">${escHtml(l.unite||'')}</span></td>
+          <td class="mt-td mt-td-lot">${escHtml(l.numero_lot||'—')}</td>
           <td class="mt-td mt-td-date">${ls.dateStr}</td>
+          <td class="mt-td mt-td-qty"></td>
+          <td class="mt-td mt-td-qty"><span class="mt-qty">1</span> <span class="mt-unit">${escHtml(l.unite||'')}</span></td>
           <td class="mt-td mt-td-status">${ls.pill ? `<span class="mt-pill ${ls.pillCls}">${ls.pill}</span>` : ''}</td>
           <td class="mt-td mt-td-action">${actionCell(l.id, 1, nom)}</td>
         </tr>`;
@@ -1473,28 +1581,16 @@ function renderDetail({ node, breadcrumb, enfants, stats, last_remp }, products 
     }).join('');
 
     produitsHtml = `
-      <div class="section-label" style="margin-top:8px">
-        <i class="ti ti-pill" aria-hidden="true"></i>
-        Contenu <span class="section-count">${products.length}</span>
-      </div>
-      <div class="mt-summary">
-        <div class="mt-sum-chip mt-sum-total">
-          <span class="mt-sum-nb">${products.length}</span>
-          <span class="mt-sum-lbl">produits</span>
-        </div>
-        ${nbExp  > 0 ? `<div class="mt-sum-chip mt-sum-expired"><span class="mt-sum-nb">${nbExp}</span><span class="mt-sum-lbl">périmé${nbExp>1?'s':''}</span></div>` : ''}
-        ${nbCrit > 0 ? `<div class="mt-sum-chip mt-sum-critical"><span class="mt-sum-nb">${nbCrit}</span><span class="mt-sum-lbl">critique${nbCrit>1?'s':''}</span></div>` : ''}
-        ${nbWarn > 0 ? `<div class="mt-sum-chip mt-sum-warning"><span class="mt-sum-nb">${nbWarn}</span><span class="mt-sum-lbl">avert.</span></div>` : ''}
-        <div class="mt-sum-chip mt-sum-ok"><span class="mt-sum-nb">${nbOk}</span><span class="mt-sum-lbl">ok</span></div>
-      </div>
       <div class="med-table-wrap">
+        <div class="mt-card-head"><span class="mt-card-title">Produits</span><span class="section-count">${products.length}</span></div>
         <table class="med-table">
           <thead>
             <tr>
-              <th class="mt-th mt-th-num">#</th>
-              <th class="mt-th mt-th-nom">Désignation</th>
-              <th class="mt-th mt-th-qty">Quantité</th>
+              <th class="mt-th mt-th-nom">Produit</th>
+              <th class="mt-th mt-th-lot">Lot</th>
               <th class="mt-th mt-th-date">Péremption</th>
+              <th class="mt-th mt-th-qty">Dotation</th>
+              <th class="mt-th mt-th-qty">Qté</th>
               <th class="mt-th mt-th-status">Statut</th>
               <th class="mt-th mt-th-action"></th>
             </tr>
@@ -1505,68 +1601,36 @@ function renderDetail({ node, breadcrumb, enfants, stats, last_remp }, products 
   }
 
   document.getElementById('mainContent').innerHTML = `
-    <div class="loc-breadcrumb">${bcHtml}</div>
+    ${breadcrumb.length > 1 ? `<div class="loc-breadcrumb">${bcHtml}</div>` : ''}
     <div class="loc-header">
-      <div>
-        <div class="loc-title">
-          <i class="ti ${node.type==='pui'?'ti-building-warehouse':(node.chaine_froid==1?'ti-snowflake':'ti-map-pin')}" aria-hidden="true"></i>
-          ${escHtml(node.nom)}
-          ${node.type==='pui' ? '<span class="pui-tag pui-tag-lg">PUI</span>' : ''}
+      <div class="loc-header-top">
+        <div>
+          <div class="loc-title">
+            <span class="loc-emoji">${node.icone ? iconHtml(node.icone, 28) : (node.type==='pui'?'🏢':(node.chaine_froid==1?'❄️':'🚑'))}</span>
+            ${escHtml(node.nom)}
+            ${node.type==='pui' ? '<span class="pui-tag pui-tag-lg">PUI</span>' : ''}
+          </div>
+          ${node.type==='pui' ? `<div class="loc-subtitle" style="color:#8B5CF6">Pharmacie à usage intérieur — stock central du site</div>` : ''}
+          ${node.description ? `<div class="loc-subtitle">${escHtml(node.description)}</div>` : ''}
+          ${coldBlock}
         </div>
-        ${node.type==='pui' ? `<div class="loc-subtitle" style="color:#8B5CF6">Pharmacie à usage intérieur — stock central du site</div>` : ''}
-        ${node.description ? `<div class="loc-subtitle">${escHtml(node.description)}</div>` : ''}
-        ${coldBlock}
+        <div class="loc-actions">${actionsBtn}</div>
       </div>
-      <div class="loc-actions">${actionsBtn}</div>
-    </div>
-
-    <div class="scelle-bar">
-      <div class="scelle-info">
-        <i class="ti ti-lock" aria-hidden="true"></i>
+      <div class="loc-seal">
+        <span aria-hidden="true">🔒</span>
         ${node.scelle_numero ? `Scellé <b>n°${escHtml(node.scelle_numero)}</b>` : '<span class="scelle-never">Aucun scellé</span>'}
         ${node.controle_le ? `<span class="scelle-sub">· contrôlé le ${new Date(node.controle_le).toLocaleDateString('fr-FR')}${node.controle_par_nom ? ' par '+escHtml(node.controle_par_nom) : ''}</span>` : `<span class="scelle-sub scelle-never">· jamais contrôlé</span>`}
       </div>
-      ${canEdit ? `<button class="btn-ghost" data-ctrl-id="${node.id}" data-ctrl-nom="${escHtml(node.nom||'')}" onclick="openControle(this)"><i class="ti ti-lock" aria-hidden="true"></i> Contrôler le scellé</button>` : ''}
     </div>
 
-    <div class="stats-grid">
-      <div class="stat-card">
-        <div class="stat-val">${total}</div>
-        <div class="stat-lbl">produits stockés</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-val ${perimes>0?'danger':'muted'}">${perimes}</div>
-        <div class="stat-lbl">périmés</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-val ${crit>0?'warn':'muted'}">${crit}</div>
-        <div class="stat-lbl">critiques (&lt;7j)</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-val ${rempClass}">${rempText}</div>
-        <div class="stat-lbl">dernier rempotage</div>
-      </div>
+    <div class="loc-health">
+      <div class="loc-hchip"><div class="hn">${total}</div><div class="hl">Produits</div></div>
+      <div class="loc-hchip"><div class="hn ${perimes>0?'danger':''}">${perimes}</div><div class="hl">Périmé${perimes>1?'s':''}</div></div>
+      <div class="loc-hchip"><div class="hn ${crit>0?'warn':''}">${crit}</div><div class="hl">Critiques &lt; 7j</div></div>
+      <div class="loc-hchip"><div class="hn">${rempText}</div><div class="hl">Dernier rempotage</div></div>
     </div>
-
-    ${enfantsHtml}
 
     ${produitsHtml}
-
-    <div class="section-title">Actions rapides</div>
-    <div style="display:flex;gap:7px;flex-wrap:wrap">
-      <a href="products.php?emplacement=${node.id}" class="btn-ghost">
-        <i class="ti ti-pill" aria-hidden="true"></i> Voir tous les médicaments
-      </a>
-      <a href="rempotages.php?emplacement_id=${node.id}" class="btn-ghost">
-        <i class="ti ti-refresh" aria-hidden="true"></i> Rempotages
-      </a>
-      <a href="qrcodes.php?emplacement_id=${node.id}" class="btn-ghost">
-        <i class="ti ti-qrcode" aria-hidden="true"></i> QR Code
-      </a>
-      <a href="alerts.php?emplacement_id=${node.id}" class="btn-ghost">
-        <i class="ti ti-bell" aria-hidden="true"></i> Alertes
-      </a>
-    </div>
   `;
   document.getElementById('mainContent').style.display = 'block';
 }
@@ -1586,6 +1650,41 @@ function buildParentSelect(excludeId = null) {
   });
 }
 
+const ICON_CHOICES = <?= json_encode($ICON_CHOICES, JSON_UNESCAPED_UNICODE) ?>;
+function renderIconePicker(selected) {
+  const box    = document.getElementById('editIconePicker');
+  const hidden = document.getElementById('editIcone');
+  hidden.value = selected || '';
+  const opt = (val, inner, cls) =>
+    `<div class="icone-opt ${cls||''} ${((selected||'')===val)?'sel':''}" data-ic="${val}">${inner}</div>`;
+  const sep = (t) => `<div class="icone-sep">${t}</div>`;
+  let html = opt('', 'Défaut', 'none');
+  html += sep('Sacs');            ICON_COLOR_ORDER.forEach(k => html += opt('sac-'+k,  _svgSac(ICON_COLORS[k], 24)));
+  html += sep('Sacs à dos');      ICON_COLOR_ORDER.forEach(k => html += opt('dos-'+k,  _svgDos(ICON_COLORS[k], 24)));
+  html += sep('Perfusion');       ICON_COLOR_ORDER.forEach(k => html += opt('perf-'+k, _svgPerf(ICON_COLORS[k], 24)));
+  html += sep('Autres (emoji)');  ICON_CHOICES.forEach(e => html += opt(e, e));
+  box.innerHTML = html;
+  box.querySelectorAll('.icone-opt').forEach(el => {
+    el.addEventListener('click', () => {
+      hidden.value = el.dataset.ic;
+      box.querySelectorAll('.icone-opt').forEach(x => x.classList.remove('sel'));
+      el.classList.add('sel');
+    });
+  });
+}
+
+function buildPuiSelect(selectedId) {
+  const sel  = document.getElementById('editPui');
+  const puis = (treeData || []).filter(n => n.type === 'pui');
+  sel.innerHTML = '<option value="">— Aucune —</option>' +
+    puis.map(p => `<option value="${p.id}">${escHtml(p.nom)}</option>`).join('');
+  sel.value = selectedId ? String(selectedId) : '';
+}
+function togglePuiRow() {
+  const isPui = document.getElementById('editType').value === 'pui';
+  document.getElementById('puiRow').style.display = isPui ? 'none' : '';
+}
+
 function openModal(asSub = false) {
   document.getElementById('editId').value            = '';
   document.getElementById('editNom').value           = '';
@@ -1597,6 +1696,9 @@ function openModal(asSub = false) {
   document.getElementById('tempRow').style.display   = 'none';
   document.getElementById('modalError').classList.remove('show');
   document.getElementById('modalTitle').textContent  = asSub ? 'Nouveau sous-emplacement' : 'Nouvel emplacement';
+  renderIconePicker('');
+  buildPuiSelect('');
+  togglePuiRow();
   buildParentSelect();
   if (asSub && activeId) document.getElementById('editParent').value = activeId;
   document.getElementById('modalOverlay').classList.add('open');
@@ -1618,6 +1720,9 @@ async function openModalEdit(id) {
   document.getElementById('tempRow').style.display   = n.chaine_froid == 1 ? 'grid' : 'none';
   document.getElementById('modalError').classList.remove('show');
   document.getElementById('modalTitle').textContent  = 'Modifier l\'emplacement';
+  renderIconePicker(n.icone || '');
+  buildPuiSelect(n.pui_id || '');
+  togglePuiRow();
   buildParentSelect(n.id);
   document.getElementById('editParent').value = n.parent_id || '';
   document.getElementById('modalOverlay').classList.add('open');
@@ -1631,6 +1736,7 @@ function closeModal() {
 document.getElementById('editChaineFroid').addEventListener('change', function() {
   document.getElementById('tempRow').style.display = this.checked ? 'grid' : 'none';
 });
+document.getElementById('editType').addEventListener('change', togglePuiRow);
 
 async function saveEmplacement() {
   const nom   = document.getElementById('editNom').value.trim();
@@ -1644,6 +1750,8 @@ async function saveEmplacement() {
       id:           document.getElementById('editId').value || null,
       nom,
       type:         document.getElementById('editType').value || 'standard',
+      icone:        document.getElementById('editIcone').value || null,
+      pui_id:       document.getElementById('editPui').value || null,
       parent_id:    document.getElementById('editParent').value || null,
       description:  document.getElementById('editDesc').value.trim(),
       chaine_froid: document.getElementById('editChaineFroid').checked,
