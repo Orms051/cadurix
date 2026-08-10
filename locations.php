@@ -44,7 +44,7 @@ if (isset($_GET['ajax'])) {
     if ($_GET['ajax'] === 'tree') {
         function buildTree(PDO $pdo, $parent_id, int $site_id): array {
             $stmt = $pdo->prepare("
-                SELECT e.id, e.nom, e.parent_id, e.chaine_froid, e.type,
+                SELECT e.id, e.nom, e.parent_id, e.chaine_froid, e.type, e.controle_le,
                     COUNT(DISTINCT p.id) AS nb_produits,
                     SUM(CASE WHEN p.date_peremption < CURDATE() THEN 1 ELSE 0 END) AS nb_perimes,
                     SUM(CASE WHEN p.date_peremption >= CURDATE() AND DATEDIFF(p.date_peremption,CURDATE())<=7 THEN 1 ELSE 0 END) AS nb_crit
@@ -527,6 +527,10 @@ require_once 'includes/header.php';
   background: rgba(139,92,246,.16); color: #8B5CF6;
 }
 .pui-tag-lg { font-size: 11px; padding: 2px 8px; border-radius: 7px; margin-left: 4px; }
+/* Sacs chapeautés par la PUI : décalage + rail violet (visuel uniquement) */
+.under-pui { margin-left: 14px; padding-left: 6px; border-left: 2px solid rgba(139,92,246,.35); }
+/* Scellé : contrôle en retard */
+.seal-late { color: #EF9F27; font-weight: 600; white-space: nowrap; }
 .node-toggle {
   width: 20px; height: 20px; flex-shrink: 0;
   display: flex; align-items: center; justify-content: center;
@@ -1099,7 +1103,20 @@ function flattenTree(nodes, arr, depth = 0) {
 function renderTree(filter = '') {
   const c = document.getElementById('treeContainer');
   c.innerHTML = '';
-  c.appendChild(buildTreeDOM(treeData, 0, filter));
+  // La/les PUI s'affichent en tête ; les autres emplacements (sacs, véhicules…)
+  // sont décalés dessous (rail violet) pour montrer que la PUI les chapeaute.
+  // Purement visuel : la hiérarchie réelle (parent_id) n'est pas modifiée.
+  const puis   = treeData.filter(n => n.type === 'pui');
+  const autres = treeData.filter(n => n.type !== 'pui');
+  if (puis.length) {
+    c.appendChild(buildTreeDOM(puis, 0, filter));
+    const under = document.createElement('div');
+    under.className = 'under-pui';
+    under.appendChild(buildTreeDOM(autres, 0, filter));
+    c.appendChild(under);
+  } else {
+    c.appendChild(buildTreeDOM(autres, 0, filter));
+  }
 }
 
 function buildTreeDOM(nodes, depth, filter) {
@@ -1128,8 +1145,15 @@ function buildTreeDOM(nodes, depth, filter) {
 
     const nbProd  = parseInt(node.nb_produits) || 0;
     const nbChild = hasChildren ? node.children.length : 0;
-    const meta    = (hasChildren ? `${nbChild} compartiment${nbChild>1?'s':''} · ` : '')
+    let meta      = (hasChildren ? `${nbChild} compartiment${nbChild>1?'s':''} · ` : '')
                   + `${nbProd} produit${nbProd>1?'s':''}`;
+    // Scellé : signaler « contrôle en retard » sur un sac (niveau racine, hors PUI)
+    // dont le dernier contrôle date de plus de SEAL_OVERDUE_DAYS jours.
+    const SEAL_OVERDUE_DAYS = 30;
+    if (depth === 0 && node.type !== 'pui' && node.controle_le) {
+      const _d = Math.floor((Date.now() - new Date(node.controle_le).getTime()) / 86400000);
+      if (_d > SEAL_OVERDUE_DAYS) meta += ` · <span class="seal-late">⏰ contrôle en retard</span>`;
+    }
     const statusPill = perimes > 0
       ? `<span class="n-pill red">${perimes} périmé${perimes>1?'s':''}</span>`
       : crit > 0
