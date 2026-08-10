@@ -18,6 +18,11 @@ if (!$site_id) {
 
 $csrf = $_SESSION['csrf_token'] ?? '';
 
+// Palette d'icônes proposées pour un emplacement (source unique : validation
+// serveur + sélecteur côté formulaire). Toute valeur hors liste est ignorée.
+$ICON_CHOICES = ['💊','🩹','💉','💨','💧','🧴','🩺','🌡️','🧪','🧯','🩸','🧤',
+                 '✂️','🚑','🚐','🚒','🎒','🧰','📦','❄️','🏢','🔴','🟠','⭐'];
+
 // ─── Stats emplacement + enfants ───────────────────────────────────────────
 function getEmplStats(PDO $pdo, int $id): array {
     $ids = [$id];
@@ -44,7 +49,7 @@ if (isset($_GET['ajax'])) {
     if ($_GET['ajax'] === 'tree') {
         function buildTree(PDO $pdo, $parent_id, int $site_id): array {
             $stmt = $pdo->prepare("
-                SELECT e.id, e.nom, e.parent_id, e.chaine_froid, e.type, e.controle_le,
+                SELECT e.id, e.nom, e.parent_id, e.chaine_froid, e.type, e.controle_le, e.icone,
                     COUNT(DISTINCT p.id) AS nb_produits,
                     SUM(CASE WHEN p.date_peremption < CURDATE() THEN 1 ELSE 0 END) AS nb_perimes,
                     SUM(CASE WHEN p.date_peremption >= CURDATE() AND DATEDIFF(p.date_peremption,CURDATE())<=7 THEN 1 ELSE 0 END) AS nb_crit
@@ -164,6 +169,7 @@ if (isset($_GET['ajax'])) {
         $nom         = trim($data['nom']         ?? '');
         $type        = in_array($data['type'] ?? 'standard', ['standard','pui','sac','vehicule'], true)
                        ? $data['type'] : 'standard';
+        $icone       = in_array($data['icone'] ?? '', $ICON_CHOICES, true) ? $data['icone'] : null;
         $parent_id   = !empty($data['parent_id']) ? (int)$data['parent_id'] : null;
         $desc        = trim($data['description']  ?? '');
         $chaine_froid= !empty($data['chaine_froid']) ? 1 : 0;
@@ -174,12 +180,12 @@ if (isset($_GET['ajax'])) {
         if (!$nom) { echo json_encode(['error' => 'Nom obligatoire']); exit; }
 
         if ($id) {
-            $pdo->prepare("UPDATE emplacements SET nom=?,type=?,description=?,chaine_froid=?,temp_min=?,temp_max=?,parent_id=? WHERE id=? AND site_id=?")
-                ->execute([$nom,$type,$desc,$chaine_froid,$temp_min,$temp_max,$parent_id,$id,$site_id]);
+            $pdo->prepare("UPDATE emplacements SET nom=?,type=?,icone=?,description=?,chaine_froid=?,temp_min=?,temp_max=?,parent_id=? WHERE id=? AND site_id=?")
+                ->execute([$nom,$type,$icone,$desc,$chaine_froid,$temp_min,$temp_max,$parent_id,$id,$site_id]);
             audit_log($pdo,'MODIF_EMPLACEMENT','emplacements',$id);
         } else {
-            $pdo->prepare("INSERT INTO emplacements (site_id,parent_id,nom,type,description,chaine_froid,temp_min,temp_max,actif) VALUES(?,?,?,?,?,?,?,?,1)")
-                ->execute([$site_id,$parent_id,$nom,$type,$desc,$chaine_froid,$temp_min,$temp_max]);
+            $pdo->prepare("INSERT INTO emplacements (site_id,parent_id,nom,type,icone,description,chaine_froid,temp_min,temp_max,actif) VALUES(?,?,?,?,?,?,?,?,?,1)")
+                ->execute([$site_id,$parent_id,$nom,$type,$icone,$desc,$chaine_froid,$temp_min,$temp_max]);
             $id = (int)$pdo->lastInsertId();
             audit_log($pdo,'CREATION_EMPLACEMENT','emplacements',$id,null,['nom'=>$nom,'type'=>$type,'site_id'=>$site_id]);
         }
@@ -344,6 +350,11 @@ require_once 'includes/header.php';
           <option value="standard">Emplacement standard (sac, sacoche, véhicule…)</option>
           <option value="pui">PUI — Pharmacie à usage intérieur (stock central du site)</option>
         </select>
+      </div>
+      <div class="form-group">
+        <label>Icône</label>
+        <div id="editIconePicker" class="icone-picker"></div>
+        <input type="hidden" id="editIcone" value="">
       </div>
       <div class="form-group">
         <label for="editParent">Emplacement parent</label>
@@ -839,6 +850,16 @@ require_once 'includes/header.php';
 .toggle-label { font-size: 13px !important; color: var(--text) !important; display: flex; align-items: center; gap: 8px; }
 .toggle-label input[type=checkbox] { accent-color: var(--primary); width: 15px; height: 15px; flex-shrink: 0; }
 .form-row-temp { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+/* Sélecteur d'icône */
+.icone-picker { display: flex; flex-wrap: wrap; gap: 6px; }
+.icone-opt {
+  width: 34px; height: 34px; border: 1px solid var(--border); border-radius: 9px;
+  background: var(--bg); display: flex; align-items: center; justify-content: center;
+  font-size: 18px; cursor: pointer; transition: border-color .12s, background .12s;
+}
+.icone-opt:hover { border-color: var(--primary); }
+.icone-opt.sel { border-color: var(--primary); background: var(--primary-bg); box-shadow: 0 0 0 1px var(--primary) inset; }
+.icone-opt.none { font-size: 10px; color: var(--text3); font-weight: 700; }
 .modal-error {
   font-size: 12px; color: #E24B4A; display: none;
   padding: 6px 10px;
@@ -1153,9 +1174,10 @@ function buildTreeDOM(nodes, depth, filter) {
       if (_d > SEAL_OVERDUE_DAYS) metaParts.push(`<span class="seal-late">⏰ contrôle en retard</span>`);
     }
     const meta = metaParts.join(' · ');
-    // Icônes emoji (comme la maquette validée)
+    // Icône : celle choisie par l'utilisateur, sinon une icône par défaut
     const isPui   = node.type === 'pui';
-    const emoji   = isPui ? '🏢'
+    const emoji   = node.icone ? node.icone
+                  : isPui ? '🏢'
                   : node.chaine_froid==1 ? '❄️'
                   : (depth===0 ? '🚑' : '💊');
     let tileBg, tileFg;
@@ -1503,7 +1525,7 @@ function renderDetail({ node, breadcrumb, enfants, stats, last_remp }, products 
     <div class="loc-header">
       <div>
         <div class="loc-title">
-          <span class="loc-emoji">${node.type==='pui'?'🏢':(node.chaine_froid==1?'❄️':'🚑')}</span>
+          <span class="loc-emoji">${node.icone ? node.icone : (node.type==='pui'?'🏢':(node.chaine_froid==1?'❄️':'🚑'))}</span>
           ${escHtml(node.nom)}
           ${node.type==='pui' ? '<span class="pui-tag pui-tag-lg">PUI</span>' : ''}
         </div>
@@ -1580,6 +1602,25 @@ function buildParentSelect(excludeId = null) {
   });
 }
 
+const ICON_CHOICES = <?= json_encode($ICON_CHOICES, JSON_UNESCAPED_UNICODE) ?>;
+function renderIconePicker(selected) {
+  const box    = document.getElementById('editIconePicker');
+  const hidden = document.getElementById('editIcone');
+  hidden.value = selected || '';
+  const opt = (val, label, cls) =>
+    `<div class="icone-opt ${cls||''} ${((selected||'')===val)?'sel':''}" data-ic="${val}">${label}</div>`;
+  let html = opt('', 'Défaut', 'none');
+  ICON_CHOICES.forEach(e => html += opt(e, e));
+  box.innerHTML = html;
+  box.querySelectorAll('.icone-opt').forEach(el => {
+    el.addEventListener('click', () => {
+      hidden.value = el.dataset.ic;
+      box.querySelectorAll('.icone-opt').forEach(x => x.classList.remove('sel'));
+      el.classList.add('sel');
+    });
+  });
+}
+
 function openModal(asSub = false) {
   document.getElementById('editId').value            = '';
   document.getElementById('editNom').value           = '';
@@ -1591,6 +1632,7 @@ function openModal(asSub = false) {
   document.getElementById('tempRow').style.display   = 'none';
   document.getElementById('modalError').classList.remove('show');
   document.getElementById('modalTitle').textContent  = asSub ? 'Nouveau sous-emplacement' : 'Nouvel emplacement';
+  renderIconePicker('');
   buildParentSelect();
   if (asSub && activeId) document.getElementById('editParent').value = activeId;
   document.getElementById('modalOverlay').classList.add('open');
@@ -1612,6 +1654,7 @@ async function openModalEdit(id) {
   document.getElementById('tempRow').style.display   = n.chaine_froid == 1 ? 'grid' : 'none';
   document.getElementById('modalError').classList.remove('show');
   document.getElementById('modalTitle').textContent  = 'Modifier l\'emplacement';
+  renderIconePicker(n.icone || '');
   buildParentSelect(n.id);
   document.getElementById('editParent').value = n.parent_id || '';
   document.getElementById('modalOverlay').classList.add('open');
@@ -1638,6 +1681,7 @@ async function saveEmplacement() {
       id:           document.getElementById('editId').value || null,
       nom,
       type:         document.getElementById('editType').value || 'standard',
+      icone:        document.getElementById('editIcone').value || null,
       parent_id:    document.getElementById('editParent').value || null,
       description:  document.getElementById('editDesc').value.trim(),
       chaine_froid: document.getElementById('editChaineFroid').checked,
