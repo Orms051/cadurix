@@ -245,6 +245,7 @@ $canCreer = action_permise('creer');
 $canDup   = action_permise('dupliquer');
 
 $canArch  = action_permise('archiver');
+$pxBulk   = canEdit() && ($canArch || $canDel);
 if (!function_exists('pf_url')) {
   function pf_url(array $ov): string {
     $base = [
@@ -288,6 +289,32 @@ if (isset($_GET['archive']) && action_permise('archiver')) {
         flashSuccess("Produit « {$old['nom']} » archivé.");
     }
     header('Location: products.php' . ($filterEmpl ? "?emplacement=$filterEmpl" : ''));
+    exit;
+}
+
+// ── Actions groupées (archiver / retirer plusieurs lots) ──
+if (($_POST['action'] ?? '') === 'bulk' && !empty($_POST['bulk_ids']) && is_array($_POST['bulk_ids'])) {
+    verifyCsrf();
+    $newStatut = (($_POST['bulk_action'] ?? '') === 'retire') ? 'retire' : 'archive';
+    $needPerm  = $newStatut === 'retire' ? 'supprimer' : 'archiver';
+    if (!action_permise($needPerm)) { flashError("Droit insuffisant pour cette action groupée."); header('Location: products.php'); exit; }
+    $ids = array_filter(array_unique(array_map('intval', $_POST['bulk_ids'])), fn($x) => $x > 0);
+    $n = 0;
+    foreach ($ids as $id) {
+        $stmt = $pdo->prepare("SELECT p.* FROM produits p JOIN emplacements e ON e.id=p.emplacement_id WHERE p.id=? AND e.site_id=?");
+        $stmt->execute([$id, $site_id]);
+        $old = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$old || $old['statut'] === $newStatut) continue;
+        $pdo->prepare("UPDATE produits SET statut=?, modifie_par=? WHERE id=?")->execute([$newStatut, currentUserId(), $id]);
+        audit_log($pdo, $newStatut === 'retire' ? 'RETRAIT_PRODUIT' : 'ARCHIVAGE_PRODUIT', 'produits', $id, $old, ['statut'=>$newStatut, 'masse'=>true]);
+        try {
+            $pdo->prepare("INSERT INTO mouvements_stock (produit_id,user_id,type,quantite_avant,quantite_delta,quantite_apres,motif) VALUES(?,?,'sortie',?,?,0,?)")
+                ->execute([$id, currentUserId(), $old['quantite'], -$old['quantite'], $newStatut === 'retire' ? 'Retrait (action groupée)' : 'Archivage (action groupée)']);
+        } catch (Throwable $e) {}
+        $n++;
+    }
+    flashSuccess($n . ' lot(s) ' . ($newStatut === 'retire' ? 'retiré(s)' : 'archivé(s)') . ' en une fois.');
+    header('Location: ' . pf_url([]));
     exit;
 }
 
@@ -606,6 +633,15 @@ try {
     $emplCond = $filterEmpl ? ' AND p.emplacement_id='.(int)$filterEmpl : '';
     foreach ($pdo->query("SELECT p.statut, COUNT(*) c FROM produits p JOIN emplacements e ON e.id=p.emplacement_id WHERE $fs AND $fe$emplCond GROUP BY p.statut") as $r) {
         if (isset($cntStatut[$r['statut']])) $cntStatut[$r['statut']] = (int)$r['c'];
+    }
+} catch (Throwable $e) {}
+// Lots actifs existants (détection de doublon à la création)
+$existingLots = [];
+try {
+    $stEx = $pdo->prepare("SELECT p.nom, p.numero_lot, p.quantite, e.nom AS loc FROM produits p JOIN emplacements e ON e.id=p.emplacement_id WHERE p.statut='actif' AND $fs AND $fe");
+    $stEx->execute();
+    foreach ($stEx as $r) {
+        if (!empty($r['numero_lot'])) $existingLots[] = ['nom'=>mb_strtolower($r['nom']),'lot'=>mb_strtolower($r['numero_lot']),'qte'=>$r['quantite'],'loc'=>$r['loc'],'nomAff'=>$r['nom']];
     }
 } catch (Throwable $e) {}
 $total         = $pdo->query("SELECT COUNT(*) FROM produits p JOIN emplacements e ON e.id=p.emplacement_id WHERE p.statut='actif' AND $fs AND $fe")->fetchColumn();
@@ -1006,6 +1042,19 @@ require_once 'includes/header.php';
 .px-drawer .form-panel-title { display:none; }
 .px-drawer .form-row3 { grid-template-columns:1fr 1fr; }
 @media (max-width:768px){ .px-drawer{ width:100vw; } }
+.px-createwarn { display:flex; flex-direction:column; gap:6px; margin-bottom:12px; }
+.px-cw { padding:9px 12px; border-radius:9px; font-size:12.5px; font-weight:600; line-height:1.35; }
+.px-cw-per { background:rgba(226,75,74,.13); color:#E24B4A; }
+.px-cw-lot { background:rgba(239,159,39,.15); color:#C77C06; }
+.px-selcol { width:36px; text-align:center; }
+.px-rowchk, #px-selall { width:15px; height:15px; accent-color:var(--primary); cursor:pointer; }
+.px-bulkbar { display:none; align-items:center; gap:10px; margin-bottom:12px; padding:9px 14px; background:rgba(var(--primary-rgb),.07); border:1px solid rgba(var(--primary-rgb),.25); border-radius:11px; }
+.px-bulkbar.on { display:flex; }
+.px-bulk-n { font-size:12.5px; font-weight:800; color:var(--primary); }
+.px-bulk-act { border:1px solid var(--border); background:var(--bg2); color:var(--text); border-radius:8px; padding:6px 11px; font-size:12px; font-weight:700; cursor:pointer; }
+.px-bulk-act:hover { border-color:var(--primary); color:var(--primary); }
+.px-bulk-act.danger:hover { border-color:#E24B4A; color:#E24B4A; }
+.px-bulk-clear { margin-left:auto; background:none; border:none; color:var(--text3); font-weight:700; font-size:12px; text-decoration:underline; cursor:pointer; }
 </style>
 
 <?php
@@ -1294,6 +1343,7 @@ const SR_EMPLS = <?= json_encode($empl_for_js) ?>;
       </div>
       <?php endif; ?>
 
+      <div id="px-createwarn" class="px-createwarn" style="display:none"></div>
       <div style="display:flex;gap:10px;flex-wrap:wrap">
         <button type="submit" class="btn btn-primary">💾 Enregistrer</button>
         <a href="products.php<?= $filterEmpl ? "?emplacement=$filterEmpl" : '' ?>" class="btn btn-ghost">Annuler</a>
@@ -1400,6 +1450,7 @@ $advActive = (in_array($filterStatus,$advStatuses,true)?1:0) + ($horizon!=='1'?1
       <?php endforeach; ?>
     </select>
   </div>
+  <?php if($pxBulk && $nbExpired>0): ?><button type="button" class="px-chip" onclick="pxSelectPerimes()">💀 Sélectionner les périmés</button><?php endif; ?>
   <span class="px-res"><b><?= count($products) ?></b> résultat<?= count($products)>1?'s':'' ?></span>
 </div>
 <script>
@@ -1505,6 +1556,18 @@ if (empty($grouped)): ?>
 
 <?php else: ?>
 <!-- TABLEAU LISTE ───────────────────────────────────────-->
+<?php if ($pxBulk): ?>
+<form id="px-bulk-form" method="post" action="<?= h(pf_url([])) ?>">
+<?= csrfField() ?>
+<input type="hidden" name="action" value="bulk">
+<input type="hidden" name="bulk_action" id="px-bulk-action" value="archive">
+<div class="px-bulkbar" id="px-bulkbar">
+  <span class="px-bulk-n" id="px-bulk-n">0 sélectionné</span>
+  <?php if($canArch): ?><button type="button" class="px-bulk-act" onclick="pxBulk('archive')">📥 Archiver</button><?php endif; ?>
+  <?php if($canDel): ?><button type="button" class="px-bulk-act danger" onclick="pxBulk('retire')">🗑️ Retirer</button><?php endif; ?>
+  <button type="button" class="px-bulk-clear" onclick="pxClearSel()">Désélectionner</button>
+</div>
+<?php endif; ?>
 <div class="products-wrap">
   <div class="products-header">
     <div class="products-header-title">
@@ -1527,6 +1590,7 @@ if (empty($grouped)): ?>
     <table class="px-tbl">
       <thead>
         <tr>
+          <?php if($pxBulk): ?><th class="px-selcol"><input type="checkbox" id="px-selall" onclick="pxSelAll(this)" title="Tout sélectionner"></th><?php endif; ?>
           <th>Produit</th>
           <th>Emplacement</th>
           <th>Lot</th>
@@ -1554,6 +1618,7 @@ if (empty($grouped)): ?>
         $noCode = empty($p['gtin']) && empty($p['ean']) && empty($p['datamatrix']);
       ?>
         <tr<?= $canMod ? ' onclick="location.href=\'products.php?edit='.$p['id'].'\'"' : '' ?>>
+          <?php if($pxBulk): ?><td class="px-selcol" onclick="event.stopPropagation()"><input type="checkbox" class="px-rowchk" name="bulk_ids[]" value="<?= $p['id'] ?>" data-perime="<?= $days<0?'1':'0' ?>" onclick="pxSelChanged()"></td><?php endif; ?>
           <td>
             <div class="px-prod">
               <span class="px-pico" style="background:color-mix(in srgb, <?= $col ?> 16%, transparent)">💊</span>
@@ -1637,6 +1702,7 @@ if (empty($grouped)): ?>
   </div>
   <?php endif;?>
 </div>
+<?php if ($pxBulk): ?></form><?php endif; ?>
 
 <?php endif; // end viewMode ?>
 
@@ -1876,6 +1942,45 @@ function toggleForm() {
 }
 document.addEventListener('keydown', function(e){ if (e.key === 'Escape') { var p=document.getElementById('form-panel'); if (p && p.classList.contains('open')) closeForm(); } });
 document.addEventListener('DOMContentLoaded', function(){ if (PX_EDIT_OPEN) document.body.style.overflow = 'hidden'; });
+
+// ── Alertes création : boîte périmée + doublon de lot ──
+var PX_EXISTING = <?= json_encode($existingLots ?? [], JSON_UNESCAPED_UNICODE) ?>;
+var PX_IS_EDIT = <?= $editing ? 'true' : 'false' ?>;
+function pxCheckWarn(){
+  var box = document.getElementById('px-createwarn'); if(!box) return;
+  var w = [];
+  var dEl = document.querySelector('[name="date_peremption"]');
+  if (dEl && dEl.value){ var d=new Date(dEl.value+'T00:00:00'); var t=new Date(); t.setHours(0,0,0,0); if(d < t){ w.push('<div class="px-cw px-cw-per">⚠️ Cette date de péremption est <b>déjà passée</b>. Vérifie avant d\'enregistrer.</div>'); } }
+  if (!PX_IS_EDIT){
+    var nomEl=document.getElementById('nom-input'), lotEl=document.querySelector('[name="numero_lot"]');
+    var nom=(nomEl&&nomEl.value.trim().toLowerCase())||'', lot=(lotEl&&lotEl.value.trim().toLowerCase())||'';
+    if(nom&&lot){ var m=PX_EXISTING.find(function(x){return x.nom===nom&&x.lot===lot;}); if(m){ w.push('<div class="px-cw px-cw-lot">⚠️ Le lot <b>'+escHtml(lotEl.value)+'</b> existe déjà pour '+escHtml(m.nomAff)+' ('+escHtml(m.loc)+', qté '+m.qte+'). Ajuste plutôt la quantité ?</div>'); } }
+  }
+  if(w.length){ box.innerHTML=w.join(''); box.style.display='flex'; } else { box.style.display='none'; box.innerHTML=''; }
+}
+document.addEventListener('DOMContentLoaded', function(){
+  var n=document.getElementById('nom-input'); if(n) n.addEventListener('input', pxCheckWarn);
+  ['[name="numero_lot"]','[name="date_peremption"]'].forEach(function(sel){var e=document.querySelector(sel); if(e){ e.addEventListener('input', pxCheckWarn); e.addEventListener('change', pxCheckWarn);}});
+  pxCheckWarn();
+});
+
+// ── Actions groupées (JS) ──
+function pxSelChanged(){
+  var chks=document.querySelectorAll('.px-rowchk'), n=0; chks.forEach(function(c){if(c.checked)n++;});
+  var bar=document.getElementById('px-bulkbar'); if(bar) bar.classList.toggle('on', n>0);
+  var lbl=document.getElementById('px-bulk-n'); if(lbl) lbl.textContent=n+' sélectionné'+(n>1?'s':'');
+  var all=document.getElementById('px-selall'); if(all) all.checked = n>0 && n===chks.length;
+}
+function pxSelAll(cb){ document.querySelectorAll('.px-rowchk').forEach(function(c){c.checked=cb.checked;}); pxSelChanged(); }
+function pxClearSel(){ document.querySelectorAll('.px-rowchk').forEach(function(c){c.checked=false;}); var a=document.getElementById('px-selall'); if(a)a.checked=false; pxSelChanged(); }
+function pxSelectPerimes(){ document.querySelectorAll('.px-rowchk').forEach(function(c){ if(c.dataset.perime==='1') c.checked=true; }); pxSelChanged(); }
+function pxBulk(action){
+  var n=document.querySelectorAll('.px-rowchk:checked').length;
+  if(!n) return;
+  if(!confirm(n+' lot(s) vont être '+(action==='retire'?'retirés du stock':'archivés')+'. Continuer ?')) return;
+  document.getElementById('px-bulk-action').value=action;
+  document.getElementById('px-bulk-form').submit();
+}
 
 // ── Vue groupée accordéon ──────────────────────────────
 function toggleGrp(key) {
