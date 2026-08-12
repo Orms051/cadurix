@@ -229,6 +229,9 @@ $filterEmpl  = (int)($_GET['emplacement'] ?? $_GET['location'] ?? 0);
 $filterStatus= $_GET['status'] ?? '';
 $horizon     = $_GET['horizon'] ?? '1';
 if (!in_array($horizon, ['1','2','3','6','12','all'], true)) $horizon = '1';
+$statutLot   = $_GET['statut_lot'] ?? 'actif';
+if (!in_array($statutLot, ['actif','archive','retire'], true)) $statutLot = 'actif';
+$qSearch     = trim((string)($_GET['q'] ?? ''));
 $sortMap = ['nom'=>'p.nom','lot'=>'p.numero_lot','emplacement'=>'e.nom','qte'=>'p.quantite','peremption'=>'p.date_peremption','statut'=>'p.date_peremption'];
 $sort = $_GET['sort'] ?? 'peremption';
 if (!isset($sortMap[$sort])) $sort = 'peremption';
@@ -247,6 +250,8 @@ if (!function_exists('pf_url')) {
     $base = [
       'emplacement' => $GLOBALS['filterEmpl']  ?? 0 ?: null,
       'status'      => $GLOBALS['filterStatus'] ?? '' ?: null,
+      'statut_lot'  => (($GLOBALS['statutLot'] ?? 'actif') !== 'actif') ? ($GLOBALS['statutLot'] ?? null) : null,
+      'q'           => ($GLOBALS['qSearch'] ?? '') !== '' ? ($GLOBALS['qSearch'] ?? null) : null,
       'horizon'     => $GLOBALS['horizon']      ?? '2',
       'view'        => (($GLOBALS['viewMode'] ?? 'list') !== 'list') ? ($GLOBALS['viewMode'] ?? null) : null,
       'sort'        => (($GLOBALS['sort'] ?? 'peremption') !== 'peremption') ? ($GLOBALS['sort'] ?? null) : null,
@@ -520,8 +525,9 @@ if ($filterEmpl) {
 }
 
 // ── Liste produits ────────────────────────────────────────
-$where  = "WHERE p.statut = 'actif' AND $fs AND $fe";
+$where  = "WHERE p.statut = '$statutLot' AND $fs AND $fe";
 $params = [];
+if ($qSearch !== '')              { $where .= ' AND (p.nom LIKE ? OR p.numero_lot LIKE ? OR p.reference LIKE ?)';        $like='%'.$qSearch.'%'; array_push($params,$like,$like,$like); }
 if ($filterEmpl)                  { $where .= ' AND p.emplacement_id=?';                                                $params[] = $filterEmpl; }
 if ($filterStatus === 'expired')  { $where .= ' AND p.date_peremption < CURDATE()'; }
 if ($filterStatus === 'critical') { $where .= ' AND p.date_peremption >= CURDATE() AND DATEDIFF(p.date_peremption,CURDATE()) <= 7'; }
@@ -595,6 +601,13 @@ foreach ($allEmpls as $e) {
     if ($e['parent_id'] === null) $emplsParent[] = $e;
     else $emplsChild[] = $e;
 }
+$cntStatut = ['actif'=>0,'archive'=>0,'retire'=>0];
+try {
+    $emplCond = $filterEmpl ? ' AND p.emplacement_id='.(int)$filterEmpl : '';
+    foreach ($pdo->query("SELECT p.statut, COUNT(*) c FROM produits p JOIN emplacements e ON e.id=p.emplacement_id WHERE $fs AND $fe$emplCond GROUP BY p.statut") as $r) {
+        if (isset($cntStatut[$r['statut']])) $cntStatut[$r['statut']] = (int)$r['c'];
+    }
+} catch (Throwable $e) {}
 $total         = $pdo->query("SELECT COUNT(*) FROM produits p JOIN emplacements e ON e.id=p.emplacement_id WHERE p.statut='actif' AND $fs AND $fe")->fetchColumn();
 $totalCold     = $pdo->query("SELECT COUNT(*) FROM produits p JOIN emplacements e ON e.id=p.emplacement_id WHERE p.statut='actif' AND p.chaine_froid=1 AND $fs AND $fe")->fetchColumn();
 $totalLowStock = $pdo->query("SELECT COUNT(*) FROM produits p JOIN emplacements e ON e.id=p.emplacement_id WHERE p.statut='actif' AND p.quantite_min>0 AND p.quantite<=p.quantite_min AND $fs AND $fe")->fetchColumn();
@@ -912,6 +925,74 @@ require_once 'includes/header.php';
   .kpi-strip { grid-template-columns: 1fr 1fr; }
   .kpi-value { font-size: 26px !important; }
 }
+
+/* ══════════════════════════════════════
+   Refonte liste (look démo) — préfixe px-
+══════════════════════════════════════ */
+.px-toolbar { display:flex; align-items:center; gap:10px; margin-bottom:11px; flex-wrap:wrap; }
+.px-tabs { display:inline-flex; background:var(--bg3); border:1px solid var(--border); border-radius:11px; padding:3px; }
+.px-tab { border:none; background:none; color:var(--text2); font-size:13px; font-weight:700; padding:7px 13px; border-radius:8px; display:flex; align-items:center; gap:7px; text-decoration:none; }
+.px-tab .c { font-size:11px; font-weight:800; background:var(--bg2); color:var(--text3); border:1px solid var(--border); border-radius:20px; padding:1px 7px; }
+.px-tab.on { background:var(--bg2); color:var(--primary); box-shadow:0 2px 10px rgba(0,0,0,.06); }
+.px-tab.on .c { background:rgba(var(--primary-rgb),.12); color:var(--primary); border-color:transparent; }
+.px-viewtog { display:inline-flex; background:var(--bg3); border:1px solid var(--border); border-radius:10px; padding:3px; }
+.px-viewtog a { border:none; background:none; color:var(--text2); font-size:12.5px; font-weight:700; padding:6px 12px; border-radius:7px; display:flex; align-items:center; gap:6px; text-decoration:none; }
+.px-viewtog a.on { background:var(--bg2); color:var(--primary); box-shadow:0 2px 10px rgba(0,0,0,.06); }
+.px-search { flex:1; min-width:160px; max-width:300px; display:flex; align-items:center; gap:8px; background:var(--bg2); border:1px solid var(--border); border-radius:9px; padding:7px 12px; }
+.px-search:focus-within { border-color:var(--primary); }
+.px-search input { flex:1; background:none; border:none; outline:none; font-size:13px; color:var(--text); font-family:var(--font); }
+.px-selbox { display:flex; align-items:center; gap:7px; background:var(--bg2); border:1px solid var(--border); border-radius:9px; padding:7px 11px; font-size:12.5px; color:var(--text2); font-weight:700; }
+.px-selbox select { border:none; background:none; color:var(--text); font-family:var(--font); font-size:12.5px; font-weight:700; outline:none; }
+.px-fbtn { display:inline-flex; align-items:center; gap:7px; border:1px solid var(--border); background:var(--bg2); color:var(--text2); border-radius:9px; padding:7px 13px; font-size:12.5px; font-weight:700; cursor:pointer; }
+.px-fbtn:hover { border-color:var(--primary); color:var(--primary); }
+.px-fbtn.has { border-color:var(--primary); color:var(--primary); background:rgba(var(--primary-rgb),.07); }
+.px-fbtn .n { background:var(--primary); color:#fff; font-size:10px; font-weight:800; border-radius:20px; padding:1px 7px; }
+.px-quick { display:flex; align-items:center; gap:9px; margin-bottom:14px; flex-wrap:wrap; }
+.px-chip { display:inline-flex; align-items:center; gap:6px; border:1px solid var(--border); background:var(--bg2); color:var(--text2); border-radius:20px; padding:7px 13px; font-size:12.5px; font-weight:700; text-decoration:none; }
+.px-chip:hover { border-color:var(--text3); }
+.px-chip.on { border-color:var(--primary); color:var(--primary); background:rgba(var(--primary-rgb),.07); }
+.px-chip .c { font-size:10px; background:var(--bg3); border-radius:20px; padding:0 6px; color:var(--text3); }
+.px-chip.on .c { background:rgba(var(--primary-rgb),.12); color:var(--primary); }
+.px-res { margin-left:auto; font-size:12.5px; color:var(--text2); }
+.px-res b { color:var(--text); }
+.px-panel { position:relative; }
+.px-panel-drop { position:absolute; top:calc(100% + 8px); right:0; width:320px; background:var(--bg2); border:1px solid var(--border); border-radius:14px; box-shadow:0 20px 50px rgba(0,0,0,.18); z-index:50; padding:15px 16px; display:none; }
+.px-panel-drop.open { display:block; }
+.px-panel-drop h4 { font-size:10.5px; text-transform:uppercase; letter-spacing:.07em; color:var(--text3); font-weight:800; margin:14px 0 8px; }
+.px-panel-drop h4:first-child { margin-top:0; }
+.px-prow { display:flex; flex-wrap:wrap; gap:7px; }
+.px-tchip { display:inline-flex; align-items:center; gap:5px; border:1px solid var(--border); background:var(--bg); color:var(--text2); border-radius:20px; padding:6px 11px; font-size:12px; font-weight:700; text-decoration:none; }
+.px-tchip.on { border-color:var(--primary); color:var(--primary); background:rgba(var(--primary-rgb),.07); }
+
+/* Tableau look démo */
+.px-card { background:var(--bg2); border:1px solid var(--border); border-radius:16px; overflow:hidden; }
+.px-tbl { width:100%; border-collapse:collapse; font-size:13.5px; }
+.px-tbl thead th { padding:12px 16px; text-align:left; font-size:10.5px; font-weight:800; letter-spacing:.5px; text-transform:uppercase; color:var(--text3); white-space:nowrap; border-bottom:1px solid var(--border2); background:var(--bg3); }
+.px-tbl thead th.r { text-align:right; }
+.px-tbl td { padding:11px 16px; border-bottom:1px solid var(--border); vertical-align:middle; }
+.px-tbl tbody tr { cursor:pointer; transition:background .12s; }
+.px-tbl tbody tr:last-child td { border-bottom:none; }
+.px-tbl tbody tr:hover td { background:var(--bg3); }
+.px-tbl td.r { text-align:right; }
+.px-prod { display:flex; align-items:center; gap:11px; }
+.px-pico { width:36px; height:36px; border-radius:10px; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+.px-pname { font-weight:700; color:var(--text); }
+.px-pdose { font-size:11.5px; color:var(--text3); }
+.px-cold { color:#3B82F6; margin-left:5px; font-size:12px; }
+.px-nocode { color:var(--text3); margin-left:5px; font-size:12px; }
+.px-loc { color:var(--text2); font-size:12.5px; }
+.px-mono { font-family:var(--mono); font-variant-numeric:tabular-nums; font-size:12.5px; }
+.px-qbadge { display:inline-flex; align-items:center; gap:5px; font-weight:800; font-size:13px; padding:3px 10px; border-radius:8px; font-variant-numeric:tabular-nums; }
+.px-q-under { color:#E24B4A; background:rgba(226,75,74,.13); }
+.px-q-over  { color:#3B82F6; background:rgba(59,130,246,.13); }
+.px-q-ok    { color:#1D9E75; background:rgba(29,158,117,.13); }
+.px-badge { display:inline-flex; align-items:center; gap:4px; padding:3px 9px; border-radius:20px; font-size:11px; font-weight:700; white-space:nowrap; border:1px solid transparent; }
+.px-b-crit { background:rgba(226,75,74,.14); color:#E24B4A; border-color:rgba(226,75,74,.24); }
+.px-b-warn { background:rgba(239,159,39,.16); color:#C77C06; border-color:rgba(239,159,39,.25); }
+.px-b-ok   { background:rgba(29,158,117,.14); color:#1D9E75; border-color:rgba(29,158,117,.22); }
+.px-b-mut  { background:rgba(107,114,128,.15); color:#9CA3AF; border-color:rgba(107,114,128,.22); }
+.px-actions { display:flex; gap:4px; justify-content:flex-end; }
+@media (max-width: 768px) { .px-tbl { display:none; } .px-toolbar, .px-quick { overflow-x:auto; } }
 </style>
 
 <?php
@@ -1235,66 +1316,78 @@ $nbWarning  = count(array_filter($products, fn($p) => (int)$p['days_left'] > 7  
 $nbOk       = count(array_filter($products, fn($p) => (int)$p['days_left'] > 30));
 ?>
 
-<!-- KPI STRIP -->
-<div class="kpi-strip">
-  <a href="products.php<?= $filterEmpl?"?emplacement=$filterEmpl":'' ?>" class="kpi-card kpi-muted" style="text-decoration:none">
-    <div class="kpi-icon">💊</div>
-    <div class="kpi-value"><?= $total ?></div>
-    <div class="kpi-label">Total produits</div>
-  </a>
-  <a href="products.php?status=expired<?= $filterEmpl?"&emplacement=$filterEmpl":'' ?>" class="kpi-card <?= $nbExpired>0?'kpi-danger':'kpi-muted' ?>" style="text-decoration:none">
-    <div class="kpi-icon">💀</div>
-    <div class="kpi-value"><?= $nbExpired ?></div>
-    <div class="kpi-label">Périmés</div>
-  </a>
-  <a href="products.php?status=critical<?= $filterEmpl?"&emplacement=$filterEmpl":'' ?>" class="kpi-card <?= $nbCritical>0?'kpi-warn':'kpi-muted' ?>" style="text-decoration:none">
-    <div class="kpi-icon">⚠️</div>
-    <div class="kpi-value"><?= $nbCritical ?></div>
-    <div class="kpi-label">Critiques (&lt;7j)</div>
-  </a>
-  <a href="products.php?status=ok<?= $filterEmpl?"&emplacement=$filterEmpl":'' ?>" class="kpi-card kpi-ok" style="text-decoration:none">
-    <div class="kpi-icon">✅</div>
-    <div class="kpi-value"><?= $nbOk ?></div>
-    <div class="kpi-label">En règle</div>
-  </a>
+<!-- BARRE D'OUTILS (look démo) -->
+<?php
+$advStatuses = ['critical','warning','ok','cold','nocode'];
+$advActive = (in_array($filterStatus,$advStatuses,true)?1:0) + ($horizon!=='1'?1:0);
+?>
+<div class="px-toolbar">
+  <div class="px-viewtog">
+    <a href="<?= h(pf_url(['view'=>null])) ?>"     class="<?= $viewMode!=='grouped'?'on':'' ?>">☰ Liste</a>
+    <a href="<?= h(pf_url(['view'=>'grouped'])) ?>" class="<?= $viewMode==='grouped'?'on':'' ?>">🗂️ Par produit</a>
+  </div>
+  <div class="px-tabs">
+    <a href="<?= h(pf_url(['statut_lot'=>'actif'])) ?>"   class="px-tab <?= $statutLot==='actif'?'on':'' ?>">Actifs <span class="c"><?= $cntStatut['actif'] ?></span></a>
+    <a href="<?= h(pf_url(['statut_lot'=>'archive'])) ?>" class="px-tab <?= $statutLot==='archive'?'on':'' ?>">Archivés <span class="c"><?= $cntStatut['archive'] ?></span></a>
+    <a href="<?= h(pf_url(['statut_lot'=>'retire'])) ?>"  class="px-tab <?= $statutLot==='retire'?'on':'' ?>">Retirés <span class="c"><?= $cntStatut['retire'] ?></span></a>
+  </div>
+  <form class="px-search" method="get" action="products.php">
+    <span aria-hidden="true">🔎</span>
+    <input type="text" name="q" value="<?= h($qSearch) ?>" placeholder="Nom, lot, réf…" autocomplete="off">
+    <?php if ($statutLot!=='actif'): ?><input type="hidden" name="statut_lot" value="<?= h($statutLot) ?>"><?php endif; ?>
+    <?php if ($filterEmpl): ?><input type="hidden" name="emplacement" value="<?= (int)$filterEmpl ?>"><?php endif; ?>
+    <?php if ($viewMode==='grouped'): ?><input type="hidden" name="view" value="grouped"><?php endif; ?>
+    <?php if ($horizon!=='1'): ?><input type="hidden" name="horizon" value="<?= h($horizon) ?>"><?php endif; ?>
+  </form>
+  <div class="px-selbox">↕
+    <select onchange="if(this.value)location.href=this.value">
+      <?php foreach (['peremption'=>'Péremption','nom'=>'Nom','qte'=>'Quantité','emplacement'=>'Emplacement','lot'=>'Lot'] as $sk=>$sl): ?>
+      <option value="<?= h(pf_url(['sort'=>$sk])) ?>" <?= $sort===$sk?'selected':'' ?>><?= $sl ?></option>
+      <?php endforeach; ?>
+    </select>
+  </div>
+  <div class="px-panel">
+    <button type="button" class="px-fbtn <?= $advActive?'has':'' ?>" onclick="pxTogglePanel(event)">⚙️ Filtres <?php if($advActive): ?><span class="n"><?= $advActive ?></span><?php endif; ?></button>
+    <div class="px-panel-drop" id="px-panel" onclick="event.stopPropagation()">
+      <h4>⏱️ Péremption</h4>
+      <div class="px-prow">
+        <a href="<?= h(pf_url(['status'=>''])) ?>"         class="px-tchip <?= !$filterStatus?'on':'' ?>">Tous</a>
+        <a href="<?= h(pf_url(['status'=>'critical'])) ?>" class="px-tchip <?= $filterStatus==='critical'?'on':'' ?>">⚠️ Critiques</a>
+        <a href="<?= h(pf_url(['status'=>'warning'])) ?>"  class="px-tchip <?= $filterStatus==='warning'?'on':'' ?>">🟡 Avertissement</a>
+        <a href="<?= h(pf_url(['status'=>'ok'])) ?>"       class="px-tchip <?= $filterStatus==='ok'?'on':'' ?>">✅ OK</a>
+      </div>
+      <h4>Horizon (péremption à venir)</h4>
+      <div class="px-prow">
+        <?php foreach (['1'=>'≤ 1 mois','2'=>'≤ 2 mois','3'=>'≤ 3 mois','6'=>'≤ 6 mois','12'=>'≤ 12 mois','all'=>'📦 Tout'] as $hk=>$hl): ?>
+        <a href="<?= h(pf_url(['horizon'=>$hk])) ?>" class="px-tchip <?= $horizon===$hk?'on':'' ?>"><?= $hl ?></a>
+        <?php endforeach; ?>
+      </div>
+      <h4>📦 État / données</h4>
+      <div class="px-prow">
+        <a href="<?= h(pf_url(['status'=>'cold'])) ?>"   class="px-tchip <?= $filterStatus==='cold'?'on':'' ?>">❄️ Chaîne du froid</a>
+        <a href="<?= h(pf_url(['status'=>'nocode','horizon'=>'all'])) ?>" class="px-tchip <?= $filterStatus==='nocode'?'on':'' ?>">📷 Sans code</a>
+      </div>
+    </div>
+  </div>
 </div>
 
-<!-- FILTRES -->
-<div class="filters-wrap">
-  <div class="filter-view-toggle">
-    <a href="?<?= http_build_query(array_merge($_GET,['view'=>'list'])) ?>"
-       style="background:<?= $viewMode!=='grouped'?'var(--primary)':'transparent' ?>;color:<?= $viewMode!=='grouped'?'#fff':'var(--text2)' ?>">
-      <i class="ti ti-list" style="font-size:13px"></i> Liste
-    </a>
-    <a href="?<?= http_build_query(array_merge($_GET,['view'=>'grouped'])) ?>"
-       style="background:<?= $viewMode==='grouped'?'var(--primary)':'transparent' ?>;color:<?= $viewMode==='grouped'?'#fff':'var(--text2)' ?>">
-      <i class="ti ti-stack-2" style="font-size:13px"></i> Par produit
-    </a>
+<div class="px-quick">
+  <a href="<?= h(pf_url(['status'=>$filterStatus==='expired'?'':'expired'])) ?>"  class="px-chip <?= $filterStatus==='expired'?'on':'' ?>">💀 Périmés <span class="c"><?= $nbExpired ?></span></a>
+  <a href="<?= h(pf_url(['status'=>$filterStatus==='lowstock'?'':'lowstock'])) ?>" class="px-chip <?= $filterStatus==='lowstock'?'on':'' ?>">📦 Stock bas <span class="c"><?= (int)$totalLowStock ?></span></a>
+  <div class="px-selbox">📍
+    <select onchange="if(this.value)location.href=this.value">
+      <option value="<?= h(pf_url(['emplacement'=>0])) ?>" <?= !$filterEmpl?'selected':'' ?>>Tous les sacs / PUI</option>
+      <?php foreach ($allEmpls as $e): $lbl=($e['parent_nom']?$e['parent_nom'].' › ':'').$e['nom']; ?>
+      <option value="<?= h(pf_url(['emplacement'=>$e['id']])) ?>" <?= $filterEmpl==$e['id']?'selected':'' ?>><?= h($lbl) ?></option>
+      <?php endforeach; ?>
+    </select>
   </div>
-  <div class="hz-select">
-    <span class="hz-lbl">⏱️ Horizon</span>
-    <a href="<?= pf_url(['horizon'=>'1'])  ?>" class="hz-chip <?= $horizon==='1' ?'active':'' ?>">1 mois</a>
-    <a href="<?= pf_url(['horizon'=>'2'])  ?>" class="hz-chip <?= $horizon==='2' ?'active':'' ?>">2 mois</a>
-    <a href="<?= pf_url(['horizon'=>'3'])  ?>" class="hz-chip <?= $horizon==='3' ?'active':'' ?>">3 mois</a>
-    <a href="<?= pf_url(['horizon'=>'6'])  ?>" class="hz-chip <?= $horizon==='6' ?'active':'' ?>">6 mois</a>
-    <a href="<?= pf_url(['horizon'=>'12']) ?>" class="hz-chip <?= $horizon==='12'?'active':'' ?>">12 mois</a>
-    <a href="<?= pf_url(['horizon'=>'all'])?>" class="hz-chip <?= $horizon==='all'?'active':'' ?>">📦 Tout le stock</a>
-  </div>
-  <a href="<?= pf_url(['status'=>'']) ?>"         class="filter-chip <?= !$filterStatus?'active':'' ?>">Tous (<?= count($products) ?>)</a>
-  <a href="<?= pf_url(['status'=>'expired']) ?>"  class="filter-chip chip-danger <?= $filterStatus==='expired' ?'active':'' ?>">💀 Périmés</a>
-  <a href="<?= pf_url(['status'=>'critical']) ?>" class="filter-chip chip-warn   <?= $filterStatus==='critical'?'active':'' ?>">⚠️ Critiques</a>
-  <a href="<?= pf_url(['status'=>'warning']) ?>"  class="filter-chip chip-warn   <?= $filterStatus==='warning' ?'active':'' ?>">🟡 Avertissement</a>
-  <a href="<?= pf_url(['status'=>'ok']) ?>"       class="filter-chip chip-ok     <?= $filterStatus==='ok'      ?'active':'' ?>">✅ OK</a>
-  <?php if ($totalCold > 0): ?>
-  <a href="<?= pf_url(['status'=>'cold']) ?>" class="filter-chip <?= $filterStatus==='cold'?'active':'' ?>">❄️ Froid (<?= $totalCold ?>)</a>
-  <?php endif; ?>
-  <?php if ($totalLowStock > 0): ?>
-  <a href="<?= pf_url(['status'=>'lowstock']) ?>" class="filter-chip chip-warn <?= $filterStatus==='lowstock'?'active':'' ?>">📦 Stock bas (<?= $totalLowStock ?>)</a>
-  <?php endif; ?>
-  <?php if ($nbNocode > 0 || $filterStatus==='nocode'): ?>
-  <a href="<?= pf_url(['status'=>'nocode','horizon'=>'all']) ?>" class="filter-chip <?= $filterStatus==='nocode'?'active':'' ?>">📷 Sans code (<?= $nbNocode ?>)</a>
-  <?php endif; ?>
+  <span class="px-res"><b><?= count($products) ?></b> résultat<?= count($products)>1?'s':'' ?></span>
 </div>
+<script>
+function pxTogglePanel(e){ e.stopPropagation(); document.getElementById('px-panel').classList.toggle('open'); }
+document.addEventListener('click', function(){ var p=document.getElementById('px-panel'); if(p) p.classList.remove('open'); });
+</script>
 
 <?php if ($viewMode === 'grouped'): ?>
 <!-- VUE GROUPÉE ─────────────────────────────────────────-->
@@ -1413,68 +1506,62 @@ if (empty($grouped)): ?>
   </div>
   <?php else: ?>
   <div class="table-wrap">
-    <table class="products-table">
+    <table class="px-tbl">
       <thead>
         <tr>
-          <?= psort_th('nom','Produit') ?>
-          <?= psort_th('lot','Lot / Réf','hide-mobile') ?>
-          <?= psort_th('emplacement','Emplacement') ?>
-          <?= psort_th('qte','Qté') ?>
-          <?= psort_th('peremption','Péremption') ?>
-          <?= psort_th('statut','Statut') ?>
+          <th>Produit</th>
+          <th>Emplacement</th>
+          <th>Lot</th>
+          <th>Péremption</th>
+          <th class="r">Dotation</th>
+          <th class="r">Qté</th>
+          <th>Statut</th>
           <?php if (canEdit()): ?><th></th><?php endif; ?>
         </tr>
       </thead>
       <tbody>
-      <?php foreach ($products as $p):
+      <?php
+      $pxPalette = ['#E24B4A','#F97316','#F59E0B','#10B981','#14B8A6','#3B82F6','#8B5CF6','#EC4899','#64748B','#1D4ED8'];
+      $pxQ = fn($v) => rtrim(rtrim(number_format((float)$v,2,'.',''),'0'),'.');
+      foreach ($products as $p):
         $days   = (int)$p['days_left'];
         $status = expiryStatus($p['date_peremption']);
-        $bc     = match($status) { 'expired'=>'badge-expired','critical'=>'badge-critical','warning'=>'badge-warning', default=>'badge-ok' };
-        $label  = match(true) { $days<0 => "Périmé (J+".abs($days).")", $days===0 => "Aujourd'hui !", $days===1 => "Demain !", default => "J-$days" };
-        $rowClass = match($status) { 'expired'=>'row-expired','critical'=>'row-critical','warning'=>'row-warning', default=>'' };
-        $isLow  = $p['quantite_min'] > 0 && $p['quantite'] <= $p['quantite_min'];
+        $bc     = match($status){'expired'=>'px-b-crit','critical'=>'px-b-crit','warning'=>'px-b-warn',default=>'px-b-ok'};
+        $label  = match(true){$days<0=>"Périmé J+".abs($days),$days===0=>"Auj. !",$days===1=>"Demain",default=>"J-$days"};
+        $dot    = (float)$p['quantite_min'];
+        $qte    = (float)$p['quantite'];
+        $qc     = $dot>0 ? ($qte<$dot?'px-q-under':($qte>$dot?'px-q-over':'px-q-ok')) : '';
+        $col    = $pxPalette[abs(crc32($p['nom'])) % count($pxPalette)];
+        $sbadge = match($p['statut']){'archive'=>'px-b-mut','retire'=>'px-b-crit',default=>'px-b-ok'};
+        $noCode = empty($p['gtin']) && empty($p['ean']) && empty($p['datamatrix']);
       ?>
-        <tr class="<?= $rowClass ?>">
+        <tr<?= $canMod ? ' onclick="location.href=\'products.php?edit='.$p['id'].'\'"' : '' ?>>
           <td>
-            <div class="prod-name"><?= h($p['nom']) ?></div>
-            <div class="prod-tags">
-              <?php if ($p['chaine_froid']): ?><span class="prod-tag tag-cold">❄️ Froid</span><?php endif; ?>
-              <?php if ($isLow): ?><span class="prod-tag tag-low">📦 Stock bas</span><?php endif; ?>
+            <div class="px-prod">
+              <span class="px-pico" style="background:color-mix(in srgb, <?= $col ?> 16%, transparent)">💊</span>
+              <div>
+                <div class="px-pname"><?= h($p['nom']) ?><?php if($p['chaine_froid']):?><span class="px-cold" title="Chaîne du froid">❄️</span><?php endif;?><?php if($noCode):?><span class="px-nocode" title="Sans code-barres">📷</span><?php endif;?></div>
+                <?php $sub = $p['reference'] ?: ($p['unite'] ? h($p['unite']) : ''); if($sub):?><div class="px-pdose"><?= h($p['reference'] ?: $p['unite']) ?></div><?php endif;?>
+              </div>
             </div>
-            <?php if ($p['notes']): ?><div class="prod-note"><?= h($p['notes']) ?></div><?php endif; ?>
           </td>
-          <td class="hide-mobile">
-            <div class="lot-val"><?= h($p['numero_lot'] ?: '—') ?></div>
-            <?php if($p['reference']): ?><div style="font-size:10px;color:var(--text3)"><?= h($p['reference']) ?></div><?php endif; ?>
-          </td>
-          <td>
-            <?php if ($p['loc_parent_name']): ?><div class="loc-parent"><?= h($p['loc_parent_name']) ?></div><?php endif; ?>
-            <div class="loc-name"><?= h($p['loc_name']) ?></div>
-          </td>
-          <td>
-            <div class="qty-val"><?= $p['quantite'] ?> <span class="qty-unit"><?= h($p['unite']) ?></span></div>
-            <?php if ($p['quantite_min'] > 0): ?><div class="qty-min">min: <?= $p['quantite_min'] ?></div><?php endif; ?>
-          </td>
-          <td><div class="date-val"><?= date('d/m/Y', strtotime($p['date_peremption'])) ?></div></td>
-          <td><?php
-            $pillClass = match($status) { 'expired'=>'pill-expired','critical'=>'pill-critical','warning'=>'pill-warning', default=>'pill-ok' };
-            $pillDot   = match($status) { 'expired'=>'⚫','critical'=>'🔴','warning'=>'🟡', default=>'🟢' };
-          ?><span class="status-pill <?= $pillClass ?>"><?= $pillDot ?> <?= $label ?></span></td>
+          <td class="px-loc"><?php if($p['loc_parent_name']):?><span style="color:var(--text3);font-size:11px"><?=h($p['loc_parent_name'])?> › </span><?php endif;?><?=h($p['loc_name'])?></td>
+          <td class="px-mono"><?= h($p['numero_lot'] ?: '—') ?></td>
+          <td><span class="px-badge <?= $bc ?>"><?= $label ?></span></td>
+          <td class="r px-mono"><?= $dot>0 ? $pxQ($dot) : '—' ?></td>
+          <td class="r"><?php if($qc):?><span class="px-qbadge <?= $qc ?>"><?= $pxQ($qte) ?></span><?php else:?><span class="px-mono"><?= $pxQ($qte) ?></span><?php endif;?></td>
+          <td><span class="px-badge <?= $sbadge ?>"><?= h($p['statut']) ?></span></td>
           <?php if (canEdit()): ?>
-          <td>
-            <div style="display:flex;gap:4px">
+          <td onclick="event.stopPropagation()">
+            <div class="px-actions">
               <?php if($canMod): ?><a href="products.php?edit=<?= $p['id'] ?>" class="btn btn-ghost btn-xs" title="Modifier">✏️</a><?php endif; ?>
               <?php if($canRenew): ?><button type="button" class="btn btn-ghost btn-xs" title="Renouveler (périmé)" data-rn="<?= htmlspecialchars(json_encode(['id'=>$p['id'],'nom'=>$p['nom'],'lot'=>$p['numero_lot'],'date'=>$p['date_peremption'],'qte'=>$p['quantite'],'unite'=>$p['unite']]),ENT_QUOTES) ?>" onclick="openRenew(this)">♻️</button><?php endif; ?>
               <?php if($canDup): ?><button class="btn btn-ghost btn-xs" title="Dupliquer" onclick="dupliquer(<?= $p['id'] ?>)">📋</button><?php endif; ?>
               <?php if ($canArch): ?>
-              <a href="products.php?archive=<?= $p['id'] ?>&csrf_token=<?= csrfToken() ?><?= $filterEmpl?"&emplacement=$filterEmpl":'' ?>"
-                 class="btn btn-ghost btn-xs" title="Archiver"
-                 data-confirm="Archiver « <?= h($p['nom']) ?> » ?">📦</a>
+              <a href="products.php?archive=<?= $p['id'] ?>&csrf_token=<?= csrfToken() ?><?= $filterEmpl?"&emplacement=$filterEmpl":'' ?>" class="btn btn-ghost btn-xs" title="Archiver" data-confirm="Archiver « <?= h($p['nom']) ?> » ?">📦</a>
               <?php endif; ?>
               <?php if ($canDel): ?>
-              <button type="button" class="btn btn-danger btn-xs" title="Supprimer définitivement"
-                 data-del-url="products.php?suppr=<?= $p['id'] ?>&csrf_token=<?= csrfToken() ?><?= $filterEmpl?"&emplacement=$filterEmpl":'' ?>"
-                 data-del-nom="<?= h($p['nom']) ?>" onclick="openDelete(this)">🗑️</button>
+              <button type="button" class="btn btn-danger btn-xs" title="Supprimer définitivement" data-del-url="products.php?suppr=<?= $p['id'] ?>&csrf_token=<?= csrfToken() ?><?= $filterEmpl?"&emplacement=$filterEmpl":'' ?>" data-del-nom="<?= h($p['nom']) ?>" onclick="openDelete(this)">🗑️</button>
               <?php endif; ?>
             </div>
           </td>
