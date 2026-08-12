@@ -993,6 +993,19 @@ require_once 'includes/header.php';
 .px-b-mut  { background:rgba(107,114,128,.15); color:#9CA3AF; border-color:rgba(107,114,128,.22); }
 .px-actions { display:flex; gap:4px; justify-content:flex-end; }
 @media (max-width: 768px) { .px-tbl { display:none; } .px-toolbar, .px-quick { overflow-x:auto; } }
+
+/* Édition en tiroir */
+.px-form-scrim { position:fixed; inset:0; background:rgba(30,42,74,.28); backdrop-filter:blur(4px); -webkit-backdrop-filter:blur(4px); opacity:0; pointer-events:none; transition:opacity .25s; z-index:900; }
+.px-form-scrim.open { opacity:1; pointer-events:auto; }
+.px-drawer { position:fixed; top:0; right:0; bottom:0; width:min(560px,96vw); background:var(--bg2); border-left:1px solid var(--border); box-shadow:-20px 0 60px rgba(0,0,0,.20); transform:translateX(103%); transition:transform .3s cubic-bezier(.4,0,.2,1); z-index:901; display:flex; flex-direction:column; }
+.px-drawer.open { transform:none; }
+.px-drawer-head { display:flex; align-items:center; justify-content:space-between; padding:16px 20px; border-bottom:1px solid var(--border); font-size:16px; font-weight:800; color:var(--text); flex-shrink:0; }
+.px-drawer-x { width:32px; height:32px; border-radius:9px; border:1px solid var(--border); background:var(--bg2); color:var(--text2); font-size:15px; cursor:pointer; display:flex; align-items:center; justify-content:center; }
+.px-drawer-x:hover { border-color:#E24B4A; color:#E24B4A; }
+.px-drawer > .form-panel-card { border:none; border-radius:0; margin:0; overflow-y:auto; flex:1; }
+.px-drawer .form-panel-title { display:none; }
+.px-drawer .form-row3 { grid-template-columns:1fr 1fr; }
+@media (max-width:768px){ .px-drawer{ width:100vw; } }
 </style>
 
 <?php
@@ -1111,7 +1124,12 @@ const SR_EMPLS = <?= json_encode($empl_for_js) ?>;
 
 <!-- FORMULAIRE -->
 <?php if (canEdit()): ?>
-<div id="form-panel" style="<?= $editing ? '' : 'display:none;' ?>margin-bottom:20px;">
+<div class="px-form-scrim <?= $editing ? 'open' : '' ?>" id="form-scrim" onclick="closeForm()"></div>
+<div id="form-panel" class="px-drawer <?= $editing ? 'open' : '' ?>">
+  <div class="px-drawer-head">
+    <span><?= $editing ? '✏️ Modifier le produit' : '➕ Nouveau produit' ?></span>
+    <button type="button" class="px-drawer-x" onclick="closeForm()" aria-label="Fermer">✕</button>
+  </div>
   <div class="form-panel-card">
     <div class="form-panel-title"><?= $editing ? '<i class="ti ti-edit"></i> Modifier le produit' : '<i class="ti ti-plus"></i> Nouveau produit' ?></div>
     <form method="POST">
@@ -1840,10 +1858,24 @@ function toggleSaisieRapide() {
   if (!open) panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
-function toggleForm() {
-  const p = document.getElementById('form-panel');
-  if (p) { p.style.display = p.style.display === 'none' ? 'block' : 'none'; }
+var PX_EDIT_OPEN = <?= $editing ? 'true' : 'false' ?>;
+function openForm() {
+  var p = document.getElementById('form-panel'), s = document.getElementById('form-scrim');
+  if (p) p.classList.add('open'); if (s) s.classList.add('open');
+  document.body.style.overflow = 'hidden';
 }
+function closeForm() {
+  if (PX_EDIT_OPEN) { window.location.href = 'products.php<?= $filterEmpl?"?emplacement=$filterEmpl":"" ?>'; return; }
+  var p = document.getElementById('form-panel'), s = document.getElementById('form-scrim');
+  if (p) p.classList.remove('open'); if (s) s.classList.remove('open');
+  document.body.style.overflow = '';
+}
+function toggleForm() {
+  var p = document.getElementById('form-panel');
+  if (p && p.classList.contains('open')) closeForm(); else openForm();
+}
+document.addEventListener('keydown', function(e){ if (e.key === 'Escape') { var p=document.getElementById('form-panel'); if (p && p.classList.contains('open')) closeForm(); } });
+document.addEventListener('DOMContentLoaded', function(){ if (PX_EDIT_OPEN) document.body.style.overflow = 'hidden'; });
 
 // ── Vue groupée accordéon ──────────────────────────────
 function toggleGrp(key) {
@@ -1951,10 +1983,8 @@ async function dupliquer(id) {
   const data = await res.json();
   if (data.error) { alert('Produit introuvable.'); return; }
 
-  // Ouvrir le formulaire
-  const panel = document.getElementById('form-panel');
-  if (panel) panel.style.display = 'block';
-  panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  // Ouvrir le tiroir
+  openForm();
 
   // Vider l'ID pour forcer une création
   const idField = document.querySelector('input[name="id"]');
