@@ -458,6 +458,42 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && canEdit()) {
     exit;
 }
 
+// ── Historique d'un lot (traçabilité : mouvements_stock + audit_log) ──
+function produit_historique(PDO $pdo, int $pid): array {
+    $ev = [];
+    $fmtQ = fn($v) => rtrim(rtrim(number_format((float)$v, 2, '.', ''), '0'), '.');
+    try {
+        $st = $pdo->prepare("SELECT ms.type, ms.quantite_avant, ms.quantite_apres, ms.quantite_delta, ms.motif, ms.cree_le,
+                                    TRIM(CONCAT(COALESCE(u.prenom,''),' ',COALESCE(u.nom,''))) AS auteur
+                             FROM mouvements_stock ms LEFT JOIN utilisateurs u ON u.id = ms.user_id
+                             WHERE ms.produit_id = ? ORDER BY ms.cree_le DESC, ms.id DESC LIMIT 40");
+        $st->execute([$pid]);
+        foreach ($st as $r) {
+            $ev[] = ['date'=>$r['cree_le'], 'type'=>'mouvement', 'sens'=>$r['type'],
+                     'titre'=>$r['motif'] ?: ucfirst($r['type']),
+                     'detail'=>$fmtQ($r['quantite_avant']).' → '.$fmtQ($r['quantite_apres']),
+                     'delta'=>(float)$r['quantite_delta'], 'auteur'=>$r['auteur'] ?: 'système'];
+        }
+    } catch (Throwable $e) {}
+    try {
+        $labels = ['CREATION_PRODUIT'=>'Création du lot','MODIF_PRODUIT'=>'Modification',
+                   'MODIF_PEREMPTION'=>'Modif. péremption','ARCHIVAGE_PRODUIT'=>'Archivage',
+                   'RETRAIT_PRODUIT'=>'Retrait du stock','SUPPRESSION_PRODUIT'=>'Suppression',
+                   'RENOUVELLEMENT_LOT'=>'Renouvellement'];
+        $st = $pdo->prepare("SELECT a.action, a.cree_le, TRIM(CONCAT(COALESCE(u.prenom,''),' ',COALESCE(u.nom,''))) AS auteur
+                             FROM audit_log a LEFT JOIN utilisateurs u ON u.id = a.user_id
+                             WHERE a.table_cible='produits' AND a.enregistrement_id = ? ORDER BY a.cree_le DESC, a.id DESC LIMIT 40");
+        $st->execute([$pid]);
+        foreach ($st as $r) {
+            $ev[] = ['date'=>$r['cree_le'], 'type'=>'audit', 'sens'=>'',
+                     'titre'=>$labels[$r['action']] ?? $r['action'], 'detail'=>'',
+                     'delta'=>null, 'auteur'=>$r['auteur'] ?: 'système'];
+        }
+    } catch (Throwable $e) {}
+    usort($ev, fn($a,$b) => strcmp((string)$b['date'], (string)$a['date']));
+    return array_slice($ev, 0, 40);
+}
+
 // ── Édition ───────────────────────────────────────────────
 $editing = null;
 if (isset($_GET['edit'])) {
@@ -465,6 +501,7 @@ if (isset($_GET['edit'])) {
     $stmt->execute([(int)$_GET['edit'], $site_id]);
     $editing = $stmt->fetch(PDO::FETCH_ASSOC);
 }
+$editHistorique = ($editing && action_permise('historique')) ? produit_historique($pdo, (int)$editing['id']) : [];
 
 $renewProduct = null;
 $renewQty = isset($_GET['rq']) ? max(1,(int)$_GET['rq']) : null;
@@ -813,6 +850,21 @@ require_once 'includes/header.php';
   border-bottom: 1px solid var(--border);
 }
 
+/* ── Historique du lot ── */
+.lot-hist { margin-top: 20px; padding-top: 18px; border-top: 1px solid var(--border); }
+.lot-hist-h { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--text2); margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+.lot-hist-empty { font-size: 13px; color: var(--text3); padding: 8px 0; }
+.lot-hist-item { display: flex; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--border); }
+.lot-hist-item:last-of-type { border-bottom: none; }
+.lhi-ic { width: 26px; height: 26px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 13px; flex-shrink: 0; background: var(--bg3); border: 1px solid var(--border); }
+.lhi-main { flex: 1; min-width: 0; }
+.lhi-t { font-weight: 600; font-size: 13px; color: var(--text); }
+.lhi-delta { font-weight: 800; font-variant-numeric: tabular-nums; font-size: 12px; }
+.lhi-delta.up { color: #1D9E75; } .lhi-delta.down { color: #E24B4A; }
+.lhi-d { font-size: 12px; color: var(--text2); margin-top: 1px; font-family: var(--mono); }
+.lhi-m { font-size: 11px; color: var(--text3); margin-top: 1px; }
+.lot-hist-note { font-size: 11px; color: var(--text3); margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--border); }
+
 /* ── Flash messages ── */
 .flash-banner {
   display: flex; align-items: center; gap: 10px;
@@ -1148,6 +1200,29 @@ const SR_EMPLS = <?= json_encode($empl_for_js) ?>;
         <a href="products.php<?= $filterEmpl ? "?emplacement=$filterEmpl" : '' ?>" class="btn btn-ghost">Annuler</a>
       </div>
     </form>
+
+    <?php if ($editing && action_permise('historique')): ?>
+    <div class="lot-hist">
+      <div class="lot-hist-h">🕓 Historique du lot</div>
+      <?php if (empty($editHistorique)): ?>
+        <div class="lot-hist-empty">Aucun mouvement enregistré pour ce lot pour l'instant.</div>
+      <?php else: foreach ($editHistorique as $e):
+        $ic   = $e['type'] === 'mouvement' ? ($e['sens']==='entree'?'📥':($e['sens']==='sortie'?'📤':'🔄')) : '📝';
+        $dcls = $e['delta'] === null ? '' : ((float)$e['delta'] < 0 ? 'down' : 'up');
+        $dtxt = $e['delta'] === null ? '' : (((float)$e['delta'] > 0 ? '+' : '') . rtrim(rtrim(number_format((float)$e['delta'],2,'.',''),'0'),'.'));
+      ?>
+      <div class="lot-hist-item">
+        <span class="lhi-ic"><?= $ic ?></span>
+        <div class="lhi-main">
+          <div class="lhi-t"><?= h($e['titre']) ?><?php if ($dtxt): ?> <span class="lhi-delta <?= $dcls ?>"><?= h($dtxt) ?></span><?php endif; ?></div>
+          <?php if ($e['detail']): ?><div class="lhi-d"><?= h($e['detail']) ?></div><?php endif; ?>
+          <div class="lhi-m"><?= h($e['auteur']) ?> · <?= h(date('d/m/Y H:i', strtotime((string)$e['date']))) ?></div>
+        </div>
+      </div>
+      <?php endforeach; endif; ?>
+      <div class="lot-hist-note">🔒 Section visible selon la permission « Historique » (réglable dans Admin → Accès). Données : audit_log + mouvements_stock.</div>
+    </div>
+    <?php endif; ?>
   </div>
 </div>
 <?php endif; ?>
