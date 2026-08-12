@@ -1040,6 +1040,8 @@ require_once 'includes/header.php';
 .px-drawer-x:hover { border-color:#E24B4A; color:#E24B4A; }
 .px-drawer > .form-panel-card { border:none; border-radius:0; margin:0; overflow-y:auto; flex:1; }
 .px-drawer .form-panel-title { display:none; }
+.px-fsect { background:var(--bg3); border:1px solid var(--border); border-radius:12px; padding:14px 14px 2px; margin-bottom:14px; }
+.px-fsect-h { display:flex; align-items:center; gap:8px; font-size:10.5px; text-transform:uppercase; letter-spacing:.06em; font-weight:800; color:var(--text3); margin-bottom:12px; }
 .px-drawer .form-row3 { grid-template-columns:1fr 1fr; }
 @media (max-width:768px){ .px-drawer{ width:100vw; } }
 .px-createwarn { display:flex; flex-direction:column; gap:6px; margin-bottom:12px; }
@@ -1186,6 +1188,7 @@ const SR_EMPLS = <?= json_encode($empl_for_js) ?>;
       <?php if ($editing): ?><input type="hidden" name="id" value="<?= $editing['id'] ?>"><?php endif; ?>
       <input type="hidden" name="ret" value="<?= (int)($_GET['ret'] ?? 0) ?>">
 
+      <div class="px-fsect"><div class="px-fsect-h">💊 Identification &amp; emplacement</div>
       <div class="form-row">
         <div class="form-group" style="position:relative">
           <label class="form-label" style="display:flex;align-items:center;justify-content:space-between">
@@ -1257,8 +1260,10 @@ const SR_EMPLS = <?= json_encode($empl_for_js) ?>;
           </select>
         </div>
       </div>
+      </div><!-- /sect identification -->
 
       <?php if (currentRole() !== 'saisie'): ?>
+      <div class="px-fsect"><div class="px-fsect-h">🏷️ Lot &amp; traçabilité</div>
       <div class="form-row">
         <div class="form-group">
           <label class="form-label">Référence</label>
@@ -1276,7 +1281,9 @@ const SR_EMPLS = <?= json_encode($empl_for_js) ?>;
                  value="<?= h($editing['gtin'] ?: ($editing['ean'] ?: ($editing['datamatrix'] ?? ''))) ?>" placeholder="Ex : 3400930000000 — utile pour le matériel (seringues…)">
         </div>
       </div>
+      </div><!-- /sect lot -->
 
+      <div class="px-fsect"><div class="px-fsect-h">📦 Stock</div>
       <div class="form-row">
         <div class="form-group">
           <label class="form-label">Quantité</label>
@@ -1303,8 +1310,10 @@ const SR_EMPLS = <?= json_encode($empl_for_js) ?>;
                  value="<?= $editing['alerte_jours'] ?? '30' ?>">
         </div>
       </div>
+      </div><!-- /sect stock -->
       <?php endif; ?>
 
+      <div class="px-fsect"><div class="px-fsect-h">⏱️ Péremption &amp; conservation</div>
       <div class="form-row">
         <div class="form-group">
           <label class="form-label">Date de péremption *</label>
@@ -1342,6 +1351,7 @@ const SR_EMPLS = <?= json_encode($empl_for_js) ?>;
         </div>
       </div>
       <?php endif; ?>
+      </div><!-- /sect peremption -->
 
       <div id="px-createwarn" class="px-createwarn" style="display:none"></div>
       <div style="display:flex;gap:10px;flex-wrap:wrap">
