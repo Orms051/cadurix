@@ -20,12 +20,14 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'autocomplete') {
         $st = $pdo->prepare("
             SELECT DISTINCT p.nom, p.reference, p.unite, p.alerte_jours,
                    p.chaine_froid, p.temp_stockage_min, p.temp_stockage_max,
-                   p.quantite_min, COUNT(*) as nb_stocks, 'stock' as source
+                   p.quantite_min, p.dosage, p.forme, p.gtin, p.ean,
+                   COUNT(*) as nb_stocks, 'stock' as source
             FROM produits p
             JOIN emplacements e ON e.id=p.emplacement_id
             WHERE e.site_id=? AND p.statut='actif' AND p.nom LIKE ?
             GROUP BY p.nom,p.reference,p.unite,p.alerte_jours,p.chaine_froid,
-                     p.temp_stockage_min,p.temp_stockage_max,p.quantite_min
+                     p.temp_stockage_min,p.temp_stockage_max,p.quantite_min,
+                     p.dosage,p.forme,p.gtin,p.ean
             ORDER BY p.nom LIMIT 5
         ");
         $st->execute([$sid, $like]);
@@ -40,7 +42,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'autocomplete') {
                    froid as chaine_froid, temp_min as temp_stockage_min,
                    temp_max as temp_stockage_max, 0 as quantite_min,
                    0 as nb_stocks, 'ref' as source,
-                   forme, dosage, categorie
+                   forme, dosage, categorie, gtin
             FROM medicaments_ref
             WHERE actif=1 AND (nom LIKE ? OR dci LIKE ?)
             ORDER BY nom LIMIT 8
@@ -414,6 +416,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && canEdit()) {
         'reference'         => trim($_POST['reference']      ?? '') ?: null,
         'numero_lot'        => trim($_POST['numero_lot']     ?? '') ?: null,
         'gtin'              => trim($_POST['gtin']           ?? '') ?: null,
+        'ean'               => trim($_POST['ean']            ?? '') ?: null,
+        'datamatrix'        => trim($_POST['datamatrix']     ?? '') ?: null,
+        'dosage'            => trim($_POST['dosage']         ?? '') ?: null,
+        'forme'             => trim($_POST['forme']          ?? '') ?: null,
         'quantite'          => max(0, (float)str_replace(',', '.', $_POST['quantite'] ?? '0')),
         'quantite_min'      => $_POST['quantite_min'] !== '' ? max(0, (float)$_POST['quantite_min']) : 0,
         'unite'             => trim($_POST['unite']          ?? 'unité'),
@@ -445,13 +451,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && canEdit()) {
             $old = $stmt->fetch(PDO::FETCH_ASSOC);
 
             $pdo->prepare("UPDATE produits SET
-                emplacement_id=?, nom=?, reference=?, numero_lot=?, gtin=?,
+                emplacement_id=?, nom=?, dosage=?, forme=?, reference=?, numero_lot=?, gtin=?, ean=?, datamatrix=?,
                 quantite=?, quantite_min=?, unite=?, date_peremption=?,
                 alerte_jours=?, chaine_froid=?, temp_stockage_min=?,
                 temp_stockage_max=?, notes=?, modifie_par=?, modifie_le=NOW()
                 WHERE id=?")
                 ->execute([
-                    $f['emplacement_id'], $f['nom'], $f['reference'], $f['numero_lot'], $f['gtin'],
+                    $f['emplacement_id'], $f['nom'], $f['dosage'], $f['forme'], $f['reference'], $f['numero_lot'], $f['gtin'], $f['ean'], $f['datamatrix'],
                     $f['quantite'], $f['quantite_min'], $f['unite'], $f['date_peremption'],
                     $f['alerte_jours'], $f['chaine_froid'], $f['temp_stockage_min'],
                     $f['temp_stockage_max'], $f['notes'], currentUserId(), $id
@@ -467,9 +473,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && canEdit()) {
             audit_log($pdo, 'MODIF_PRODUIT', 'produits', $id, $old, $f);
             flashSuccess("Produit « {$f['nom']} » mis à jour.");
         } else {
-            $pdo->prepare("INSERT INTO produits (emplacement_id, nom, reference, numero_lot, gtin, quantite, quantite_min, unite, date_peremption, alerte_jours, chaine_froid, temp_stockage_min, temp_stockage_max, notes, cree_par) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
+            $pdo->prepare("INSERT INTO produits (emplacement_id, nom, dosage, forme, reference, numero_lot, gtin, ean, datamatrix, quantite, quantite_min, unite, date_peremption, alerte_jours, chaine_froid, temp_stockage_min, temp_stockage_max, notes, cree_par) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
                 ->execute([
-                    $f['emplacement_id'], $f['nom'], $f['reference'], $f['numero_lot'], $f['gtin'],
+                    $f['emplacement_id'], $f['nom'], $f['dosage'], $f['forme'], $f['reference'], $f['numero_lot'], $f['gtin'], $f['ean'], $f['datamatrix'],
                     $f['quantite'], $f['quantite_min'], $f['unite'], $f['date_peremption'],
                     $f['alerte_jours'], $f['chaine_froid'], $f['temp_stockage_min'],
                     $f['temp_stockage_max'], $f['notes'], currentUserId()
@@ -486,7 +492,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && canEdit()) {
             flashSuccess("Produit « {$f['nom']} » créé.");
         }
     }
-    header('Location: ' . ($ret ? "locations.php?sel=$ret" : 'products.php' . ($filterEmpl ? "?emplacement=$filterEmpl" : '')));
+    if (!empty($_POST['and_another']) && !$id) {
+        header('Location: products.php?new=1' . ($filterEmpl ? "&emplacement=$filterEmpl" : ''));
+    } else {
+        header('Location: ' . ($ret ? "locations.php?sel=$ret" : 'products.php' . ($filterEmpl ? "?emplacement=$filterEmpl" : '')));
+    }
     exit;
 }
 
@@ -534,6 +544,7 @@ if (isset($_GET['edit'])) {
     $editing = $stmt->fetch(PDO::FETCH_ASSOC);
 }
 $editHistorique = ($editing && action_permise('historique')) ? produit_historique($pdo, (int)$editing['id']) : [];
+$openNew = isset($_GET['new']);
 
 $renewProduct = null;
 $renewQty = isset($_GET['rq']) ? max(1,(int)$_GET['rq']) : null;
@@ -1042,6 +1053,28 @@ require_once 'includes/header.php';
 .px-drawer .form-panel-title { display:none; }
 .px-fsect { background:var(--bg3); border:1px solid var(--border); border-radius:12px; padding:14px 14px 2px; margin-bottom:14px; }
 .px-fsect-h { display:flex; align-items:center; gap:8px; font-size:10.5px; text-transform:uppercase; letter-spacing:.06em; font-weight:800; color:var(--text3); margin-bottom:12px; }
+.px-scanbig { width:100%; border:none; background:var(--primary); color:#fff; border-radius:11px; padding:13px; font-size:14px; font-weight:800; display:flex; align-items:center; justify-content:center; gap:8px; cursor:pointer; box-shadow:0 2px 12px var(--primary-glow); }
+.px-scanbig:hover { filter:brightness(1.08); }
+.px-scanhint { text-align:center; font-size:11.5px; color:var(--text2); margin:8px 0 14px; }
+.px-scanbtn { border:1px solid var(--primary); background:var(--primary-bg); color:var(--primary); border-radius:var(--radius-sm); padding:0 13px; font-weight:800; font-size:12.5px; white-space:nowrap; cursor:pointer; }
+.px-scanbtn:hover { background:var(--primary); color:#fff; }
+.px-stepper { display:flex; }
+.px-stepper button { width:38px; border:1px solid var(--border); background:var(--bg2); color:var(--text); font-size:18px; font-weight:700; cursor:pointer; }
+.px-stepper button:first-child { border-radius:var(--radius-sm) 0 0 var(--radius-sm); }
+.px-stepper button:last-child { border-radius:0 var(--radius-sm) var(--radius-sm) 0; }
+.px-stepper input { flex:1; width:100%; text-align:center; border:1px solid var(--border); border-left:none; border-right:none; background:rgba(255,255,255,.05); color:var(--text); font-size:13.5px; font-family:var(--font); font-variant-numeric:tabular-nums; outline:none; }
+.px-stepper button:hover { border-color:var(--primary); color:var(--primary); }
+.px-dotchip { display:inline-block; margin-top:7px; font-size:12px; font-weight:700; padding:3px 9px; border-radius:8px; }
+.px-dotchip.under { color:#E24B4A; background:rgba(226,75,74,.13); }
+.px-dotchip.over  { color:#3B82F6; background:rgba(59,130,246,.13); }
+.px-dotchip.ok    { color:#1D9E75; background:rgba(29,158,117,.13); }
+.px-toggle { display:flex; align-items:center; gap:11px; cursor:pointer; padding:2px 0; }
+.px-sw { width:44px; height:25px; border-radius:20px; background:var(--border2); position:relative; transition:background .2s; flex-shrink:0; }
+.px-sw::after { content:""; position:absolute; top:2.5px; left:2.5px; width:20px; height:20px; border-radius:50%; background:#fff; box-shadow:0 1px 3px rgba(0,0,0,.3); transition:left .2s; }
+.px-sw.on { background:var(--blue,#3B82F6); }
+.px-sw.on::after { left:21.5px; }
+.px-tlab { font-size:13.5px; font-weight:700; color:var(--text); }
+.px-tsub { font-size:11.5px; color:var(--text3); }
 .px-drawer .form-row3 { grid-template-columns:1fr 1fr; }
 @media (max-width:768px){ .px-drawer{ width:100vw; } }
 .px-createwarn { display:flex; flex-direction:column; gap:6px; margin-bottom:12px; }
@@ -1175,8 +1208,8 @@ const SR_EMPLS = <?= json_encode($empl_for_js) ?>;
 
 <!-- FORMULAIRE -->
 <?php if (canEdit()): ?>
-<div class="px-form-scrim <?= $editing ? 'open' : '' ?>" id="form-scrim" onclick="closeForm()"></div>
-<div id="form-panel" class="px-drawer <?= $editing ? 'open' : '' ?>">
+<div class="px-form-scrim <?= ($editing || $openNew) ? 'open' : '' ?>" id="form-scrim" onclick="closeForm()"></div>
+<div id="form-panel" class="px-drawer <?= ($editing || $openNew) ? 'open' : '' ?>">
   <div class="px-drawer-head">
     <span><?= $editing ? '✏️ Modifier le produit' : '➕ Nouveau produit' ?></span>
     <button type="button" class="px-drawer-x" onclick="closeForm()" aria-label="Fermer">✕</button>
@@ -1188,34 +1221,42 @@ const SR_EMPLS = <?= json_encode($empl_for_js) ?>;
       <?php if ($editing): ?><input type="hidden" name="id" value="<?= $editing['id'] ?>"><?php endif; ?>
       <input type="hidden" name="ret" value="<?= (int)($_GET['ret'] ?? 0) ?>">
 
-      <div class="px-fsect"><div class="px-fsect-h">💊 Identification &amp; emplacement</div>
-      <div class="form-row">
+      <?php
+      $scan_photo_ok = false;
+      try { $scan_photo_ok = (bool)$pdo->query("SELECT valeur FROM parametres WHERE cle='scan_photo_actif'")->fetchColumn(); } catch(Exception $e) {}
+      $formeOpts = ['Ampoule','Comprimé','Gélule','Flacon','Poche','Seringue préremplie','Sachet','Suppositoire','Pommade','Spray','Autre'];
+      $uniteOpts = ['unité','ampoule','comprimé','gélule','flacon','poche','seringue','sachet','tube','mL','kit'];
+      ?>
+      <?php if ($scan_photo_ok): ?>
+      <button type="button" class="px-scanbig" onclick="toggleScanPhoto()">📷 Scanner la boîte</button>
+      <div class="px-scanhint">…ou tape le nom ci-dessous : je propose ta base + le catalogue BDPM</div>
+      <?php endif; ?>
+
+      <div class="px-fsect"><div class="px-fsect-h">💊 Identification</div>
         <div class="form-group" style="position:relative">
-          <label class="form-label" style="display:flex;align-items:center;justify-content:space-between">
-            <span>Nom *</span>
-            <?php
-            $scan_photo_ok = false;
-            try { $scan_photo_ok = (bool)$pdo->query("SELECT valeur FROM parametres WHERE cle='scan_photo_actif'")->fetchColumn(); } catch(Exception $e) {}
-            ?>
-            <?php if ($scan_photo_ok): ?>
-            <button type="button" id="btn-scan-photo"
-                    style="display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:7px;
-                           background:var(--primary-bg);border:1px solid rgba(var(--primary-rgb),.3);
-                           color:var(--primary);font-size:11px;font-weight:600;cursor:pointer"
-                    title="Scanner la boîte avec la caméra">
-              📷 Scanner la boîte
-            </button>
-            <?php endif; ?>
-          </label>
+          <label class="form-label">Nom du médicament *</label>
           <input type="text" name="nom" id="nom-input" class="form-control" required
                  value="<?= h($editing['nom'] ?? '') ?>"
-                 placeholder="Ex: Adrénaline 1mg/ml, Doliprane 1000mg…"
+                 placeholder="Ex: Adrénaline, Doliprane…"
                  autocomplete="off" oninput="acNom(this.value)">
           <div id="ac-list"></div>
         </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Dosage</label>
+            <input type="text" name="dosage" class="form-control" value="<?= h($editing['dosage'] ?? '') ?>" placeholder="1 mg / 1 mL">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Forme</label>
+            <select name="forme" class="form-control">
+              <option value="">—</option>
+              <?php foreach ($formeOpts as $fo): ?><option <?= ($editing['forme'] ?? '')===$fo ? 'selected' : '' ?>><?= $fo ?></option><?php endforeach; ?>
+            </select>
+          </div>
+        </div>
 
         <!-- Zone scan photo -->
-        <div id="scan-photo-zone" style="display:none;margin-top:-8px;margin-bottom:16px">
+        <div id="scan-photo-zone" style="display:none;margin-top:6px;margin-bottom:6px">
           <div style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:14px">
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
               <div style="font-size:.82rem;font-weight:600;color:var(--text)">📷 Reconnaissance photo</div>
@@ -1252,64 +1293,67 @@ const SR_EMPLS = <?= json_encode($empl_for_js) ?>;
             </div>
           </div>
         </div>
-        <div class="form-group">
-          <label class="form-label">Emplacement *</label>
-          <select name="emplacement_id" class="form-control" required>
-            <option value="">— Choisir —</option>
-            <?= renderEmplOptions($emplTree, $editing['emplacement_id'] ?? $filterEmpl) ?>
-          </select>
-        </div>
-      </div>
       </div><!-- /sect identification -->
 
       <?php if (currentRole() !== 'saisie'): ?>
       <div class="px-fsect"><div class="px-fsect-h">🏷️ Lot &amp; traçabilité</div>
-      <div class="form-row">
-        <div class="form-group">
-          <label class="form-label">Référence</label>
-          <input type="text" name="reference" class="form-control"
-                 value="<?= h($editing['reference'] ?? '') ?>" placeholder="Code produit…">
-        </div>
         <div class="form-group">
           <label class="form-label">Numéro de lot</label>
-          <input type="text" name="numero_lot" class="form-control"
-                 value="<?= h($editing['numero_lot'] ?? '') ?>" placeholder="LOT2024A…">
+          <div style="display:flex;gap:8px">
+            <input type="text" name="numero_lot" class="form-control" style="flex:1"
+                   value="<?= h($editing['numero_lot'] ?? '') ?>" placeholder="LOT2024A…">
+            <?php if ($scan_photo_ok): ?><button type="button" class="px-scanbtn" onclick="toggleScanPhoto()">🔎 Scanner</button><?php endif; ?>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Code EAN</label>
+            <input type="text" name="ean" class="form-control" value="<?= h($editing['ean'] ?? '') ?>" placeholder="3400930000000">
+          </div>
+          <div class="form-group">
+            <label class="form-label">GTIN</label>
+            <input type="text" name="gtin" class="form-control" value="<?= h($editing['gtin'] ?? '') ?>">
+          </div>
         </div>
         <div class="form-group">
-          <label class="form-label">Code-barres (scan) <span style="font-weight:400;color:var(--text3);font-size:11px">— GTIN / EAN / CIP13</span></label>
-          <input type="text" name="gtin" class="form-control"
-                 value="<?= h($editing['gtin'] ?: ($editing['ean'] ?: ($editing['datamatrix'] ?? ''))) ?>" placeholder="Ex : 3400930000000 — utile pour le matériel (seringues…)">
+          <label class="form-label">DataMatrix (GS1)</label>
+          <input type="text" name="datamatrix" class="form-control" value="<?= h($editing['datamatrix'] ?? '') ?>" placeholder="rempli par le scan">
         </div>
-      </div>
+        <div class="form-group">
+          <label class="form-label">Référence</label>
+          <input type="text" name="reference" class="form-control" value="<?= h($editing['reference'] ?? '') ?>" placeholder="Code produit…">
+        </div>
       </div><!-- /sect lot -->
 
       <div class="px-fsect"><div class="px-fsect-h">📦 Stock</div>
-      <div class="form-row">
-        <div class="form-group">
-          <label class="form-label">Quantité</label>
-          <input type="number" name="quantite" class="form-control" step="0.01" min="0"
-                 value="<?= $editing['quantite'] ?? '0' ?>">
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Quantité</label>
+            <div class="px-stepper">
+              <button type="button" onclick="pxQ(-1)">−</button>
+              <input type="number" name="quantite" id="px-qte" step="0.01" min="0" value="<?= $editing['quantite'] ?? '0' ?>" oninput="pxDotChip()">
+              <button type="button" onclick="pxQ(1)">+</button>
+            </div>
+            <span class="px-dotchip" id="px-dotchip"></span>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Dotation (qté min)</label>
+            <input type="number" name="quantite_min" id="px-dot" class="form-control" step="0.01" min="0" value="<?= $editing['quantite_min'] ?? '0' ?>" oninput="pxDotChip()">
+          </div>
         </div>
-        <div class="form-group">
-          <label class="form-label">Unité</label>
-          <input type="text" name="unite" class="form-control"
-                 value="<?= h($editing['unite'] ?? 'unité') ?>"
-                 placeholder="unité, ampoule, flacon, comprimé…">
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Unité</label>
+            <select name="unite" class="form-control">
+              <?php $cu = $editing['unite'] ?? 'unité'; if ($cu !== '' && !in_array($cu, $uniteOpts, true)) echo '<option selected>'.h($cu).'</option>'; ?>
+              <?php foreach ($uniteOpts as $uo): ?><option <?= $cu===$uo ? 'selected' : '' ?>><?= $uo ?></option><?php endforeach; ?>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Alerter X jours avant péremption</label>
+            <input type="number" name="alerte_jours" class="form-control" min="1" max="365" value="<?= $editing['alerte_jours'] ?? '30' ?>">
+          </div>
         </div>
-      </div>
-
-      <div class="form-row">
-        <div class="form-group">
-          <label class="form-label">Stock minimum (alerte si ≤)</label>
-          <input type="number" name="quantite_min" class="form-control" step="0.01" min="0"
-                 value="<?= $editing['quantite_min'] ?? '0' ?>">
-        </div>
-        <div class="form-group">
-          <label class="form-label">Alerter X jours avant péremption</label>
-          <input type="number" name="alerte_jours" class="form-control" min="1" max="365"
-                 value="<?= $editing['alerte_jours'] ?? '30' ?>">
-        </div>
-      </div>
       </div><!-- /sect stock -->
       <?php endif; ?>
 
@@ -1334,28 +1378,34 @@ const SR_EMPLS = <?= json_encode($empl_for_js) ?>;
       </div>
 
       <?php if (currentRole() !== 'saisie'): ?>
-      <div class="form-row">
-        <div class="form-group">
-          <label class="form-label" style="display:flex;align-items:center;gap:8px">
-            <input type="checkbox" name="chaine_froid" value="1"
-                   <?= ($editing['chaine_froid'] ?? 0) ? 'checked' : '' ?>
-                   style="accent-color:var(--primary)">
-            ❄️ Nécessite la chaîne du froid (2-8°C)
-          </label>
+      <div class="form-group">
+        <div class="px-toggle" onclick="pxToggleCold(event)">
+          <span class="px-sw" id="px-cold-sw"></span>
+          <input type="checkbox" name="chaine_froid" value="1" id="px-cold-cb" <?= ($editing['chaine_froid'] ?? 0) ? 'checked' : '' ?> style="display:none">
+          <div><div class="px-tlab">❄️ Chaîne du froid</div><div class="px-tsub">à conserver entre +2 °C et +8 °C</div></div>
         </div>
-        <div class="form-group">
-          <label class="form-label">Notes</label>
-          <input type="text" name="notes" class="form-control"
-                 value="<?= h($editing['notes'] ?? '') ?>"
-                 placeholder="Informations complémentaires…">
-        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Notes</label>
+        <input type="text" name="notes" class="form-control" value="<?= h($editing['notes'] ?? '') ?>" placeholder="Informations complémentaires…">
       </div>
       <?php endif; ?>
       </div><!-- /sect peremption -->
 
+      <div class="px-fsect"><div class="px-fsect-h">📍 Emplacement</div>
+        <div class="form-group">
+          <label class="form-label">Rangé dans *</label>
+          <select name="emplacement_id" class="form-control" required>
+            <option value="">— Choisir —</option>
+            <?= renderEmplOptions($emplTree, $editing['emplacement_id'] ?? $filterEmpl) ?>
+          </select>
+        </div>
+      </div>
+
       <div id="px-createwarn" class="px-createwarn" style="display:none"></div>
       <div style="display:flex;gap:10px;flex-wrap:wrap">
         <button type="submit" class="btn btn-primary">💾 Enregistrer</button>
+        <?php if (!$editing): ?><button type="submit" name="and_another" value="1" class="btn btn-ghost">＋ Enreg. &amp; suivant</button><?php endif; ?>
         <a href="products.php<?= $filterEmpl ? "?emplacement=$filterEmpl" : '' ?>" class="btn btn-ghost">Annuler</a>
       </div>
     </form>
@@ -1951,7 +2001,7 @@ function toggleForm() {
   if (p && p.classList.contains('open')) closeForm(); else openForm();
 }
 document.addEventListener('keydown', function(e){ if (e.key === 'Escape') { var p=document.getElementById('form-panel'); if (p && p.classList.contains('open')) closeForm(); } });
-document.addEventListener('DOMContentLoaded', function(){ if (PX_EDIT_OPEN) document.body.style.overflow = 'hidden'; });
+document.addEventListener('DOMContentLoaded', function(){ var fp=document.getElementById('form-panel'); if (fp && fp.classList.contains('open')) document.body.style.overflow = 'hidden'; });
 
 // ── Alertes création : boîte périmée + doublon de lot ──
 var PX_EXISTING = <?= json_encode($existingLots ?? [], JSON_UNESCAPED_UNICODE) ?>;
@@ -1972,6 +2022,22 @@ document.addEventListener('DOMContentLoaded', function(){
   var n=document.getElementById('nom-input'); if(n) n.addEventListener('input', pxCheckWarn);
   ['[name="numero_lot"]','[name="date_peremption"]'].forEach(function(sel){var e=document.querySelector(sel); if(e){ e.addEventListener('input', pxCheckWarn); e.addEventListener('change', pxCheckWarn);}});
   pxCheckWarn();
+});
+
+// ── Stepper quantité + pastille dotation + toggle chaîne du froid ──
+function pxQ(n){ var e=document.getElementById('px-qte'); if(!e) return; var v=(parseFloat(e.value)||0)+n; if(v<0)v=0; e.value=(Math.round(v*100)/100); pxDotChip(); }
+function pxDotChip(){ var qe=document.getElementById('px-qte'), de=document.getElementById('px-dot'), c=document.getElementById('px-dotchip'); if(!qe||!de||!c) return;
+  var q=parseFloat(qe.value)||0, d=parseFloat(de.value)||0;
+  if(d<=0){ c.style.display='none'; return; }
+  c.style.display='inline-block';
+  if(q<d){ c.className='px-dotchip under'; c.textContent='▼ sous la dotation ('+(Math.round((d-q)*100)/100)+' manquant)'; }
+  else if(q>d){ c.className='px-dotchip over'; c.textContent='▲ surplus (+'+(Math.round((q-d)*100)/100)+')'; }
+  else { c.className='px-dotchip ok'; c.textContent='✓ dotation atteinte'; }
+}
+function pxToggleCold(e){ if(e) e.stopPropagation(); var cb=document.getElementById('px-cold-cb'), sw=document.getElementById('px-cold-sw'); if(!cb) return; cb.checked=!cb.checked; if(sw) sw.classList.toggle('on', cb.checked); }
+document.addEventListener('DOMContentLoaded', function(){
+  var sw=document.getElementById('px-cold-sw'), cb=document.getElementById('px-cold-cb'); if(sw&&cb) sw.classList.toggle('on', cb.checked);
+  pxDotChip();
 });
 
 // ── Actions groupées (JS) ──
@@ -2042,6 +2108,10 @@ function acSelect(i) {
   list.style.display = 'none';
   // Remplir les autres champs automatiquement
   const fields = {
+    'dosage':            d.dosage,
+    'forme':             d.forme,
+    'ean':               d.ean,
+    'gtin':              d.gtin,
     'unite':             d.unite,
     'alerte_jours':      d.alerte_jours,
     'quantite_min':      d.quantite_min,
@@ -2052,9 +2122,10 @@ function acSelect(i) {
     const el = document.querySelector(`[name="${name}"]`);
     if (el && val !== null && val !== undefined && val !== '') el.value = val;
   });
-  // Chaîne du froid
+  // Chaîne du froid (+ toggle visuel)
   const cf = document.querySelector('[name="chaine_froid"]');
-  if (cf) cf.checked = d.chaine_froid == 1;
+  if (cf) { cf.checked = d.chaine_froid == 1; var sw=document.getElementById('px-cold-sw'); if(sw) sw.classList.toggle('on', cf.checked); }
+  if (typeof pxDotChip === 'function') pxDotChip();
 }
 
 // Navigation clavier dans l'autocomplete
@@ -2234,13 +2305,14 @@ function analyzePhoto(dataUrl, mimeType) {
 }
 
 function applyPhotoData(d) {
-  var fields = { 'nom': d.nom, 'numero_lot': d.numero_lot, 'date_peremption': d.date_peremption, 'unite': d.unite };
+  var fields = { 'nom': d.nom, 'dosage': d.dosage, 'forme': d.forme, 'numero_lot': d.numero_lot, 'date_peremption': d.date_peremption, 'unite': d.unite, 'ean': d.ean, 'gtin': d.gtin, 'datamatrix': d.datamatrix };
   Object.keys(fields).forEach(function(k) {
     var el = document.querySelector('[name="' + k + '"]');
     if (el && fields[k]) el.value = fields[k];
   });
   var cf = document.querySelector('[name="chaine_froid"]');
-  if (cf && d.chaine_froid) cf.checked = true;
+  if (cf && d.chaine_froid) { cf.checked = true; var sw=document.getElementById('px-cold-sw'); if(sw) sw.classList.add('on'); }
+  if (typeof pxDotChip === 'function') pxDotChip();
   if (d.temperature_min) { var tmin = document.querySelector('[name="temp_stockage_min"]'); if (tmin) tmin.value = d.temperature_min; }
   if (d.temperature_max) { var tmax = document.querySelector('[name="temp_stockage_max"]'); if (tmax) tmax.value = d.temperature_max; }
 }
