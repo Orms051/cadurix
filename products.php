@@ -14,12 +14,17 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'parse_gs1') {
     if (trim($raw) === '') { echo json_encode(['error' => 'vide']); exit; }
     $parsed = function_exists('parse_gs1') ? parse_gs1($raw) : ['gtin'=>null,'lot'=>null,'date_exp'=>null];
     $cand   = function_exists('barcode_candidates') ? barcode_candidates($parsed, $raw) : ['ean_brut'=>null];
+    // Retrouver le nom via le référentiel BDPM puis le stock du site
+    $nom = null;
+    if (function_exists('lookup_medicament_ref')) { try { $nom = lookup_medicament_ref($pdo, $cand); } catch (Throwable $e) {} }
+    if (!$nom && function_exists('lookup_stock'))  { try { $s = lookup_stock($pdo, $cand, $site_id); $nom = $s['nom'] ?? null; } catch (Throwable $e) {} }
     echo json_encode([
         'gtin'     => $parsed['gtin']     ?? null,
         'lot'      => $parsed['lot']      ?? null,
         'date_exp' => $parsed['date_exp'] ?? null,
         // EAN seulement si ce n'est PAS un GS1 (sinon c'est du bruit issu du DataMatrix)
         'ean'      => empty($parsed['gtin']) ? ($cand['ean_brut'] ?? null) : null,
+        'nom'      => $nom,
         'raw'      => $raw,
     ]);
     exit;
@@ -114,7 +119,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'saisie_rapide' && $_SERVER['REQUE
     $sid = site_actif();
     $ok = 0; $errors = [];
     $stmt = $pdo->prepare("INSERT INTO produits (emplacement_id,nom,numero_lot,quantite,unite,date_peremption,alerte_jours,chaine_froid,notes,cree_par) VALUES(?,?,?,?,?,?,?,?,?,?)");
-    $stmt_mv = $pdo->prepare("INSERT INTO mouvements_stock (produit_id,user_id,type,quantite_avant,quantite_delta,quantite_apres,motif) VALUES(?,?,0,?,?,'Saisie rapide')");
+    $stmt_mv = $pdo->prepare("INSERT INTO mouvements_stock (produit_id,user_id,type,quantite_avant,quantite_delta,quantite_apres,motif) VALUES(?,?,?,?,?,?,'Saisie rapide')");
     foreach ($data['lignes'] as $i => $l) {
         $nom   = trim($l['nom'] ?? '');
         $empl  = (int)($l['emplacement_id'] ?? 0);
@@ -128,7 +133,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'saisie_rapide' && $_SERVER['REQUE
         $qte  = max(0, (float)str_replace(',', '.', $l['quantite'] ?? '0'));
         $stmt->execute([$empl, $nom, $l['lot']??null, $qte, $l['unite']??'unité', $d, 30, isset($l['froid'])&&$l['froid']?1:0, $l['notes']??null, currentUserId()]);
         $new_id = (int)$pdo->lastInsertId();
-        if ($qte > 0) $stmt_mv->execute([$new_id, currentUserId(), 'entree', $qte, $qte]);
+        if ($qte > 0) $stmt_mv->execute([$new_id, currentUserId(), 'entree', 0, $qte, $qte]);
         audit_log($pdo, 'CREATION_PRODUIT', 'produits', $new_id, null, ['nom'=>$nom,'saisie_rapide'=>true]);
         $ok++;
     }
@@ -1139,7 +1144,7 @@ foreach ($allEmpls as $e) {
   <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
     <?php if (canEdit()): ?>
     <?php if($canCreer): ?><button class="btn btn-primary" id="btn-ajouter" style="display:inline-flex;align-items:center;gap:6px"><i class="ti ti-plus"></i> Ajouter</button><?php endif; ?>
-    <button class="btn btn-ghost" id="btn-saisie-rapide" title="Saisir plusieurs produits d'un coup" style="display:inline-flex;align-items:center;gap:6px"><i class="ti ti-bolt"></i> Saisie rapide</button>
+    <?php if($canCreer): ?><button type="button" class="btn btn-ghost" id="btn-rafale" title="Scanner plusieurs boîtes à la suite" style="display:inline-flex;align-items:center;gap:6px">📷 Scanner en rafale</button><?php endif; ?>
     <?php endif; ?>
     <?php if (peut_faire(ROLE_GESTIONNAIRE)): ?>
     <a href="import.php" class="btn btn-ghost" style="display:inline-flex;align-items:center;gap:6px"><i class="ti ti-file-import"></i> Import</a>
@@ -2071,6 +2076,7 @@ function pxDmParse(v){ clearTimeout(pxDmTimer); var res=document.getElementById(
       .then(function(d){
         if(d.error){ if(res) res.textContent='Code non reconnu — vérifie ou saisis à la main.'; return; }
         var set=function(name,val){ if(!val) return; var el=document.querySelector('[name="'+name+'"]'); if(el) el.value=val; };
+        if(d.nom){ var ni=document.getElementById('nom-input'); if(ni && !ni.value.trim()) ni.value=d.nom; }
         set('numero_lot', d.lot); set('gtin', d.gtin); set('ean', d.ean); set('datamatrix', v);
         if(d.date_exp){ var dp=document.querySelector('[name="date_peremption"]'); if(dp) dp.value=d.date_exp; }
         var parts=[]; if(d.lot)parts.push('lot '+d.lot); if(d.date_exp)parts.push('exp '+d.date_exp.split('-').reverse().join('/')); if(d.gtin)parts.push('GTIN '+d.gtin);
@@ -2377,6 +2383,73 @@ function showPhotoResult(d) {
   result.innerHTML = html;
   result.style.display = 'block';
 }
+</script>
+
+<!-- ═══ Tiroir : Scanner en rafale ═══ -->
+<style>
+.raf-item{display:flex;align-items:center;gap:8px;padding:9px 10px;border:1px solid var(--border);border-radius:10px;margin-bottom:8px;background:var(--bg3)}
+.raf-item .raf-nom{flex:1;min-width:0}
+.raf-line-sub{font-size:11px;color:var(--text3);margin-top:2px}
+.raf-qty{display:flex;align-items:center;gap:3px;flex-shrink:0}
+.raf-qty button{width:26px;height:26px;border:1px solid var(--border);background:var(--bg2);color:var(--text);border-radius:6px;font-weight:700;cursor:pointer}
+.raf-qty input{width:46px;text-align:center;border:1px solid var(--border);border-radius:6px;padding:5px;background:var(--bg2);color:var(--text);font-variant-numeric:tabular-nums;font-family:var(--font)}
+.raf-rm{border:none;background:none;color:var(--text3);font-size:16px;cursor:pointer;flex-shrink:0}
+.raf-rm:hover{color:#E24B4A}
+.raf-empty{text-align:center;color:var(--text3);font-size:12.5px;padding:20px;border:1px dashed var(--border);border-radius:10px}
+</style>
+<div class="px-form-scrim" id="raf-scrim" onclick="closeRafale()"></div>
+<aside class="px-drawer" id="raf-drawer">
+  <div class="px-drawer-head"><span>📷 Scanner en rafale</span><button type="button" class="px-drawer-x" onclick="closeRafale()">✕</button></div>
+  <div class="form-panel-card" style="border:none;border-radius:0;margin:0;overflow-y:auto;flex:1">
+    <div class="px-fsect"><div class="px-fsect-h">📍 Destination</div>
+      <div class="form-group"><label class="form-label">Ranger tout dans *</label>
+        <select id="raf-emp" class="form-control"><option value="">— Choisir —</option><?= renderEmplOptions($emplTree, $filterEmpl) ?></select>
+      </div>
+    </div>
+    <input type="text" id="raf-scan" class="form-control" autocomplete="off" placeholder="📷 Scanne une boîte (DataMatrix / code)…" oninput="rafScan(this.value)">
+    <div class="px-scanhint" id="raf-scanmsg" style="margin:8px 0 14px">Chaque scan ajoute une ligne. Ajuste nom/qté avant de valider.</div>
+    <div id="raf-list"></div>
+    <div style="margin-top:10px"><button type="button" class="btn btn-ghost btn-sm" onclick="rafAddManual()">＋ Ligne manuelle</button></div>
+  </div>
+  <div style="border-top:1px solid var(--border);padding:12px 20px;display:flex;gap:10px;background:var(--bg2)">
+    <button type="button" class="btn btn-ghost" style="flex:1" onclick="closeRafale()">Annuler</button>
+    <button type="button" class="btn btn-primary" style="flex:1" id="raf-validate" onclick="rafValidate()">Valider</button>
+  </div>
+</aside>
+<script>
+var RAF=[], rafTimer=null;
+function rafEsc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function rafEscA(s){return rafEsc(s).replace(/"/g,'&quot;');}
+function openRafale(){ RAF=[]; renderRaf(); document.getElementById('raf-scrim').classList.add('open'); document.getElementById('raf-drawer').classList.add('open'); document.body.style.overflow='hidden'; var s=document.getElementById('raf-scan'); if(s) setTimeout(function(){s.focus();},120); }
+function closeRafale(){ document.getElementById('raf-scrim').classList.remove('open'); document.getElementById('raf-drawer').classList.remove('open'); document.body.style.overflow=''; }
+function rafScan(v){ clearTimeout(rafTimer); v=(v||'').trim(); if(v.length<6) return; rafTimer=setTimeout(function(){
+  fetch('products.php?ajax=parse_gs1',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'code='+encodeURIComponent(v)})
+   .then(function(r){return r.json();}).then(function(d){
+     RAF.push({nom:d.nom||'', lot:d.lot||'', date:d.date_exp||'', qte:1, unite:'unité'});
+     var m=document.getElementById('raf-scanmsg'); if(m) m.innerHTML=(d.nom?('✓ '+rafEsc(d.nom)):'✓ Boîte ajoutée')+(d.lot?(' · lot '+rafEsc(d.lot)):'')+' — scanne la suivante…';
+     renderRaf(); var s=document.getElementById('raf-scan'); if(s){ s.value=''; s.focus(); }
+   }).catch(function(){});
+},200); }
+function rafAddManual(){ RAF.push({nom:'',lot:'',date:'',qte:1,unite:'unité'}); renderRaf(); }
+function rafQty(i,n){ RAF[i].qte=Math.max(1,(parseFloat(RAF[i].qte)||1)+n); renderRaf(); }
+function rafRemove(i){ RAF.splice(i,1); renderRaf(); }
+function renderRaf(){ var el=document.getElementById('raf-list'), vb=document.getElementById('raf-validate'); if(!el) return;
+  if(!RAF.length){ el.innerHTML='<div class="raf-empty">Aucune boîte pour l\'instant. Clique dans le champ ci-dessus et scanne une boîte.</div>'; if(vb) vb.textContent='Valider'; return; }
+  el.innerHTML=RAF.map(function(r,i){ var sub=[]; if(r.lot)sub.push('lot '+r.lot); if(r.date)sub.push('exp '+r.date.split('-').reverse().join('/'));
+    return '<div class="raf-item"><div class="raf-nom"><input type="text" class="form-control" value="'+rafEscA(r.nom)+'" placeholder="Nom du médicament" oninput="RAF['+i+'].nom=this.value"><div class="raf-line-sub">'+rafEsc(sub.join(' · ')||'saisie manuelle')+'</div></div>'
+     +(r.date?'':'<input type="date" class="form-control" style="width:150px" title="Date de péremption" onchange="RAF['+i+'].date=this.value">')
+     +'<div class="raf-qty"><button type="button" onclick="rafQty('+i+',-1)">−</button><input type="number" min="1" value="'+r.qte+'" onchange="RAF['+i+'].qte=Math.max(1,parseFloat(this.value)||1)"><button type="button" onclick="rafQty('+i+',1)">+</button></div>'
+     +'<button type="button" class="raf-rm" title="Retirer" onclick="rafRemove('+i+')">✕</button></div>';
+  }).join(''); if(vb) vb.textContent='Valider '+RAF.length+' ajout'+(RAF.length>1?'s':''); }
+function rafValidate(){ var emp=document.getElementById('raf-emp'), empId=emp?emp.value:''; if(!empId){ alert('Choisis un emplacement de destination.'); return; }
+  var lignes=RAF.filter(function(r){return (r.nom||'').trim() && (r.date||'');}).map(function(r){ return {nom:r.nom.trim(), emplacement_id:empId, date_peremption:r.date, lot:r.lot||'', quantite:r.qte||1, unite:r.unite||'unité', froid:0, notes:''}; });
+  if(!lignes.length){ alert('Aucune ligne valide : il faut au moins un nom + une date de péremption par ligne.'); return; }
+  var vb=document.getElementById('raf-validate'); if(vb){vb.disabled=true;vb.textContent='Enregistrement…';}
+  fetch('products.php?ajax=saisie_rapide',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({lignes:lignes})})
+   .then(function(r){return r.json();}).then(function(d){ if(d.ok!==undefined){ window.location.reload(); } else { alert('Erreur : '+(d.error||'inconnue')); if(vb){vb.disabled=false;renderRaf();} } })
+   .catch(function(){ alert('Erreur réseau'); if(vb){vb.disabled=false;renderRaf();} });
+}
+document.addEventListener('DOMContentLoaded',function(){ var b=document.getElementById('btn-rafale'); if(b) b.addEventListener('click',openRafale); document.addEventListener('keydown',function(e){ if(e.key==='Escape'){ var d=document.getElementById('raf-drawer'); if(d&&d.classList.contains('open')) closeRafale(); } }); });
 </script>
 
 <!-- ═══ Modale : Supprimer un produit ═══ -->
