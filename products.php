@@ -2,9 +2,28 @@
 // © Cadurix v5.4 — Tous droits réservés. Utilisation non autorisée interdite.
 
 require_once 'includes/auth.php';
+@include_once __DIR__ . '/scanner/barcode_lookup.php'; // parse_gs1() / barcode_candidates()
 $site_id = site_actif();
 if (!$site_id) { header('Location: dashboard.php'); exit; }
 $pageTitle = 'Médicaments';
+
+// ── AJAX : parse d'un code DataMatrix / code-barres (GS1) ──
+if (isset($_GET['ajax']) && $_GET['ajax'] === 'parse_gs1') {
+    header('Content-Type: application/json');
+    $raw = (string)($_POST['code'] ?? $_GET['code'] ?? '');
+    if (trim($raw) === '') { echo json_encode(['error' => 'vide']); exit; }
+    $parsed = function_exists('parse_gs1') ? parse_gs1($raw) : ['gtin'=>null,'lot'=>null,'date_exp'=>null];
+    $cand   = function_exists('barcode_candidates') ? barcode_candidates($parsed, $raw) : ['ean_brut'=>null];
+    echo json_encode([
+        'gtin'     => $parsed['gtin']     ?? null,
+        'lot'      => $parsed['lot']      ?? null,
+        'date_exp' => $parsed['date_exp'] ?? null,
+        // EAN seulement si ce n'est PAS un GS1 (sinon c'est du bruit issu du DataMatrix)
+        'ean'      => empty($parsed['gtin']) ? ($cand['ean_brut'] ?? null) : null,
+        'raw'      => $raw,
+    ]);
+    exit;
+}
 
 // ── AJAX autocomplétion ───────────────────────────────────
 if (isset($_GET['ajax']) && $_GET['ajax'] === 'autocomplete') {
@@ -1227,10 +1246,17 @@ const SR_EMPLS = <?= json_encode($empl_for_js) ?>;
       $formeOpts = ['Ampoule','Comprimé','Gélule','Flacon','Poche','Seringue préremplie','Sachet','Suppositoire','Pommade','Spray','Autre'];
       $uniteOpts = ['unité','ampoule','comprimé','gélule','flacon','poche','seringue','sachet','tube','mL','kit'];
       ?>
-      <?php if ($scan_photo_ok): ?>
-      <button type="button" class="px-scanbig" onclick="toggleScanPhoto()">📷 Scanner la boîte</button>
-      <div class="px-scanhint">…ou tape le nom ci-dessous : je propose ta base + le catalogue BDPM</div>
-      <?php endif; ?>
+      <button type="button" class="px-scanbig" onclick="pxScanToggle()">📷 Scanner la boîte</button>
+      <div class="px-scanhint">Scanne le DataMatrix de la boîte (lecteur / copier-coller) — ou tape le nom ci-dessous (ta base + catalogue BDPM).</div>
+      <div class="px-fsect" id="px-scan-dm" style="display:none">
+        <div class="px-fsect-h">📷 Scanner un code (DataMatrix / code-barres)</div>
+        <input type="text" id="px-dm-input" class="form-control" autocomplete="off"
+               placeholder="Scanne ou colle le code de la boîte ici…" oninput="pxDmParse(this.value)">
+        <div class="px-scanhint" id="px-dm-res" style="margin:8px 0 2px">Le lecteur remplit <b>lot</b>, <b>code</b> et <b>péremption</b> tout seul.</div>
+        <?php if ($scan_photo_ok): ?>
+        <div style="text-align:center;margin-top:6px"><button type="button" class="btn btn-ghost btn-xs" onclick="toggleScanPhoto()">📸 …ou reconnaissance photo (IA)</button></div>
+        <?php endif; ?>
+      </div>
 
       <div class="px-fsect"><div class="px-fsect-h">💊 Identification</div>
         <div class="form-group" style="position:relative">
@@ -1302,7 +1328,7 @@ const SR_EMPLS = <?= json_encode($empl_for_js) ?>;
           <div style="display:flex;gap:8px">
             <input type="text" name="numero_lot" class="form-control" style="flex:1"
                    value="<?= h($editing['numero_lot'] ?? '') ?>" placeholder="LOT2024A…">
-            <?php if ($scan_photo_ok): ?><button type="button" class="px-scanbtn" onclick="toggleScanPhoto()">🔎 Scanner</button><?php endif; ?>
+            <button type="button" class="px-scanbtn" onclick="pxScanToggle()">🔎 Scanner</button>
           </div>
         </div>
         <div class="form-row">
@@ -2035,6 +2061,25 @@ function pxDotChip(){ var qe=document.getElementById('px-qte'), de=document.getE
   else { c.className='px-dotchip ok'; c.textContent='✓ dotation atteinte'; }
 }
 function pxToggleCold(e){ if(e) e.stopPropagation(); var cb=document.getElementById('px-cold-cb'), sw=document.getElementById('px-cold-sw'); if(!cb) return; cb.checked=!cb.checked; if(sw) sw.classList.toggle('on', cb.checked); }
+// ── Scan DataMatrix / code-barres (parse GS1 -> remplit lot/code/péremption) ──
+var pxDmTimer=null;
+function pxScanToggle(){ var p=document.getElementById('px-scan-dm'); if(!p) return; var show=(p.style.display==='none'||p.style.display===''); /* toggle */ p.style.display=(p.style.display==='none')?'':'none'; if(p.style.display!=='none'){ var i=document.getElementById('px-dm-input'); if(i){ i.value=''; i.focus(); } } }
+function pxDmParse(v){ clearTimeout(pxDmTimer); var res=document.getElementById('px-dm-res'); v=(v||'').trim(); if(v.length<6) return;
+  pxDmTimer=setTimeout(function(){
+    fetch('products.php?ajax=parse_gs1',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'code='+encodeURIComponent(v)})
+      .then(function(r){return r.json();})
+      .then(function(d){
+        if(d.error){ if(res) res.textContent='Code non reconnu — vérifie ou saisis à la main.'; return; }
+        var set=function(name,val){ if(!val) return; var el=document.querySelector('[name="'+name+'"]'); if(el) el.value=val; };
+        set('numero_lot', d.lot); set('gtin', d.gtin); set('ean', d.ean); set('datamatrix', v);
+        if(d.date_exp){ var dp=document.querySelector('[name="date_peremption"]'); if(dp) dp.value=d.date_exp; }
+        var parts=[]; if(d.lot)parts.push('lot '+d.lot); if(d.date_exp)parts.push('exp '+d.date_exp.split('-').reverse().join('/')); if(d.gtin)parts.push('GTIN '+d.gtin);
+        if(res) res.innerHTML='✓ Reconnu : '+(parts.join(' · ')||'code enregistré');
+        if(typeof pxCheckWarn==='function') pxCheckWarn();
+      })
+      .catch(function(){ if(res) res.textContent='Erreur de lecture.'; });
+  }, 250);
+}
 document.addEventListener('DOMContentLoaded', function(){
   var sw=document.getElementById('px-cold-sw'), cb=document.getElementById('px-cold-cb'); if(sw&&cb) sw.classList.toggle('on', cb.checked);
   pxDotChip();
