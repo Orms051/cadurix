@@ -2,9 +2,28 @@
 // © Cadurix v5.4 — Tous droits réservés. Utilisation non autorisée interdite.
 
 require_once 'includes/auth.php';
+@include_once __DIR__ . '/scanner/barcode_lookup.php'; // parse_gs1() / barcode_candidates()
 $site_id = site_actif();
 if (!$site_id) { header('Location: dashboard.php'); exit; }
 $pageTitle = 'Médicaments';
+
+// ── AJAX : parse d'un code DataMatrix / code-barres (GS1) ──
+if (isset($_GET['ajax']) && $_GET['ajax'] === 'parse_gs1') {
+    header('Content-Type: application/json');
+    $raw = (string)($_POST['code'] ?? $_GET['code'] ?? '');
+    if (trim($raw) === '') { echo json_encode(['error' => 'vide']); exit; }
+    $parsed = function_exists('parse_gs1') ? parse_gs1($raw) : ['gtin'=>null,'lot'=>null,'date_exp'=>null];
+    $cand   = function_exists('barcode_candidates') ? barcode_candidates($parsed, $raw) : ['ean_brut'=>null];
+    echo json_encode([
+        'gtin'     => $parsed['gtin']     ?? null,
+        'lot'      => $parsed['lot']      ?? null,
+        'date_exp' => $parsed['date_exp'] ?? null,
+        // EAN seulement si ce n'est PAS un GS1 (sinon c'est du bruit issu du DataMatrix)
+        'ean'      => empty($parsed['gtin']) ? ($cand['ean_brut'] ?? null) : null,
+        'raw'      => $raw,
+    ]);
+    exit;
+}
 
 // ── AJAX autocomplétion ───────────────────────────────────
 if (isset($_GET['ajax']) && $_GET['ajax'] === 'autocomplete') {
@@ -20,12 +39,14 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'autocomplete') {
         $st = $pdo->prepare("
             SELECT DISTINCT p.nom, p.reference, p.unite, p.alerte_jours,
                    p.chaine_froid, p.temp_stockage_min, p.temp_stockage_max,
-                   p.quantite_min, COUNT(*) as nb_stocks, 'stock' as source
+                   p.quantite_min, p.dosage, p.forme, p.gtin, p.ean,
+                   COUNT(*) as nb_stocks, 'stock' as source
             FROM produits p
             JOIN emplacements e ON e.id=p.emplacement_id
             WHERE e.site_id=? AND p.statut='actif' AND p.nom LIKE ?
             GROUP BY p.nom,p.reference,p.unite,p.alerte_jours,p.chaine_froid,
-                     p.temp_stockage_min,p.temp_stockage_max,p.quantite_min
+                     p.temp_stockage_min,p.temp_stockage_max,p.quantite_min,
+                     p.dosage,p.forme,p.gtin,p.ean
             ORDER BY p.nom LIMIT 5
         ");
         $st->execute([$sid, $like]);
@@ -40,7 +61,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'autocomplete') {
                    froid as chaine_froid, temp_min as temp_stockage_min,
                    temp_max as temp_stockage_max, 0 as quantite_min,
                    0 as nb_stocks, 'ref' as source,
-                   forme, dosage, categorie
+                   forme, dosage, categorie, gtin
             FROM medicaments_ref
             WHERE actif=1 AND (nom LIKE ? OR dci LIKE ?)
             ORDER BY nom LIMIT 8
@@ -229,6 +250,9 @@ $filterEmpl  = (int)($_GET['emplacement'] ?? $_GET['location'] ?? 0);
 $filterStatus= $_GET['status'] ?? '';
 $horizon     = $_GET['horizon'] ?? '1';
 if (!in_array($horizon, ['1','2','3','6','12','all'], true)) $horizon = '1';
+$statutLot   = $_GET['statut_lot'] ?? 'actif';
+if (!in_array($statutLot, ['actif','archive','retire'], true)) $statutLot = 'actif';
+$qSearch     = trim((string)($_GET['q'] ?? ''));
 $sortMap = ['nom'=>'p.nom','lot'=>'p.numero_lot','emplacement'=>'e.nom','qte'=>'p.quantite','peremption'=>'p.date_peremption','statut'=>'p.date_peremption'];
 $sort = $_GET['sort'] ?? 'peremption';
 if (!isset($sortMap[$sort])) $sort = 'peremption';
@@ -242,11 +266,14 @@ $canCreer = action_permise('creer');
 $canDup   = action_permise('dupliquer');
 
 $canArch  = action_permise('archiver');
+$pxBulk   = canEdit() && ($canArch || $canDel);
 if (!function_exists('pf_url')) {
   function pf_url(array $ov): string {
     $base = [
       'emplacement' => $GLOBALS['filterEmpl']  ?? 0 ?: null,
       'status'      => $GLOBALS['filterStatus'] ?? '' ?: null,
+      'statut_lot'  => (($GLOBALS['statutLot'] ?? 'actif') !== 'actif') ? ($GLOBALS['statutLot'] ?? null) : null,
+      'q'           => ($GLOBALS['qSearch'] ?? '') !== '' ? ($GLOBALS['qSearch'] ?? null) : null,
       'horizon'     => $GLOBALS['horizon']      ?? '2',
       'view'        => (($GLOBALS['viewMode'] ?? 'list') !== 'list') ? ($GLOBALS['viewMode'] ?? null) : null,
       'sort'        => (($GLOBALS['sort'] ?? 'peremption') !== 'peremption') ? ($GLOBALS['sort'] ?? null) : null,
@@ -283,6 +310,32 @@ if (isset($_GET['archive']) && action_permise('archiver')) {
         flashSuccess("Produit « {$old['nom']} » archivé.");
     }
     header('Location: products.php' . ($filterEmpl ? "?emplacement=$filterEmpl" : ''));
+    exit;
+}
+
+// ── Actions groupées (archiver / retirer plusieurs lots) ──
+if (($_POST['action'] ?? '') === 'bulk' && !empty($_POST['bulk_ids']) && is_array($_POST['bulk_ids'])) {
+    verifyCsrf();
+    $newStatut = (($_POST['bulk_action'] ?? '') === 'retire') ? 'retire' : 'archive';
+    $needPerm  = $newStatut === 'retire' ? 'supprimer' : 'archiver';
+    if (!action_permise($needPerm)) { flashError("Droit insuffisant pour cette action groupée."); header('Location: products.php'); exit; }
+    $ids = array_filter(array_unique(array_map('intval', $_POST['bulk_ids'])), fn($x) => $x > 0);
+    $n = 0;
+    foreach ($ids as $id) {
+        $stmt = $pdo->prepare("SELECT p.* FROM produits p JOIN emplacements e ON e.id=p.emplacement_id WHERE p.id=? AND e.site_id=?");
+        $stmt->execute([$id, $site_id]);
+        $old = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$old || $old['statut'] === $newStatut) continue;
+        $pdo->prepare("UPDATE produits SET statut=?, modifie_par=? WHERE id=?")->execute([$newStatut, currentUserId(), $id]);
+        audit_log($pdo, $newStatut === 'retire' ? 'RETRAIT_PRODUIT' : 'ARCHIVAGE_PRODUIT', 'produits', $id, $old, ['statut'=>$newStatut, 'masse'=>true]);
+        try {
+            $pdo->prepare("INSERT INTO mouvements_stock (produit_id,user_id,type,quantite_avant,quantite_delta,quantite_apres,motif) VALUES(?,?,'sortie',?,?,0,?)")
+                ->execute([$id, currentUserId(), $old['quantite'], -$old['quantite'], $newStatut === 'retire' ? 'Retrait (action groupée)' : 'Archivage (action groupée)']);
+        } catch (Throwable $e) {}
+        $n++;
+    }
+    flashSuccess($n . ' lot(s) ' . ($newStatut === 'retire' ? 'retiré(s)' : 'archivé(s)') . ' en une fois.');
+    header('Location: ' . pf_url([]));
     exit;
 }
 
@@ -382,6 +435,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && canEdit()) {
         'reference'         => trim($_POST['reference']      ?? '') ?: null,
         'numero_lot'        => trim($_POST['numero_lot']     ?? '') ?: null,
         'gtin'              => trim($_POST['gtin']           ?? '') ?: null,
+        'ean'               => trim($_POST['ean']            ?? '') ?: null,
+        'datamatrix'        => trim($_POST['datamatrix']     ?? '') ?: null,
+        'dosage'            => trim($_POST['dosage']         ?? '') ?: null,
+        'forme'             => trim($_POST['forme']          ?? '') ?: null,
         'quantite'          => max(0, (float)str_replace(',', '.', $_POST['quantite'] ?? '0')),
         'quantite_min'      => $_POST['quantite_min'] !== '' ? max(0, (float)$_POST['quantite_min']) : 0,
         'unite'             => trim($_POST['unite']          ?? 'unité'),
@@ -413,13 +470,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && canEdit()) {
             $old = $stmt->fetch(PDO::FETCH_ASSOC);
 
             $pdo->prepare("UPDATE produits SET
-                emplacement_id=?, nom=?, reference=?, numero_lot=?, gtin=?,
+                emplacement_id=?, nom=?, dosage=?, forme=?, reference=?, numero_lot=?, gtin=?, ean=?, datamatrix=?,
                 quantite=?, quantite_min=?, unite=?, date_peremption=?,
                 alerte_jours=?, chaine_froid=?, temp_stockage_min=?,
                 temp_stockage_max=?, notes=?, modifie_par=?, modifie_le=NOW()
                 WHERE id=?")
                 ->execute([
-                    $f['emplacement_id'], $f['nom'], $f['reference'], $f['numero_lot'], $f['gtin'],
+                    $f['emplacement_id'], $f['nom'], $f['dosage'], $f['forme'], $f['reference'], $f['numero_lot'], $f['gtin'], $f['ean'], $f['datamatrix'],
                     $f['quantite'], $f['quantite_min'], $f['unite'], $f['date_peremption'],
                     $f['alerte_jours'], $f['chaine_froid'], $f['temp_stockage_min'],
                     $f['temp_stockage_max'], $f['notes'], currentUserId(), $id
@@ -435,9 +492,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && canEdit()) {
             audit_log($pdo, 'MODIF_PRODUIT', 'produits', $id, $old, $f);
             flashSuccess("Produit « {$f['nom']} » mis à jour.");
         } else {
-            $pdo->prepare("INSERT INTO produits (emplacement_id, nom, reference, numero_lot, gtin, quantite, quantite_min, unite, date_peremption, alerte_jours, chaine_froid, temp_stockage_min, temp_stockage_max, notes, cree_par) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
+            $pdo->prepare("INSERT INTO produits (emplacement_id, nom, dosage, forme, reference, numero_lot, gtin, ean, datamatrix, quantite, quantite_min, unite, date_peremption, alerte_jours, chaine_froid, temp_stockage_min, temp_stockage_max, notes, cree_par) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
                 ->execute([
-                    $f['emplacement_id'], $f['nom'], $f['reference'], $f['numero_lot'], $f['gtin'],
+                    $f['emplacement_id'], $f['nom'], $f['dosage'], $f['forme'], $f['reference'], $f['numero_lot'], $f['gtin'], $f['ean'], $f['datamatrix'],
                     $f['quantite'], $f['quantite_min'], $f['unite'], $f['date_peremption'],
                     $f['alerte_jours'], $f['chaine_froid'], $f['temp_stockage_min'],
                     $f['temp_stockage_max'], $f['notes'], currentUserId()
@@ -454,8 +511,48 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && canEdit()) {
             flashSuccess("Produit « {$f['nom']} » créé.");
         }
     }
-    header('Location: ' . ($ret ? "locations.php?sel=$ret" : 'products.php' . ($filterEmpl ? "?emplacement=$filterEmpl" : '')));
+    if (!empty($_POST['and_another']) && !$id) {
+        header('Location: products.php?new=1' . ($filterEmpl ? "&emplacement=$filterEmpl" : ''));
+    } else {
+        header('Location: ' . ($ret ? "locations.php?sel=$ret" : 'products.php' . ($filterEmpl ? "?emplacement=$filterEmpl" : '')));
+    }
     exit;
+}
+
+// ── Historique d'un lot (traçabilité : mouvements_stock + audit_log) ──
+function produit_historique(PDO $pdo, int $pid): array {
+    $ev = [];
+    $fmtQ = fn($v) => rtrim(rtrim(number_format((float)$v, 2, '.', ''), '0'), '.');
+    try {
+        $st = $pdo->prepare("SELECT ms.type, ms.quantite_avant, ms.quantite_apres, ms.quantite_delta, ms.motif, ms.cree_le,
+                                    TRIM(CONCAT(COALESCE(u.prenom,''),' ',COALESCE(u.nom,''))) AS auteur
+                             FROM mouvements_stock ms LEFT JOIN utilisateurs u ON u.id = ms.user_id
+                             WHERE ms.produit_id = ? ORDER BY ms.cree_le DESC, ms.id DESC LIMIT 40");
+        $st->execute([$pid]);
+        foreach ($st as $r) {
+            $ev[] = ['date'=>$r['cree_le'], 'type'=>'mouvement', 'sens'=>$r['type'],
+                     'titre'=>$r['motif'] ?: ucfirst($r['type']),
+                     'detail'=>$fmtQ($r['quantite_avant']).' → '.$fmtQ($r['quantite_apres']),
+                     'delta'=>(float)$r['quantite_delta'], 'auteur'=>$r['auteur'] ?: 'système'];
+        }
+    } catch (Throwable $e) {}
+    try {
+        $labels = ['CREATION_PRODUIT'=>'Création du lot','MODIF_PRODUIT'=>'Modification',
+                   'MODIF_PEREMPTION'=>'Modif. péremption','ARCHIVAGE_PRODUIT'=>'Archivage',
+                   'RETRAIT_PRODUIT'=>'Retrait du stock','SUPPRESSION_PRODUIT'=>'Suppression',
+                   'RENOUVELLEMENT_LOT'=>'Renouvellement'];
+        $st = $pdo->prepare("SELECT a.action, a.cree_le, TRIM(CONCAT(COALESCE(u.prenom,''),' ',COALESCE(u.nom,''))) AS auteur
+                             FROM audit_log a LEFT JOIN utilisateurs u ON u.id = a.user_id
+                             WHERE a.table_cible='produits' AND a.enregistrement_id = ? ORDER BY a.cree_le DESC, a.id DESC LIMIT 40");
+        $st->execute([$pid]);
+        foreach ($st as $r) {
+            $ev[] = ['date'=>$r['cree_le'], 'type'=>'audit', 'sens'=>'',
+                     'titre'=>$labels[$r['action']] ?? $r['action'], 'detail'=>'',
+                     'delta'=>null, 'auteur'=>$r['auteur'] ?: 'système'];
+        }
+    } catch (Throwable $e) {}
+    usort($ev, fn($a,$b) => strcmp((string)$b['date'], (string)$a['date']));
+    return array_slice($ev, 0, 40);
 }
 
 // ── Édition ───────────────────────────────────────────────
@@ -465,6 +562,8 @@ if (isset($_GET['edit'])) {
     $stmt->execute([(int)$_GET['edit'], $site_id]);
     $editing = $stmt->fetch(PDO::FETCH_ASSOC);
 }
+$editHistorique = ($editing && action_permise('historique')) ? produit_historique($pdo, (int)$editing['id']) : [];
+$openNew = isset($_GET['new']);
 
 $renewProduct = null;
 $renewQty = isset($_GET['rq']) ? max(1,(int)$_GET['rq']) : null;
@@ -483,8 +582,9 @@ if ($filterEmpl) {
 }
 
 // ── Liste produits ────────────────────────────────────────
-$where  = "WHERE p.statut = 'actif' AND $fs AND $fe";
+$where  = "WHERE p.statut = '$statutLot' AND $fs AND $fe";
 $params = [];
+if ($qSearch !== '')              { $where .= ' AND (p.nom LIKE ? OR p.numero_lot LIKE ? OR p.reference LIKE ?)';        $like='%'.$qSearch.'%'; array_push($params,$like,$like,$like); }
 if ($filterEmpl)                  { $where .= ' AND p.emplacement_id=?';                                                $params[] = $filterEmpl; }
 if ($filterStatus === 'expired')  { $where .= ' AND p.date_peremption < CURDATE()'; }
 if ($filterStatus === 'critical') { $where .= ' AND p.date_peremption >= CURDATE() AND DATEDIFF(p.date_peremption,CURDATE()) <= 7'; }
@@ -558,6 +658,22 @@ foreach ($allEmpls as $e) {
     if ($e['parent_id'] === null) $emplsParent[] = $e;
     else $emplsChild[] = $e;
 }
+$cntStatut = ['actif'=>0,'archive'=>0,'retire'=>0];
+try {
+    $emplCond = $filterEmpl ? ' AND p.emplacement_id='.(int)$filterEmpl : '';
+    foreach ($pdo->query("SELECT p.statut, COUNT(*) c FROM produits p JOIN emplacements e ON e.id=p.emplacement_id WHERE $fs AND $fe$emplCond GROUP BY p.statut") as $r) {
+        if (isset($cntStatut[$r['statut']])) $cntStatut[$r['statut']] = (int)$r['c'];
+    }
+} catch (Throwable $e) {}
+// Lots actifs existants (détection de doublon à la création)
+$existingLots = [];
+try {
+    $stEx = $pdo->prepare("SELECT p.nom, p.numero_lot, p.quantite, e.nom AS loc FROM produits p JOIN emplacements e ON e.id=p.emplacement_id WHERE p.statut='actif' AND $fs AND $fe");
+    $stEx->execute();
+    foreach ($stEx as $r) {
+        if (!empty($r['numero_lot'])) $existingLots[] = ['nom'=>mb_strtolower($r['nom']),'lot'=>mb_strtolower($r['numero_lot']),'qte'=>$r['quantite'],'loc'=>$r['loc'],'nomAff'=>$r['nom']];
+    }
+} catch (Throwable $e) {}
 $total         = $pdo->query("SELECT COUNT(*) FROM produits p JOIN emplacements e ON e.id=p.emplacement_id WHERE p.statut='actif' AND $fs AND $fe")->fetchColumn();
 $totalCold     = $pdo->query("SELECT COUNT(*) FROM produits p JOIN emplacements e ON e.id=p.emplacement_id WHERE p.statut='actif' AND p.chaine_froid=1 AND $fs AND $fe")->fetchColumn();
 $totalLowStock = $pdo->query("SELECT COUNT(*) FROM produits p JOIN emplacements e ON e.id=p.emplacement_id WHERE p.statut='actif' AND p.quantite_min>0 AND p.quantite<=p.quantite_min AND $fs AND $fe")->fetchColumn();
@@ -813,6 +929,21 @@ require_once 'includes/header.php';
   border-bottom: 1px solid var(--border);
 }
 
+/* ── Historique du lot ── */
+.lot-hist { margin-top: 20px; padding-top: 18px; border-top: 1px solid var(--border); }
+.lot-hist-h { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--text2); margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+.lot-hist-empty { font-size: 13px; color: var(--text3); padding: 8px 0; }
+.lot-hist-item { display: flex; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--border); }
+.lot-hist-item:last-of-type { border-bottom: none; }
+.lhi-ic { width: 26px; height: 26px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 13px; flex-shrink: 0; background: var(--bg3); border: 1px solid var(--border); }
+.lhi-main { flex: 1; min-width: 0; }
+.lhi-t { font-weight: 600; font-size: 13px; color: var(--text); }
+.lhi-delta { font-weight: 800; font-variant-numeric: tabular-nums; font-size: 12px; }
+.lhi-delta.up { color: #1D9E75; } .lhi-delta.down { color: #E24B4A; }
+.lhi-d { font-size: 12px; color: var(--text2); margin-top: 1px; font-family: var(--mono); }
+.lhi-m { font-size: 11px; color: var(--text3); margin-top: 1px; }
+.lot-hist-note { font-size: 11px; color: var(--text3); margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--border); }
+
 /* ── Flash messages ── */
 .flash-banner {
   display: flex; align-items: center; gap: 10px;
@@ -860,6 +991,124 @@ require_once 'includes/header.php';
   .kpi-strip { grid-template-columns: 1fr 1fr; }
   .kpi-value { font-size: 26px !important; }
 }
+
+/* ══════════════════════════════════════
+   Refonte liste (look démo) — préfixe px-
+══════════════════════════════════════ */
+.px-toolbar { display:flex; align-items:center; gap:10px; margin-bottom:11px; flex-wrap:wrap; }
+.px-tabs { display:inline-flex; background:var(--bg3); border:1px solid var(--border); border-radius:11px; padding:3px; }
+.px-tab { border:none; background:none; color:var(--text2); font-size:13px; font-weight:700; padding:7px 13px; border-radius:8px; display:flex; align-items:center; gap:7px; text-decoration:none; }
+.px-tab .c { font-size:11px; font-weight:800; background:var(--bg2); color:var(--text3); border:1px solid var(--border); border-radius:20px; padding:1px 7px; }
+.px-tab.on { background:var(--bg2); color:var(--primary); box-shadow:0 2px 10px rgba(0,0,0,.06); }
+.px-tab.on .c { background:rgba(var(--primary-rgb),.12); color:var(--primary); border-color:transparent; }
+.px-viewtog { display:inline-flex; background:var(--bg3); border:1px solid var(--border); border-radius:10px; padding:3px; }
+.px-viewtog a { border:none; background:none; color:var(--text2); font-size:12.5px; font-weight:700; padding:6px 12px; border-radius:7px; display:flex; align-items:center; gap:6px; text-decoration:none; }
+.px-viewtog a.on { background:var(--bg2); color:var(--primary); box-shadow:0 2px 10px rgba(0,0,0,.06); }
+.px-search { flex:1; min-width:160px; max-width:300px; display:flex; align-items:center; gap:8px; background:var(--bg2); border:1px solid var(--border); border-radius:9px; padding:7px 12px; }
+.px-search:focus-within { border-color:var(--primary); }
+.px-search input { flex:1; background:none; border:none; outline:none; font-size:13px; color:var(--text); font-family:var(--font); }
+.px-selbox { display:flex; align-items:center; gap:7px; background:var(--bg2); border:1px solid var(--border); border-radius:9px; padding:7px 11px; font-size:12.5px; color:var(--text2); font-weight:700; }
+.px-selbox select { border:none; background:none; color:var(--text); font-family:var(--font); font-size:12.5px; font-weight:700; outline:none; }
+.px-fbtn { display:inline-flex; align-items:center; gap:7px; border:1px solid var(--border); background:var(--bg2); color:var(--text2); border-radius:9px; padding:7px 13px; font-size:12.5px; font-weight:700; cursor:pointer; }
+.px-fbtn:hover { border-color:var(--primary); color:var(--primary); }
+.px-fbtn.has { border-color:var(--primary); color:var(--primary); background:rgba(var(--primary-rgb),.07); }
+.px-fbtn .n { background:var(--primary); color:#fff; font-size:10px; font-weight:800; border-radius:20px; padding:1px 7px; }
+.px-quick { display:flex; align-items:center; gap:9px; margin-bottom:14px; flex-wrap:wrap; }
+.px-chip { display:inline-flex; align-items:center; gap:6px; border:1px solid var(--border); background:var(--bg2); color:var(--text2); border-radius:20px; padding:7px 13px; font-size:12.5px; font-weight:700; text-decoration:none; }
+.px-chip:hover { border-color:var(--text3); }
+.px-chip.on { border-color:var(--primary); color:var(--primary); background:rgba(var(--primary-rgb),.07); }
+.px-chip .c { font-size:10px; background:var(--bg3); border-radius:20px; padding:0 6px; color:var(--text3); }
+.px-chip.on .c { background:rgba(var(--primary-rgb),.12); color:var(--primary); }
+.px-res { margin-left:auto; font-size:12.5px; color:var(--text2); }
+.px-res b { color:var(--text); }
+.px-panel { position:relative; }
+.px-panel-drop { position:absolute; top:calc(100% + 8px); right:0; width:320px; background:var(--bg2); border:1px solid var(--border); border-radius:14px; box-shadow:0 20px 50px rgba(0,0,0,.18); z-index:50; padding:15px 16px; display:none; }
+.px-panel-drop.open { display:block; }
+.px-panel-drop h4 { font-size:10.5px; text-transform:uppercase; letter-spacing:.07em; color:var(--text3); font-weight:800; margin:14px 0 8px; }
+.px-panel-drop h4:first-child { margin-top:0; }
+.px-prow { display:flex; flex-wrap:wrap; gap:7px; }
+.px-tchip { display:inline-flex; align-items:center; gap:5px; border:1px solid var(--border); background:var(--bg); color:var(--text2); border-radius:20px; padding:6px 11px; font-size:12px; font-weight:700; text-decoration:none; }
+.px-tchip.on { border-color:var(--primary); color:var(--primary); background:rgba(var(--primary-rgb),.07); }
+
+/* Tableau look démo */
+.px-card { background:var(--bg2); border:1px solid var(--border); border-radius:16px; overflow:hidden; }
+.px-tbl { width:100%; border-collapse:collapse; font-size:13.5px; }
+.px-tbl thead th { padding:12px 16px; text-align:left; font-size:10.5px; font-weight:800; letter-spacing:.5px; text-transform:uppercase; color:var(--text3); white-space:nowrap; border-bottom:1px solid var(--border2); background:var(--bg3); }
+.px-tbl thead th.r { text-align:right; }
+.px-tbl td { padding:11px 16px; border-bottom:1px solid var(--border); vertical-align:middle; }
+.px-tbl tbody tr { cursor:pointer; transition:background .12s; }
+.px-tbl tbody tr:last-child td { border-bottom:none; }
+.px-tbl tbody tr:hover td { background:var(--bg3); }
+.px-tbl td.r { text-align:right; }
+.px-prod { display:flex; align-items:center; gap:11px; }
+.px-pico { width:36px; height:36px; border-radius:10px; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+.px-pname { font-weight:700; color:var(--text); }
+.px-pdose { font-size:11.5px; color:var(--text3); }
+.px-cold { color:#3B82F6; margin-left:5px; font-size:12px; }
+.px-nocode { color:var(--text3); margin-left:5px; font-size:12px; }
+.px-loc { color:var(--text2); font-size:12.5px; }
+.px-mono { font-family:var(--mono); font-variant-numeric:tabular-nums; font-size:12.5px; }
+.px-qbadge { display:inline-flex; align-items:center; gap:5px; font-weight:800; font-size:13px; padding:3px 10px; border-radius:8px; font-variant-numeric:tabular-nums; }
+.px-q-under { color:#E24B4A; background:rgba(226,75,74,.13); }
+.px-q-over  { color:#3B82F6; background:rgba(59,130,246,.13); }
+.px-q-ok    { color:#1D9E75; background:rgba(29,158,117,.13); }
+.px-badge { display:inline-flex; align-items:center; gap:4px; padding:3px 9px; border-radius:20px; font-size:11px; font-weight:700; white-space:nowrap; border:1px solid transparent; }
+.px-b-crit { background:rgba(226,75,74,.14); color:#E24B4A; border-color:rgba(226,75,74,.24); }
+.px-b-warn { background:rgba(239,159,39,.16); color:#C77C06; border-color:rgba(239,159,39,.25); }
+.px-b-ok   { background:rgba(29,158,117,.14); color:#1D9E75; border-color:rgba(29,158,117,.22); }
+.px-b-mut  { background:rgba(107,114,128,.15); color:#9CA3AF; border-color:rgba(107,114,128,.22); }
+.px-actions { display:flex; gap:4px; justify-content:flex-end; }
+@media (max-width: 768px) { .px-tbl { display:none; } .px-toolbar, .px-quick { overflow-x:auto; } }
+
+/* Édition en tiroir */
+.px-form-scrim { position:fixed; inset:0; background:rgba(30,42,74,.28); backdrop-filter:blur(4px); -webkit-backdrop-filter:blur(4px); opacity:0; pointer-events:none; transition:opacity .25s; z-index:900; }
+.px-form-scrim.open { opacity:1; pointer-events:auto; }
+.px-drawer { position:fixed; top:0; right:0; bottom:0; width:min(560px,96vw); background:var(--bg2); border-left:1px solid var(--border); box-shadow:-20px 0 60px rgba(0,0,0,.20); transform:translateX(103%); transition:transform .3s cubic-bezier(.4,0,.2,1); z-index:901; display:flex; flex-direction:column; }
+.px-drawer.open { transform:none; }
+.px-drawer-head { display:flex; align-items:center; justify-content:space-between; padding:16px 20px; border-bottom:1px solid var(--border); font-size:16px; font-weight:800; color:var(--text); flex-shrink:0; }
+.px-drawer-x { width:32px; height:32px; border-radius:9px; border:1px solid var(--border); background:var(--bg2); color:var(--text2); font-size:15px; cursor:pointer; display:flex; align-items:center; justify-content:center; }
+.px-drawer-x:hover { border-color:#E24B4A; color:#E24B4A; }
+.px-drawer > .form-panel-card { border:none; border-radius:0; margin:0; overflow-y:auto; flex:1; }
+.px-drawer .form-panel-title { display:none; }
+.px-fsect { background:var(--bg3); border:1px solid var(--border); border-radius:12px; padding:14px 14px 2px; margin-bottom:14px; }
+.px-fsect-h { display:flex; align-items:center; gap:8px; font-size:10.5px; text-transform:uppercase; letter-spacing:.06em; font-weight:800; color:var(--text3); margin-bottom:12px; }
+.px-scanbig { width:100%; border:none; background:var(--primary); color:#fff; border-radius:11px; padding:13px; font-size:14px; font-weight:800; display:flex; align-items:center; justify-content:center; gap:8px; cursor:pointer; box-shadow:0 2px 12px var(--primary-glow); }
+.px-scanbig:hover { filter:brightness(1.08); }
+.px-scanhint { text-align:center; font-size:11.5px; color:var(--text2); margin:8px 0 14px; }
+.px-scanbtn { border:1px solid var(--primary); background:var(--primary-bg); color:var(--primary); border-radius:var(--radius-sm); padding:0 13px; font-weight:800; font-size:12.5px; white-space:nowrap; cursor:pointer; }
+.px-scanbtn:hover { background:var(--primary); color:#fff; }
+.px-stepper { display:flex; }
+.px-stepper button { width:38px; border:1px solid var(--border); background:var(--bg2); color:var(--text); font-size:18px; font-weight:700; cursor:pointer; }
+.px-stepper button:first-child { border-radius:var(--radius-sm) 0 0 var(--radius-sm); }
+.px-stepper button:last-child { border-radius:0 var(--radius-sm) var(--radius-sm) 0; }
+.px-stepper input { flex:1; width:100%; text-align:center; border:1px solid var(--border); border-left:none; border-right:none; background:rgba(255,255,255,.05); color:var(--text); font-size:13.5px; font-family:var(--font); font-variant-numeric:tabular-nums; outline:none; }
+.px-stepper button:hover { border-color:var(--primary); color:var(--primary); }
+.px-dotchip { display:inline-block; margin-top:7px; font-size:12px; font-weight:700; padding:3px 9px; border-radius:8px; }
+.px-dotchip.under { color:#E24B4A; background:rgba(226,75,74,.13); }
+.px-dotchip.over  { color:#3B82F6; background:rgba(59,130,246,.13); }
+.px-dotchip.ok    { color:#1D9E75; background:rgba(29,158,117,.13); }
+.px-toggle { display:flex; align-items:center; gap:11px; cursor:pointer; padding:2px 0; }
+.px-sw { width:44px; height:25px; border-radius:20px; background:var(--border2); position:relative; transition:background .2s; flex-shrink:0; }
+.px-sw::after { content:""; position:absolute; top:2.5px; left:2.5px; width:20px; height:20px; border-radius:50%; background:#fff; box-shadow:0 1px 3px rgba(0,0,0,.3); transition:left .2s; }
+.px-sw.on { background:var(--blue,#3B82F6); }
+.px-sw.on::after { left:21.5px; }
+.px-tlab { font-size:13.5px; font-weight:700; color:var(--text); }
+.px-tsub { font-size:11.5px; color:var(--text3); }
+.px-drawer .form-row3 { grid-template-columns:1fr 1fr; }
+@media (max-width:768px){ .px-drawer{ width:100vw; } }
+.px-createwarn { display:flex; flex-direction:column; gap:6px; margin-bottom:12px; }
+.px-cw { padding:9px 12px; border-radius:9px; font-size:12.5px; font-weight:600; line-height:1.35; }
+.px-cw-per { background:rgba(226,75,74,.13); color:#E24B4A; }
+.px-cw-lot { background:rgba(239,159,39,.15); color:#C77C06; }
+.px-selcol { width:36px; text-align:center; }
+.px-rowchk, #px-selall { width:15px; height:15px; accent-color:var(--primary); cursor:pointer; }
+.px-bulkbar { display:none; align-items:center; gap:10px; margin-bottom:12px; padding:9px 14px; background:rgba(var(--primary-rgb),.07); border:1px solid rgba(var(--primary-rgb),.25); border-radius:11px; }
+.px-bulkbar.on { display:flex; }
+.px-bulk-n { font-size:12.5px; font-weight:800; color:var(--primary); }
+.px-bulk-act { border:1px solid var(--border); background:var(--bg2); color:var(--text); border-radius:8px; padding:6px 11px; font-size:12px; font-weight:700; cursor:pointer; }
+.px-bulk-act:hover { border-color:var(--primary); color:var(--primary); }
+.px-bulk-act.danger:hover { border-color:#E24B4A; color:#E24B4A; }
+.px-bulk-clear { margin-left:auto; background:none; border:none; color:var(--text3); font-weight:700; font-size:12px; text-decoration:underline; cursor:pointer; }
 </style>
 
 <?php
@@ -978,7 +1227,12 @@ const SR_EMPLS = <?= json_encode($empl_for_js) ?>;
 
 <!-- FORMULAIRE -->
 <?php if (canEdit()): ?>
-<div id="form-panel" style="<?= $editing ? '' : 'display:none;' ?>margin-bottom:20px;">
+<div class="px-form-scrim <?= ($editing || $openNew) ? 'open' : '' ?>" id="form-scrim" onclick="closeForm()"></div>
+<div id="form-panel" class="px-drawer <?= ($editing || $openNew) ? 'open' : '' ?>">
+  <div class="px-drawer-head">
+    <span><?= $editing ? '✏️ Modifier le produit' : '➕ Nouveau produit' ?></span>
+    <button type="button" class="px-drawer-x" onclick="closeForm()" aria-label="Fermer">✕</button>
+  </div>
   <div class="form-panel-card">
     <div class="form-panel-title"><?= $editing ? '<i class="ti ti-edit"></i> Modifier le produit' : '<i class="ti ti-plus"></i> Nouveau produit' ?></div>
     <form method="POST">
@@ -986,33 +1240,49 @@ const SR_EMPLS = <?= json_encode($empl_for_js) ?>;
       <?php if ($editing): ?><input type="hidden" name="id" value="<?= $editing['id'] ?>"><?php endif; ?>
       <input type="hidden" name="ret" value="<?= (int)($_GET['ret'] ?? 0) ?>">
 
-      <div class="form-row">
+      <?php
+      $scan_photo_ok = false;
+      try { $scan_photo_ok = (bool)$pdo->query("SELECT valeur FROM parametres WHERE cle='scan_photo_actif'")->fetchColumn(); } catch(Exception $e) {}
+      $formeOpts = ['Ampoule','Comprimé','Gélule','Flacon','Poche','Seringue préremplie','Sachet','Suppositoire','Pommade','Spray','Autre'];
+      $uniteOpts = ['unité','ampoule','comprimé','gélule','flacon','poche','seringue','sachet','tube','mL','kit'];
+      ?>
+      <button type="button" class="px-scanbig" onclick="pxScanToggle()">📷 Scanner la boîte</button>
+      <div class="px-scanhint">Scanne le DataMatrix de la boîte (lecteur / copier-coller) — ou tape le nom ci-dessous (ta base + catalogue BDPM).</div>
+      <div class="px-fsect" id="px-scan-dm" style="display:none">
+        <div class="px-fsect-h">📷 Scanner un code (DataMatrix / code-barres)</div>
+        <input type="text" id="px-dm-input" class="form-control" autocomplete="off"
+               placeholder="Scanne ou colle le code de la boîte ici…" oninput="pxDmParse(this.value)">
+        <div class="px-scanhint" id="px-dm-res" style="margin:8px 0 2px">Le lecteur remplit <b>lot</b>, <b>code</b> et <b>péremption</b> tout seul.</div>
+        <?php if ($scan_photo_ok): ?>
+        <div style="text-align:center;margin-top:6px"><button type="button" class="btn btn-ghost btn-xs" onclick="toggleScanPhoto()">📸 …ou reconnaissance photo (IA)</button></div>
+        <?php endif; ?>
+      </div>
+
+      <div class="px-fsect"><div class="px-fsect-h">💊 Identification</div>
         <div class="form-group" style="position:relative">
-          <label class="form-label" style="display:flex;align-items:center;justify-content:space-between">
-            <span>Nom *</span>
-            <?php
-            $scan_photo_ok = false;
-            try { $scan_photo_ok = (bool)$pdo->query("SELECT valeur FROM parametres WHERE cle='scan_photo_actif'")->fetchColumn(); } catch(Exception $e) {}
-            ?>
-            <?php if ($scan_photo_ok): ?>
-            <button type="button" id="btn-scan-photo"
-                    style="display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:7px;
-                           background:var(--primary-bg);border:1px solid rgba(var(--primary-rgb),.3);
-                           color:var(--primary);font-size:11px;font-weight:600;cursor:pointer"
-                    title="Scanner la boîte avec la caméra">
-              📷 Scanner la boîte
-            </button>
-            <?php endif; ?>
-          </label>
+          <label class="form-label">Nom du médicament *</label>
           <input type="text" name="nom" id="nom-input" class="form-control" required
                  value="<?= h($editing['nom'] ?? '') ?>"
-                 placeholder="Ex: Adrénaline 1mg/ml, Doliprane 1000mg…"
+                 placeholder="Ex: Adrénaline, Doliprane…"
                  autocomplete="off" oninput="acNom(this.value)">
           <div id="ac-list"></div>
         </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Dosage</label>
+            <input type="text" name="dosage" class="form-control" value="<?= h($editing['dosage'] ?? '') ?>" placeholder="1 mg / 1 mL">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Forme</label>
+            <select name="forme" class="form-control">
+              <option value="">—</option>
+              <?php foreach ($formeOpts as $fo): ?><option <?= ($editing['forme'] ?? '')===$fo ? 'selected' : '' ?>><?= $fo ?></option><?php endforeach; ?>
+            </select>
+          </div>
+        </div>
 
         <!-- Zone scan photo -->
-        <div id="scan-photo-zone" style="display:none;margin-top:-8px;margin-bottom:16px">
+        <div id="scan-photo-zone" style="display:none;margin-top:6px;margin-bottom:6px">
           <div style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:14px">
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
               <div style="font-size:.82rem;font-weight:600;color:var(--text)">📷 Reconnaissance photo</div>
@@ -1049,62 +1319,71 @@ const SR_EMPLS = <?= json_encode($empl_for_js) ?>;
             </div>
           </div>
         </div>
-        <div class="form-group">
-          <label class="form-label">Emplacement *</label>
-          <select name="emplacement_id" class="form-control" required>
-            <option value="">— Choisir —</option>
-            <?= renderEmplOptions($emplTree, $editing['emplacement_id'] ?? $filterEmpl) ?>
-          </select>
-        </div>
-      </div>
+      </div><!-- /sect identification -->
 
       <?php if (currentRole() !== 'saisie'): ?>
-      <div class="form-row">
-        <div class="form-group">
-          <label class="form-label">Référence</label>
-          <input type="text" name="reference" class="form-control"
-                 value="<?= h($editing['reference'] ?? '') ?>" placeholder="Code produit…">
-        </div>
+      <div class="px-fsect"><div class="px-fsect-h">🏷️ Lot &amp; traçabilité</div>
         <div class="form-group">
           <label class="form-label">Numéro de lot</label>
-          <input type="text" name="numero_lot" class="form-control"
-                 value="<?= h($editing['numero_lot'] ?? '') ?>" placeholder="LOT2024A…">
+          <div style="display:flex;gap:8px">
+            <input type="text" name="numero_lot" class="form-control" style="flex:1"
+                   value="<?= h($editing['numero_lot'] ?? '') ?>" placeholder="LOT2024A…">
+            <button type="button" class="px-scanbtn" onclick="pxScanToggle()">🔎 Scanner</button>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Code EAN</label>
+            <input type="text" name="ean" class="form-control" value="<?= h($editing['ean'] ?? '') ?>" placeholder="3400930000000">
+          </div>
+          <div class="form-group">
+            <label class="form-label">GTIN</label>
+            <input type="text" name="gtin" class="form-control" value="<?= h($editing['gtin'] ?? '') ?>">
+          </div>
         </div>
         <div class="form-group">
-          <label class="form-label">Code-barres (scan) <span style="font-weight:400;color:var(--text3);font-size:11px">— GTIN / EAN / CIP13</span></label>
-          <input type="text" name="gtin" class="form-control"
-                 value="<?= h($editing['gtin'] ?: ($editing['ean'] ?: ($editing['datamatrix'] ?? ''))) ?>" placeholder="Ex : 3400930000000 — utile pour le matériel (seringues…)">
+          <label class="form-label">DataMatrix (GS1)</label>
+          <input type="text" name="datamatrix" class="form-control" value="<?= h($editing['datamatrix'] ?? '') ?>" placeholder="rempli par le scan">
         </div>
-      </div>
+        <div class="form-group">
+          <label class="form-label">Référence</label>
+          <input type="text" name="reference" class="form-control" value="<?= h($editing['reference'] ?? '') ?>" placeholder="Code produit…">
+        </div>
+      </div><!-- /sect lot -->
 
-      <div class="form-row">
-        <div class="form-group">
-          <label class="form-label">Quantité</label>
-          <input type="number" name="quantite" class="form-control" step="0.01" min="0"
-                 value="<?= $editing['quantite'] ?? '0' ?>">
+      <div class="px-fsect"><div class="px-fsect-h">📦 Stock</div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Quantité</label>
+            <div class="px-stepper">
+              <button type="button" onclick="pxQ(-1)">−</button>
+              <input type="number" name="quantite" id="px-qte" step="0.01" min="0" value="<?= $editing['quantite'] ?? '0' ?>" oninput="pxDotChip()">
+              <button type="button" onclick="pxQ(1)">+</button>
+            </div>
+            <span class="px-dotchip" id="px-dotchip"></span>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Dotation (qté min)</label>
+            <input type="number" name="quantite_min" id="px-dot" class="form-control" step="0.01" min="0" value="<?= $editing['quantite_min'] ?? '0' ?>" oninput="pxDotChip()">
+          </div>
         </div>
-        <div class="form-group">
-          <label class="form-label">Unité</label>
-          <input type="text" name="unite" class="form-control"
-                 value="<?= h($editing['unite'] ?? 'unité') ?>"
-                 placeholder="unité, ampoule, flacon, comprimé…">
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Unité</label>
+            <select name="unite" class="form-control">
+              <?php $cu = $editing['unite'] ?? 'unité'; if ($cu !== '' && !in_array($cu, $uniteOpts, true)) echo '<option selected>'.h($cu).'</option>'; ?>
+              <?php foreach ($uniteOpts as $uo): ?><option <?= $cu===$uo ? 'selected' : '' ?>><?= $uo ?></option><?php endforeach; ?>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Alerter X jours avant péremption</label>
+            <input type="number" name="alerte_jours" class="form-control" min="1" max="365" value="<?= $editing['alerte_jours'] ?? '30' ?>">
+          </div>
         </div>
-      </div>
-
-      <div class="form-row">
-        <div class="form-group">
-          <label class="form-label">Stock minimum (alerte si ≤)</label>
-          <input type="number" name="quantite_min" class="form-control" step="0.01" min="0"
-                 value="<?= $editing['quantite_min'] ?? '0' ?>">
-        </div>
-        <div class="form-group">
-          <label class="form-label">Alerter X jours avant péremption</label>
-          <input type="number" name="alerte_jours" class="form-control" min="1" max="365"
-                 value="<?= $editing['alerte_jours'] ?? '30' ?>">
-        </div>
-      </div>
+      </div><!-- /sect stock -->
       <?php endif; ?>
 
+      <div class="px-fsect"><div class="px-fsect-h">⏱️ Péremption &amp; conservation</div>
       <div class="form-row">
         <div class="form-group">
           <label class="form-label">Date de péremption *</label>
@@ -1125,29 +1404,60 @@ const SR_EMPLS = <?= json_encode($empl_for_js) ?>;
       </div>
 
       <?php if (currentRole() !== 'saisie'): ?>
-      <div class="form-row">
-        <div class="form-group">
-          <label class="form-label" style="display:flex;align-items:center;gap:8px">
-            <input type="checkbox" name="chaine_froid" value="1"
-                   <?= ($editing['chaine_froid'] ?? 0) ? 'checked' : '' ?>
-                   style="accent-color:var(--primary)">
-            ❄️ Nécessite la chaîne du froid (2-8°C)
-          </label>
-        </div>
-        <div class="form-group">
-          <label class="form-label">Notes</label>
-          <input type="text" name="notes" class="form-control"
-                 value="<?= h($editing['notes'] ?? '') ?>"
-                 placeholder="Informations complémentaires…">
+      <div class="form-group">
+        <div class="px-toggle" onclick="pxToggleCold(event)">
+          <span class="px-sw" id="px-cold-sw"></span>
+          <input type="checkbox" name="chaine_froid" value="1" id="px-cold-cb" <?= ($editing['chaine_froid'] ?? 0) ? 'checked' : '' ?> style="display:none">
+          <div><div class="px-tlab">❄️ Chaîne du froid</div><div class="px-tsub">à conserver entre +2 °C et +8 °C</div></div>
         </div>
       </div>
+      <div class="form-group">
+        <label class="form-label">Notes</label>
+        <input type="text" name="notes" class="form-control" value="<?= h($editing['notes'] ?? '') ?>" placeholder="Informations complémentaires…">
+      </div>
       <?php endif; ?>
+      </div><!-- /sect peremption -->
 
+      <div class="px-fsect"><div class="px-fsect-h">📍 Emplacement</div>
+        <div class="form-group">
+          <label class="form-label">Rangé dans *</label>
+          <select name="emplacement_id" class="form-control" required>
+            <option value="">— Choisir —</option>
+            <?= renderEmplOptions($emplTree, $editing['emplacement_id'] ?? $filterEmpl) ?>
+          </select>
+        </div>
+      </div>
+
+      <div id="px-createwarn" class="px-createwarn" style="display:none"></div>
       <div style="display:flex;gap:10px;flex-wrap:wrap">
         <button type="submit" class="btn btn-primary">💾 Enregistrer</button>
+        <?php if (!$editing): ?><button type="submit" name="and_another" value="1" class="btn btn-ghost">＋ Enreg. &amp; suivant</button><?php endif; ?>
         <a href="products.php<?= $filterEmpl ? "?emplacement=$filterEmpl" : '' ?>" class="btn btn-ghost">Annuler</a>
       </div>
     </form>
+
+    <?php if ($editing && action_permise('historique')): ?>
+    <div class="lot-hist">
+      <div class="lot-hist-h">🕓 Historique du lot</div>
+      <?php if (empty($editHistorique)): ?>
+        <div class="lot-hist-empty">Aucun mouvement enregistré pour ce lot pour l'instant.</div>
+      <?php else: foreach ($editHistorique as $e):
+        $ic   = $e['type'] === 'mouvement' ? ($e['sens']==='entree'?'📥':($e['sens']==='sortie'?'📤':'🔄')) : '📝';
+        $dcls = $e['delta'] === null ? '' : ((float)$e['delta'] < 0 ? 'down' : 'up');
+        $dtxt = $e['delta'] === null ? '' : (((float)$e['delta'] > 0 ? '+' : '') . rtrim(rtrim(number_format((float)$e['delta'],2,'.',''),'0'),'.'));
+      ?>
+      <div class="lot-hist-item">
+        <span class="lhi-ic"><?= $ic ?></span>
+        <div class="lhi-main">
+          <div class="lhi-t"><?= h($e['titre']) ?><?php if ($dtxt): ?> <span class="lhi-delta <?= $dcls ?>"><?= h($dtxt) ?></span><?php endif; ?></div>
+          <?php if ($e['detail']): ?><div class="lhi-d"><?= h($e['detail']) ?></div><?php endif; ?>
+          <div class="lhi-m"><?= h($e['auteur']) ?> · <?= h(date('d/m/Y H:i', strtotime((string)$e['date']))) ?></div>
+        </div>
+      </div>
+      <?php endforeach; endif; ?>
+      <div class="lot-hist-note">🔒 Section visible selon la permission « Historique » (réglable dans Admin → Accès). Données : audit_log + mouvements_stock.</div>
+    </div>
+    <?php endif; ?>
   </div>
 </div>
 <?php endif; ?>
@@ -1160,66 +1470,79 @@ $nbWarning  = count(array_filter($products, fn($p) => (int)$p['days_left'] > 7  
 $nbOk       = count(array_filter($products, fn($p) => (int)$p['days_left'] > 30));
 ?>
 
-<!-- KPI STRIP -->
-<div class="kpi-strip">
-  <a href="products.php<?= $filterEmpl?"?emplacement=$filterEmpl":'' ?>" class="kpi-card kpi-muted" style="text-decoration:none">
-    <div class="kpi-icon">💊</div>
-    <div class="kpi-value"><?= $total ?></div>
-    <div class="kpi-label">Total produits</div>
-  </a>
-  <a href="products.php?status=expired<?= $filterEmpl?"&emplacement=$filterEmpl":'' ?>" class="kpi-card <?= $nbExpired>0?'kpi-danger':'kpi-muted' ?>" style="text-decoration:none">
-    <div class="kpi-icon">💀</div>
-    <div class="kpi-value"><?= $nbExpired ?></div>
-    <div class="kpi-label">Périmés</div>
-  </a>
-  <a href="products.php?status=critical<?= $filterEmpl?"&emplacement=$filterEmpl":'' ?>" class="kpi-card <?= $nbCritical>0?'kpi-warn':'kpi-muted' ?>" style="text-decoration:none">
-    <div class="kpi-icon">⚠️</div>
-    <div class="kpi-value"><?= $nbCritical ?></div>
-    <div class="kpi-label">Critiques (&lt;7j)</div>
-  </a>
-  <a href="products.php?status=ok<?= $filterEmpl?"&emplacement=$filterEmpl":'' ?>" class="kpi-card kpi-ok" style="text-decoration:none">
-    <div class="kpi-icon">✅</div>
-    <div class="kpi-value"><?= $nbOk ?></div>
-    <div class="kpi-label">En règle</div>
-  </a>
+<!-- BARRE D'OUTILS (look démo) -->
+<?php
+$advStatuses = ['critical','warning','ok','cold','nocode'];
+$advActive = (in_array($filterStatus,$advStatuses,true)?1:0) + ($horizon!=='1'?1:0);
+?>
+<div class="px-toolbar">
+  <div class="px-viewtog">
+    <a href="<?= h(pf_url(['view'=>null])) ?>"     class="<?= $viewMode!=='grouped'?'on':'' ?>">☰ Liste</a>
+    <a href="<?= h(pf_url(['view'=>'grouped'])) ?>" class="<?= $viewMode==='grouped'?'on':'' ?>">🗂️ Par produit</a>
+  </div>
+  <div class="px-tabs">
+    <a href="<?= h(pf_url(['statut_lot'=>'actif'])) ?>"   class="px-tab <?= $statutLot==='actif'?'on':'' ?>">Actifs <span class="c"><?= $cntStatut['actif'] ?></span></a>
+    <a href="<?= h(pf_url(['statut_lot'=>'archive'])) ?>" class="px-tab <?= $statutLot==='archive'?'on':'' ?>">Archivés <span class="c"><?= $cntStatut['archive'] ?></span></a>
+    <a href="<?= h(pf_url(['statut_lot'=>'retire'])) ?>"  class="px-tab <?= $statutLot==='retire'?'on':'' ?>">Retirés <span class="c"><?= $cntStatut['retire'] ?></span></a>
+  </div>
+  <form class="px-search" method="get" action="products.php">
+    <span aria-hidden="true">🔎</span>
+    <input type="text" name="q" value="<?= h($qSearch) ?>" placeholder="Nom, lot, réf…" autocomplete="off">
+    <?php if ($statutLot!=='actif'): ?><input type="hidden" name="statut_lot" value="<?= h($statutLot) ?>"><?php endif; ?>
+    <?php if ($filterEmpl): ?><input type="hidden" name="emplacement" value="<?= (int)$filterEmpl ?>"><?php endif; ?>
+    <?php if ($viewMode==='grouped'): ?><input type="hidden" name="view" value="grouped"><?php endif; ?>
+    <?php if ($horizon!=='1'): ?><input type="hidden" name="horizon" value="<?= h($horizon) ?>"><?php endif; ?>
+  </form>
+  <div class="px-selbox">↕
+    <select onchange="if(this.value)location.href=this.value">
+      <?php foreach (['peremption'=>'Péremption','nom'=>'Nom','qte'=>'Quantité','emplacement'=>'Emplacement','lot'=>'Lot'] as $sk=>$sl): ?>
+      <option value="<?= h(pf_url(['sort'=>$sk])) ?>" <?= $sort===$sk?'selected':'' ?>><?= $sl ?></option>
+      <?php endforeach; ?>
+    </select>
+  </div>
+  <div class="px-panel">
+    <button type="button" class="px-fbtn <?= $advActive?'has':'' ?>" onclick="pxTogglePanel(event)">⚙️ Filtres <?php if($advActive): ?><span class="n"><?= $advActive ?></span><?php endif; ?></button>
+    <div class="px-panel-drop" id="px-panel" onclick="event.stopPropagation()">
+      <h4>⏱️ Péremption</h4>
+      <div class="px-prow">
+        <a href="<?= h(pf_url(['status'=>''])) ?>"         class="px-tchip <?= !$filterStatus?'on':'' ?>">Tous</a>
+        <a href="<?= h(pf_url(['status'=>'critical'])) ?>" class="px-tchip <?= $filterStatus==='critical'?'on':'' ?>">⚠️ Critiques</a>
+        <a href="<?= h(pf_url(['status'=>'warning'])) ?>"  class="px-tchip <?= $filterStatus==='warning'?'on':'' ?>">🟡 Avertissement</a>
+        <a href="<?= h(pf_url(['status'=>'ok'])) ?>"       class="px-tchip <?= $filterStatus==='ok'?'on':'' ?>">✅ OK</a>
+      </div>
+      <h4>Horizon (péremption à venir)</h4>
+      <div class="px-prow">
+        <?php foreach (['1'=>'≤ 1 mois','2'=>'≤ 2 mois','3'=>'≤ 3 mois','6'=>'≤ 6 mois','12'=>'≤ 12 mois','all'=>'📦 Tout'] as $hk=>$hl): ?>
+        <a href="<?= h(pf_url(['horizon'=>$hk])) ?>" class="px-tchip <?= $horizon===$hk?'on':'' ?>"><?= $hl ?></a>
+        <?php endforeach; ?>
+      </div>
+      <h4>📦 État / données</h4>
+      <div class="px-prow">
+        <a href="<?= h(pf_url(['status'=>'cold'])) ?>"   class="px-tchip <?= $filterStatus==='cold'?'on':'' ?>">❄️ Chaîne du froid</a>
+        <a href="<?= h(pf_url(['status'=>'nocode','horizon'=>'all'])) ?>" class="px-tchip <?= $filterStatus==='nocode'?'on':'' ?>">📷 Sans code</a>
+      </div>
+    </div>
+  </div>
 </div>
 
-<!-- FILTRES -->
-<div class="filters-wrap">
-  <div class="filter-view-toggle">
-    <a href="?<?= http_build_query(array_merge($_GET,['view'=>'list'])) ?>"
-       style="background:<?= $viewMode!=='grouped'?'var(--primary)':'transparent' ?>;color:<?= $viewMode!=='grouped'?'#fff':'var(--text2)' ?>">
-      <i class="ti ti-list" style="font-size:13px"></i> Liste
-    </a>
-    <a href="?<?= http_build_query(array_merge($_GET,['view'=>'grouped'])) ?>"
-       style="background:<?= $viewMode==='grouped'?'var(--primary)':'transparent' ?>;color:<?= $viewMode==='grouped'?'#fff':'var(--text2)' ?>">
-      <i class="ti ti-stack-2" style="font-size:13px"></i> Par produit
-    </a>
+<div class="px-quick">
+  <a href="<?= h(pf_url(['status'=>$filterStatus==='expired'?'':'expired'])) ?>"  class="px-chip <?= $filterStatus==='expired'?'on':'' ?>">💀 Périmés <span class="c"><?= $nbExpired ?></span></a>
+  <a href="<?= h(pf_url(['status'=>$filterStatus==='lowstock'?'':'lowstock'])) ?>" class="px-chip <?= $filterStatus==='lowstock'?'on':'' ?>">📦 Stock bas <span class="c"><?= (int)$totalLowStock ?></span></a>
+  <div class="px-selbox">📍
+    <select onchange="if(this.value)location.href=this.value">
+      <option value="<?= h(pf_url(['emplacement'=>0])) ?>" <?= !$filterEmpl?'selected':'' ?>>Tous les sacs / PUI</option>
+      <?php foreach ($allEmpls as $e): $lbl=($e['parent_nom']?$e['parent_nom'].' › ':'').$e['nom']; ?>
+      <option value="<?= h(pf_url(['emplacement'=>$e['id']])) ?>" <?= $filterEmpl==$e['id']?'selected':'' ?>><?= h($lbl) ?></option>
+      <?php endforeach; ?>
+    </select>
   </div>
-  <div class="hz-select">
-    <span class="hz-lbl">⏱️ Horizon</span>
-    <a href="<?= pf_url(['horizon'=>'1'])  ?>" class="hz-chip <?= $horizon==='1' ?'active':'' ?>">1 mois</a>
-    <a href="<?= pf_url(['horizon'=>'2'])  ?>" class="hz-chip <?= $horizon==='2' ?'active':'' ?>">2 mois</a>
-    <a href="<?= pf_url(['horizon'=>'3'])  ?>" class="hz-chip <?= $horizon==='3' ?'active':'' ?>">3 mois</a>
-    <a href="<?= pf_url(['horizon'=>'6'])  ?>" class="hz-chip <?= $horizon==='6' ?'active':'' ?>">6 mois</a>
-    <a href="<?= pf_url(['horizon'=>'12']) ?>" class="hz-chip <?= $horizon==='12'?'active':'' ?>">12 mois</a>
-    <a href="<?= pf_url(['horizon'=>'all'])?>" class="hz-chip <?= $horizon==='all'?'active':'' ?>">📦 Tout le stock</a>
-  </div>
-  <a href="<?= pf_url(['status'=>'']) ?>"         class="filter-chip <?= !$filterStatus?'active':'' ?>">Tous (<?= count($products) ?>)</a>
-  <a href="<?= pf_url(['status'=>'expired']) ?>"  class="filter-chip chip-danger <?= $filterStatus==='expired' ?'active':'' ?>">💀 Périmés</a>
-  <a href="<?= pf_url(['status'=>'critical']) ?>" class="filter-chip chip-warn   <?= $filterStatus==='critical'?'active':'' ?>">⚠️ Critiques</a>
-  <a href="<?= pf_url(['status'=>'warning']) ?>"  class="filter-chip chip-warn   <?= $filterStatus==='warning' ?'active':'' ?>">🟡 Avertissement</a>
-  <a href="<?= pf_url(['status'=>'ok']) ?>"       class="filter-chip chip-ok     <?= $filterStatus==='ok'      ?'active':'' ?>">✅ OK</a>
-  <?php if ($totalCold > 0): ?>
-  <a href="<?= pf_url(['status'=>'cold']) ?>" class="filter-chip <?= $filterStatus==='cold'?'active':'' ?>">❄️ Froid (<?= $totalCold ?>)</a>
-  <?php endif; ?>
-  <?php if ($totalLowStock > 0): ?>
-  <a href="<?= pf_url(['status'=>'lowstock']) ?>" class="filter-chip chip-warn <?= $filterStatus==='lowstock'?'active':'' ?>">📦 Stock bas (<?= $totalLowStock ?>)</a>
-  <?php endif; ?>
-  <?php if ($nbNocode > 0 || $filterStatus==='nocode'): ?>
-  <a href="<?= pf_url(['status'=>'nocode','horizon'=>'all']) ?>" class="filter-chip <?= $filterStatus==='nocode'?'active':'' ?>">📷 Sans code (<?= $nbNocode ?>)</a>
-  <?php endif; ?>
+  <?php if($pxBulk && $nbExpired>0): ?><button type="button" class="px-chip" onclick="pxSelectPerimes()">💀 Sélectionner les périmés</button><?php endif; ?>
+  <span class="px-res"><b><?= count($products) ?></b> résultat<?= count($products)>1?'s':'' ?></span>
 </div>
+<script>
+function pxTogglePanel(e){ e.stopPropagation(); document.getElementById('px-panel').classList.toggle('open'); }
+document.addEventListener('click', function(){ var p=document.getElementById('px-panel'); if(p) p.classList.remove('open'); });
+</script>
 
 <?php if ($viewMode === 'grouped'): ?>
 <!-- VUE GROUPÉE ─────────────────────────────────────────-->
@@ -1319,6 +1642,18 @@ if (empty($grouped)): ?>
 
 <?php else: ?>
 <!-- TABLEAU LISTE ───────────────────────────────────────-->
+<?php if ($pxBulk): ?>
+<form id="px-bulk-form" method="post" action="<?= h(pf_url([])) ?>">
+<?= csrfField() ?>
+<input type="hidden" name="action" value="bulk">
+<input type="hidden" name="bulk_action" id="px-bulk-action" value="archive">
+<div class="px-bulkbar" id="px-bulkbar">
+  <span class="px-bulk-n" id="px-bulk-n">0 sélectionné</span>
+  <?php if($canArch): ?><button type="button" class="px-bulk-act" onclick="pxBulk('archive')">📥 Archiver</button><?php endif; ?>
+  <?php if($canDel): ?><button type="button" class="px-bulk-act danger" onclick="pxBulk('retire')">🗑️ Retirer</button><?php endif; ?>
+  <button type="button" class="px-bulk-clear" onclick="pxClearSel()">Désélectionner</button>
+</div>
+<?php endif; ?>
 <div class="products-wrap">
   <div class="products-header">
     <div class="products-header-title">
@@ -1338,68 +1673,64 @@ if (empty($grouped)): ?>
   </div>
   <?php else: ?>
   <div class="table-wrap">
-    <table class="products-table">
+    <table class="px-tbl">
       <thead>
         <tr>
-          <?= psort_th('nom','Produit') ?>
-          <?= psort_th('lot','Lot / Réf','hide-mobile') ?>
-          <?= psort_th('emplacement','Emplacement') ?>
-          <?= psort_th('qte','Qté') ?>
-          <?= psort_th('peremption','Péremption') ?>
-          <?= psort_th('statut','Statut') ?>
+          <?php if($pxBulk): ?><th class="px-selcol"><input type="checkbox" id="px-selall" onclick="pxSelAll(this)" title="Tout sélectionner"></th><?php endif; ?>
+          <th>Produit</th>
+          <th>Emplacement</th>
+          <th>Lot</th>
+          <th>Péremption</th>
+          <th class="r">Dotation</th>
+          <th class="r">Qté</th>
+          <th>Statut</th>
           <?php if (canEdit()): ?><th></th><?php endif; ?>
         </tr>
       </thead>
       <tbody>
-      <?php foreach ($products as $p):
+      <?php
+      $pxPalette = ['#E24B4A','#F97316','#F59E0B','#10B981','#14B8A6','#3B82F6','#8B5CF6','#EC4899','#64748B','#1D4ED8'];
+      $pxQ = fn($v) => rtrim(rtrim(number_format((float)$v,2,'.',''),'0'),'.');
+      foreach ($products as $p):
         $days   = (int)$p['days_left'];
         $status = expiryStatus($p['date_peremption']);
-        $bc     = match($status) { 'expired'=>'badge-expired','critical'=>'badge-critical','warning'=>'badge-warning', default=>'badge-ok' };
-        $label  = match(true) { $days<0 => "Périmé (J+".abs($days).")", $days===0 => "Aujourd'hui !", $days===1 => "Demain !", default => "J-$days" };
-        $rowClass = match($status) { 'expired'=>'row-expired','critical'=>'row-critical','warning'=>'row-warning', default=>'' };
-        $isLow  = $p['quantite_min'] > 0 && $p['quantite'] <= $p['quantite_min'];
+        $bc     = match($status){'expired'=>'px-b-crit','critical'=>'px-b-crit','warning'=>'px-b-warn',default=>'px-b-ok'};
+        $label  = match(true){$days<0=>"Périmé J+".abs($days),$days===0=>"Auj. !",$days===1=>"Demain",default=>"J-$days"};
+        $dot    = (float)$p['quantite_min'];
+        $qte    = (float)$p['quantite'];
+        $qc     = $dot>0 ? ($qte<$dot?'px-q-under':($qte>$dot?'px-q-over':'px-q-ok')) : '';
+        $col    = $pxPalette[abs(crc32($p['nom'])) % count($pxPalette)];
+        $sbadge = match($p['statut']){'archive'=>'px-b-mut','retire'=>'px-b-crit',default=>'px-b-ok'};
+        $noCode = empty($p['gtin']) && empty($p['ean']) && empty($p['datamatrix']);
       ?>
-        <tr class="<?= $rowClass ?>">
+        <tr<?= $canMod ? ' onclick="location.href=\'products.php?edit='.$p['id'].'\'"' : '' ?>>
+          <?php if($pxBulk): ?><td class="px-selcol" onclick="event.stopPropagation()"><input type="checkbox" class="px-rowchk" name="bulk_ids[]" value="<?= $p['id'] ?>" data-perime="<?= $days<0?'1':'0' ?>" onclick="pxSelChanged()"></td><?php endif; ?>
           <td>
-            <div class="prod-name"><?= h($p['nom']) ?></div>
-            <div class="prod-tags">
-              <?php if ($p['chaine_froid']): ?><span class="prod-tag tag-cold">❄️ Froid</span><?php endif; ?>
-              <?php if ($isLow): ?><span class="prod-tag tag-low">📦 Stock bas</span><?php endif; ?>
+            <div class="px-prod">
+              <span class="px-pico" style="background:color-mix(in srgb, <?= $col ?> 16%, transparent)">💊</span>
+              <div>
+                <div class="px-pname"><?= h($p['nom']) ?><?php if($p['chaine_froid']):?><span class="px-cold" title="Chaîne du froid">❄️</span><?php endif;?><?php if($noCode):?><span class="px-nocode" title="Sans code-barres">📷</span><?php endif;?></div>
+                <?php $sub = $p['reference'] ?: ($p['unite'] ? h($p['unite']) : ''); if($sub):?><div class="px-pdose"><?= h($p['reference'] ?: $p['unite']) ?></div><?php endif;?>
+              </div>
             </div>
-            <?php if ($p['notes']): ?><div class="prod-note"><?= h($p['notes']) ?></div><?php endif; ?>
           </td>
-          <td class="hide-mobile">
-            <div class="lot-val"><?= h($p['numero_lot'] ?: '—') ?></div>
-            <?php if($p['reference']): ?><div style="font-size:10px;color:var(--text3)"><?= h($p['reference']) ?></div><?php endif; ?>
-          </td>
-          <td>
-            <?php if ($p['loc_parent_name']): ?><div class="loc-parent"><?= h($p['loc_parent_name']) ?></div><?php endif; ?>
-            <div class="loc-name"><?= h($p['loc_name']) ?></div>
-          </td>
-          <td>
-            <div class="qty-val"><?= $p['quantite'] ?> <span class="qty-unit"><?= h($p['unite']) ?></span></div>
-            <?php if ($p['quantite_min'] > 0): ?><div class="qty-min">min: <?= $p['quantite_min'] ?></div><?php endif; ?>
-          </td>
-          <td><div class="date-val"><?= date('d/m/Y', strtotime($p['date_peremption'])) ?></div></td>
-          <td><?php
-            $pillClass = match($status) { 'expired'=>'pill-expired','critical'=>'pill-critical','warning'=>'pill-warning', default=>'pill-ok' };
-            $pillDot   = match($status) { 'expired'=>'⚫','critical'=>'🔴','warning'=>'🟡', default=>'🟢' };
-          ?><span class="status-pill <?= $pillClass ?>"><?= $pillDot ?> <?= $label ?></span></td>
+          <td class="px-loc"><?php if($p['loc_parent_name']):?><span style="color:var(--text3);font-size:11px"><?=h($p['loc_parent_name'])?> › </span><?php endif;?><?=h($p['loc_name'])?></td>
+          <td class="px-mono"><?= h($p['numero_lot'] ?: '—') ?></td>
+          <td><span class="px-badge <?= $bc ?>"><?= $label ?></span></td>
+          <td class="r px-mono"><?= $dot>0 ? $pxQ($dot) : '—' ?></td>
+          <td class="r"><?php if($qc):?><span class="px-qbadge <?= $qc ?>"><?= $pxQ($qte) ?></span><?php else:?><span class="px-mono"><?= $pxQ($qte) ?></span><?php endif;?></td>
+          <td><span class="px-badge <?= $sbadge ?>"><?= h($p['statut']) ?></span></td>
           <?php if (canEdit()): ?>
-          <td>
-            <div style="display:flex;gap:4px">
+          <td onclick="event.stopPropagation()">
+            <div class="px-actions">
               <?php if($canMod): ?><a href="products.php?edit=<?= $p['id'] ?>" class="btn btn-ghost btn-xs" title="Modifier">✏️</a><?php endif; ?>
               <?php if($canRenew): ?><button type="button" class="btn btn-ghost btn-xs" title="Renouveler (périmé)" data-rn="<?= htmlspecialchars(json_encode(['id'=>$p['id'],'nom'=>$p['nom'],'lot'=>$p['numero_lot'],'date'=>$p['date_peremption'],'qte'=>$p['quantite'],'unite'=>$p['unite']]),ENT_QUOTES) ?>" onclick="openRenew(this)">♻️</button><?php endif; ?>
               <?php if($canDup): ?><button class="btn btn-ghost btn-xs" title="Dupliquer" onclick="dupliquer(<?= $p['id'] ?>)">📋</button><?php endif; ?>
               <?php if ($canArch): ?>
-              <a href="products.php?archive=<?= $p['id'] ?>&csrf_token=<?= csrfToken() ?><?= $filterEmpl?"&emplacement=$filterEmpl":'' ?>"
-                 class="btn btn-ghost btn-xs" title="Archiver"
-                 data-confirm="Archiver « <?= h($p['nom']) ?> » ?">📦</a>
+              <a href="products.php?archive=<?= $p['id'] ?>&csrf_token=<?= csrfToken() ?><?= $filterEmpl?"&emplacement=$filterEmpl":'' ?>" class="btn btn-ghost btn-xs" title="Archiver" data-confirm="Archiver « <?= h($p['nom']) ?> » ?">📦</a>
               <?php endif; ?>
               <?php if ($canDel): ?>
-              <button type="button" class="btn btn-danger btn-xs" title="Supprimer définitivement"
-                 data-del-url="products.php?suppr=<?= $p['id'] ?>&csrf_token=<?= csrfToken() ?><?= $filterEmpl?"&emplacement=$filterEmpl":'' ?>"
-                 data-del-nom="<?= h($p['nom']) ?>" onclick="openDelete(this)">🗑️</button>
+              <button type="button" class="btn btn-danger btn-xs" title="Supprimer définitivement" data-del-url="products.php?suppr=<?= $p['id'] ?>&csrf_token=<?= csrfToken() ?><?= $filterEmpl?"&emplacement=$filterEmpl":'' ?>" data-del-nom="<?= h($p['nom']) ?>" onclick="openDelete(this)">🗑️</button>
               <?php endif; ?>
             </div>
           </td>
@@ -1457,6 +1788,7 @@ if (empty($grouped)): ?>
   </div>
   <?php endif;?>
 </div>
+<?php if ($pxBulk): ?></form><?php endif; ?>
 
 <?php endif; // end viewMode ?>
 
@@ -1678,9 +2010,97 @@ function toggleSaisieRapide() {
   if (!open) panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
+var PX_EDIT_OPEN = <?= $editing ? 'true' : 'false' ?>;
+function openForm() {
+  var p = document.getElementById('form-panel'), s = document.getElementById('form-scrim');
+  if (p) p.classList.add('open'); if (s) s.classList.add('open');
+  document.body.style.overflow = 'hidden';
+}
+function closeForm() {
+  if (PX_EDIT_OPEN) { window.location.href = 'products.php<?= $filterEmpl?"?emplacement=$filterEmpl":"" ?>'; return; }
+  var p = document.getElementById('form-panel'), s = document.getElementById('form-scrim');
+  if (p) p.classList.remove('open'); if (s) s.classList.remove('open');
+  document.body.style.overflow = '';
+}
 function toggleForm() {
-  const p = document.getElementById('form-panel');
-  if (p) { p.style.display = p.style.display === 'none' ? 'block' : 'none'; }
+  var p = document.getElementById('form-panel');
+  if (p && p.classList.contains('open')) closeForm(); else openForm();
+}
+document.addEventListener('keydown', function(e){ if (e.key === 'Escape') { var p=document.getElementById('form-panel'); if (p && p.classList.contains('open')) closeForm(); } });
+document.addEventListener('DOMContentLoaded', function(){ var fp=document.getElementById('form-panel'); if (fp && fp.classList.contains('open')) document.body.style.overflow = 'hidden'; });
+
+// ── Alertes création : boîte périmée + doublon de lot ──
+var PX_EXISTING = <?= json_encode($existingLots ?? [], JSON_UNESCAPED_UNICODE) ?>;
+var PX_IS_EDIT = <?= $editing ? 'true' : 'false' ?>;
+function pxCheckWarn(){
+  var box = document.getElementById('px-createwarn'); if(!box) return;
+  var w = [];
+  var dEl = document.querySelector('[name="date_peremption"]');
+  if (dEl && dEl.value){ var d=new Date(dEl.value+'T00:00:00'); var t=new Date(); t.setHours(0,0,0,0); if(d < t){ w.push('<div class="px-cw px-cw-per">⚠️ Cette date de péremption est <b>déjà passée</b>. Vérifie avant d\'enregistrer.</div>'); } }
+  if (!PX_IS_EDIT){
+    var nomEl=document.getElementById('nom-input'), lotEl=document.querySelector('[name="numero_lot"]');
+    var nom=(nomEl&&nomEl.value.trim().toLowerCase())||'', lot=(lotEl&&lotEl.value.trim().toLowerCase())||'';
+    if(nom&&lot){ var m=PX_EXISTING.find(function(x){return x.nom===nom&&x.lot===lot;}); if(m){ w.push('<div class="px-cw px-cw-lot">⚠️ Le lot <b>'+escHtml(lotEl.value)+'</b> existe déjà pour '+escHtml(m.nomAff)+' ('+escHtml(m.loc)+', qté '+m.qte+'). Ajuste plutôt la quantité ?</div>'); } }
+  }
+  if(w.length){ box.innerHTML=w.join(''); box.style.display='flex'; } else { box.style.display='none'; box.innerHTML=''; }
+}
+document.addEventListener('DOMContentLoaded', function(){
+  var n=document.getElementById('nom-input'); if(n) n.addEventListener('input', pxCheckWarn);
+  ['[name="numero_lot"]','[name="date_peremption"]'].forEach(function(sel){var e=document.querySelector(sel); if(e){ e.addEventListener('input', pxCheckWarn); e.addEventListener('change', pxCheckWarn);}});
+  pxCheckWarn();
+});
+
+// ── Stepper quantité + pastille dotation + toggle chaîne du froid ──
+function pxQ(n){ var e=document.getElementById('px-qte'); if(!e) return; var v=(parseFloat(e.value)||0)+n; if(v<0)v=0; e.value=(Math.round(v*100)/100); pxDotChip(); }
+function pxDotChip(){ var qe=document.getElementById('px-qte'), de=document.getElementById('px-dot'), c=document.getElementById('px-dotchip'); if(!qe||!de||!c) return;
+  var q=parseFloat(qe.value)||0, d=parseFloat(de.value)||0;
+  if(d<=0){ c.style.display='none'; return; }
+  c.style.display='inline-block';
+  if(q<d){ c.className='px-dotchip under'; c.textContent='▼ sous la dotation ('+(Math.round((d-q)*100)/100)+' manquant)'; }
+  else if(q>d){ c.className='px-dotchip over'; c.textContent='▲ surplus (+'+(Math.round((q-d)*100)/100)+')'; }
+  else { c.className='px-dotchip ok'; c.textContent='✓ dotation atteinte'; }
+}
+function pxToggleCold(e){ if(e) e.stopPropagation(); var cb=document.getElementById('px-cold-cb'), sw=document.getElementById('px-cold-sw'); if(!cb) return; cb.checked=!cb.checked; if(sw) sw.classList.toggle('on', cb.checked); }
+// ── Scan DataMatrix / code-barres (parse GS1 -> remplit lot/code/péremption) ──
+var pxDmTimer=null;
+function pxScanToggle(){ var p=document.getElementById('px-scan-dm'); if(!p) return; var show=(p.style.display==='none'||p.style.display===''); /* toggle */ p.style.display=(p.style.display==='none')?'':'none'; if(p.style.display!=='none'){ var i=document.getElementById('px-dm-input'); if(i){ i.value=''; i.focus(); } } }
+function pxDmParse(v){ clearTimeout(pxDmTimer); var res=document.getElementById('px-dm-res'); v=(v||'').trim(); if(v.length<6) return;
+  pxDmTimer=setTimeout(function(){
+    fetch('products.php?ajax=parse_gs1',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'code='+encodeURIComponent(v)})
+      .then(function(r){return r.json();})
+      .then(function(d){
+        if(d.error){ if(res) res.textContent='Code non reconnu — vérifie ou saisis à la main.'; return; }
+        var set=function(name,val){ if(!val) return; var el=document.querySelector('[name="'+name+'"]'); if(el) el.value=val; };
+        set('numero_lot', d.lot); set('gtin', d.gtin); set('ean', d.ean); set('datamatrix', v);
+        if(d.date_exp){ var dp=document.querySelector('[name="date_peremption"]'); if(dp) dp.value=d.date_exp; }
+        var parts=[]; if(d.lot)parts.push('lot '+d.lot); if(d.date_exp)parts.push('exp '+d.date_exp.split('-').reverse().join('/')); if(d.gtin)parts.push('GTIN '+d.gtin);
+        if(res) res.innerHTML='✓ Reconnu : '+(parts.join(' · ')||'code enregistré');
+        if(typeof pxCheckWarn==='function') pxCheckWarn();
+      })
+      .catch(function(){ if(res) res.textContent='Erreur de lecture.'; });
+  }, 250);
+}
+document.addEventListener('DOMContentLoaded', function(){
+  var sw=document.getElementById('px-cold-sw'), cb=document.getElementById('px-cold-cb'); if(sw&&cb) sw.classList.toggle('on', cb.checked);
+  pxDotChip();
+});
+
+// ── Actions groupées (JS) ──
+function pxSelChanged(){
+  var chks=document.querySelectorAll('.px-rowchk'), n=0; chks.forEach(function(c){if(c.checked)n++;});
+  var bar=document.getElementById('px-bulkbar'); if(bar) bar.classList.toggle('on', n>0);
+  var lbl=document.getElementById('px-bulk-n'); if(lbl) lbl.textContent=n+' sélectionné'+(n>1?'s':'');
+  var all=document.getElementById('px-selall'); if(all) all.checked = n>0 && n===chks.length;
+}
+function pxSelAll(cb){ document.querySelectorAll('.px-rowchk').forEach(function(c){c.checked=cb.checked;}); pxSelChanged(); }
+function pxClearSel(){ document.querySelectorAll('.px-rowchk').forEach(function(c){c.checked=false;}); var a=document.getElementById('px-selall'); if(a)a.checked=false; pxSelChanged(); }
+function pxSelectPerimes(){ document.querySelectorAll('.px-rowchk').forEach(function(c){ if(c.dataset.perime==='1') c.checked=true; }); pxSelChanged(); }
+function pxBulk(action){
+  var n=document.querySelectorAll('.px-rowchk:checked').length;
+  if(!n) return;
+  if(!confirm(n+' lot(s) vont être '+(action==='retire'?'retirés du stock':'archivés')+'. Continuer ?')) return;
+  document.getElementById('px-bulk-action').value=action;
+  document.getElementById('px-bulk-form').submit();
 }
 
 // ── Vue groupée accordéon ──────────────────────────────
@@ -1733,6 +2153,10 @@ function acSelect(i) {
   list.style.display = 'none';
   // Remplir les autres champs automatiquement
   const fields = {
+    'dosage':            d.dosage,
+    'forme':             d.forme,
+    'ean':               d.ean,
+    'gtin':              d.gtin,
     'unite':             d.unite,
     'alerte_jours':      d.alerte_jours,
     'quantite_min':      d.quantite_min,
@@ -1743,9 +2167,10 @@ function acSelect(i) {
     const el = document.querySelector(`[name="${name}"]`);
     if (el && val !== null && val !== undefined && val !== '') el.value = val;
   });
-  // Chaîne du froid
+  // Chaîne du froid (+ toggle visuel)
   const cf = document.querySelector('[name="chaine_froid"]');
-  if (cf) cf.checked = d.chaine_froid == 1;
+  if (cf) { cf.checked = d.chaine_froid == 1; var sw=document.getElementById('px-cold-sw'); if(sw) sw.classList.toggle('on', cf.checked); }
+  if (typeof pxDotChip === 'function') pxDotChip();
 }
 
 // Navigation clavier dans l'autocomplete
@@ -1789,10 +2214,8 @@ async function dupliquer(id) {
   const data = await res.json();
   if (data.error) { alert('Produit introuvable.'); return; }
 
-  // Ouvrir le formulaire
-  const panel = document.getElementById('form-panel');
-  if (panel) panel.style.display = 'block';
-  panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  // Ouvrir le tiroir
+  openForm();
 
   // Vider l'ID pour forcer une création
   const idField = document.querySelector('input[name="id"]');
@@ -1927,13 +2350,14 @@ function analyzePhoto(dataUrl, mimeType) {
 }
 
 function applyPhotoData(d) {
-  var fields = { 'nom': d.nom, 'numero_lot': d.numero_lot, 'date_peremption': d.date_peremption, 'unite': d.unite };
+  var fields = { 'nom': d.nom, 'dosage': d.dosage, 'forme': d.forme, 'numero_lot': d.numero_lot, 'date_peremption': d.date_peremption, 'unite': d.unite, 'ean': d.ean, 'gtin': d.gtin, 'datamatrix': d.datamatrix };
   Object.keys(fields).forEach(function(k) {
     var el = document.querySelector('[name="' + k + '"]');
     if (el && fields[k]) el.value = fields[k];
   });
   var cf = document.querySelector('[name="chaine_froid"]');
-  if (cf && d.chaine_froid) cf.checked = true;
+  if (cf && d.chaine_froid) { cf.checked = true; var sw=document.getElementById('px-cold-sw'); if(sw) sw.classList.add('on'); }
+  if (typeof pxDotChip === 'function') pxDotChip();
   if (d.temperature_min) { var tmin = document.querySelector('[name="temp_stockage_min"]'); if (tmin) tmin.value = d.temperature_min; }
   if (d.temperature_max) { var tmax = document.querySelector('[name="temp_stockage_max"]'); if (tmax) tmax.value = d.temperature_max; }
 }
