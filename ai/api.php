@@ -15,6 +15,11 @@ $input   = json_decode(file_get_contents('php://input'), true);
 $message = trim($input['message'] ?? '');
 $page    = trim($input['page'] ?? 'dashboard');
 
+// Photo optionnelle (reconnaissance de boîte) : base64 sans préfixe data:
+$img_b64   = $input['image'] ?? '';
+$img_media = $input['media_type'] ?? 'image/jpeg';
+if (!in_array($img_media, ['image/jpeg', 'image/png', 'image/webp'], true)) $img_media = 'image/jpeg';
+
 $site_id = site_actif();
 $user_id = currentUserId();
 
@@ -185,7 +190,18 @@ foreach ($history as $h) {
         $messages[] = ['role' => $h['role'], 'content' => $h['content']];
     }
 }
-$messages[] = ['role' => 'user', 'content' => $message];
+if ($img_b64 !== '') {
+    // Message multimodal : la photo + une consigne. Le modèle voit l'image ET a les outils.
+    $img_text = $message !== ''
+        ? $message
+        : "Identifie ce médicament / produit d'après la photo : nom commercial, DCI (molécule), dosage, forme, numéro de lot et date de péremption s'ils sont lisibles. Ne devine JAMAIS un dosage ou un lot illisible (mets-le en inconnu). Résume ce que tu lis, puis demande-moi ce que je veux en faire (l'ajouter à un sac, renouveler un lot, etc.).";
+    $messages[] = ['role' => 'user', 'content' => [
+        ['type' => 'image', 'source' => ['type' => 'base64', 'media_type' => $img_media, 'data' => $img_b64]],
+        ['type' => 'text',  'text' => $img_text],
+    ]];
+} else {
+    $messages[] = ['role' => 'user', 'content' => $message];
+}
 
 require_once __DIR__ . '/tools.php';
 
@@ -334,7 +350,7 @@ try {
         VALUES(?,?,?,?,?,?,?,?,?,?,?,?)")
         ->execute([
             $user_id, session_id(), $page,
-            $message, $reply,
+            ($img_b64 !== '' && $message === '') ? '[photo]' : $message, $reply,
             $action_result['action'] ?? null,
             $action_result ? json_encode($action_result) : null,
             $tokens, $tokens_input, $tokens_output, $cout_eur, $model

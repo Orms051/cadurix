@@ -63,6 +63,8 @@ $csrf    = csrf_token();
     <?php if (!function_exists('module_actif') || module_actif('saisie_vocale')): ?>
     <button id="ai-mic" class="ai-mic" title="Parler" type="button">🎤</button>
     <?php endif; ?>
+    <button id="ai-cam" class="ai-mic" title="Prendre une photo d'une boîte" type="button">📷</button>
+    <input id="ai-photo" type="file" accept="image/*" capture="environment" hidden>
     <textarea
       id="ai-input"
       class="ai-input"

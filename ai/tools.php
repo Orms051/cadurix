@@ -69,6 +69,27 @@ function ai_tools_defs(): array {
                 'emplacement_id' => ['type' => 'integer', 'description' => "Optionnel : restreindre à un emplacement (et ses sous-emplacements)."],
             ], 'required' => []],
         ],
+        [
+            'name'        => 'fiches_anomalies',
+            'description' => "Liste les dernières fiches de vérification en ANOMALIE (non conformes) du site : modèle, mode, auteur, date. À utiliser pour « quelles anomalies / fiches non conformes / problèmes signalés ».",
+            'input_schema' => ['type' => 'object', 'properties' => [
+                'limit' => ['type' => 'integer', 'description' => "Nombre de fiches (défaut 15, max 40)."],
+            ], 'required' => []],
+        ],
+        [
+            'name'        => 'revisions_biomedical',
+            'description' => "Liste les révisions / maintenances biomédicales à venir ou en retard (échéance dans 'jours', défaut 60) : matériel, type de révision, échéance, organisme, jours restants (négatif = en retard).",
+            'input_schema' => ['type' => 'object', 'properties' => [
+                'jours' => ['type' => 'integer', 'description' => "Fenêtre en jours (défaut 60)."],
+            ], 'required' => []],
+        ],
+        [
+            'name'        => 'sse_etat',
+            'description' => "État du module SSE/NRBC du site : équipements dont le contrôle ou la péremption approche, et consommables sous le minimum ou périmés. 'jours' définit la fenêtre (défaut 30).",
+            'input_schema' => ['type' => 'object', 'properties' => [
+                'jours' => ['type' => 'integer', 'description' => "Fenêtre en jours (défaut 30)."],
+            ], 'required' => []],
+        ],
     ];
 }
 
@@ -77,7 +98,7 @@ function ai_tool_is_read(string $name): bool {
     return in_array($name, [
         'lister_emplacements', 'chercher_stock', 'produits_peremption',
         'etat_materiel', 'rappels_actifs', 'dernieres_fiches', 'chercher_medicament',
-        'chercher_materiel', 'stock_bas',
+        'chercher_materiel', 'stock_bas', 'fiches_anomalies', 'revisions_biomedical', 'sse_etat',
     ], true);
 }
 
@@ -238,6 +259,67 @@ function ai_tool_run(PDO $pdo, string $name, array $in, int $site_id, int $user_
                 $st->execute($args);
                 return ['a_reapprovisionner' => $st->fetchAll(PDO::FETCH_ASSOC)];
             }
+
+            case 'fiches_anomalies': {
+                $lim = (int)($in['limit'] ?? 15);
+                if ($lim < 1) $lim = 1;
+                if ($lim > 40) $lim = 40;
+                $st = $pdo->prepare("SELECT mf.nom AS modele, fr.statut, fr.mode, fr.cree_le, u.prenom, u.nom
+                                     FROM fiches_remplies fr
+                                     JOIN modeles_fiches mf ON mf.id = fr.modele_id
+                                     LEFT JOIN utilisateurs u ON u.id = fr.user_id
+                                     WHERE fr.site_id = ? AND fr.statut = 'anomalie'
+                                     ORDER BY fr.cree_le DESC LIMIT $lim");
+                $st->execute([$site_id]);
+                return ['anomalies' => $st->fetchAll(PDO::FETCH_ASSOC)];
+            }
+
+            case 'revisions_biomedical': {
+                $j = (int)($in['jours'] ?? 60);
+                if ($j < 0) $j = 0;
+                if ($j > 3650) $j = 3650;
+                $st = $pdo->prepare("SELECT m.nom AS materiel, r.nom AS revision, r.type,
+                                            r.prochaine_revision, r.organisme, r.obligatoire,
+                                            DATEDIFF(r.prochaine_revision, CURDATE()) AS jours
+                                     FROM materiel_revisions r
+                                     JOIN materiels m ON m.id = r.materiel_id
+                                     WHERE m.site_id = ? AND r.actif = 1
+                                       AND r.prochaine_revision <= DATE_ADD(CURDATE(), INTERVAL ? DAY)
+                                     ORDER BY r.prochaine_revision ASC LIMIT 50");
+                $st->execute([$site_id, $j]);
+                return ['fenetre_jours' => $j, 'revisions' => $st->fetchAll(PDO::FETCH_ASSOC)];
+            }
+
+            case 'sse_etat': {
+                $j = (int)($in['jours'] ?? 30);
+                if ($j < 0) $j = 0;
+                if ($j > 3650) $j = 3650;
+                $eq = $pdo->prepare("SELECT e.nom, e.statut, e.date_peremption, e.date_prochain_ctrl,
+                                            c.nom AS categorie,
+                                            DATEDIFF(e.date_peremption, CURDATE())   AS jours_peremption,
+                                            DATEDIFF(e.date_prochain_ctrl, CURDATE()) AS jours_controle
+                                     FROM sse_equipements e
+                                     LEFT JOIN sse_categories c ON c.id = e.categorie_id
+                                     WHERE e.site_id = ? AND e.actif = 1
+                                       AND ((e.date_peremption   IS NOT NULL AND e.date_peremption   <= DATE_ADD(CURDATE(), INTERVAL ? DAY))
+                                         OR (e.date_prochain_ctrl IS NOT NULL AND e.date_prochain_ctrl <= DATE_ADD(CURDATE(), INTERVAL ? DAY)))
+                                     ORDER BY LEAST(COALESCE(e.date_peremption,'9999-12-31'), COALESCE(e.date_prochain_ctrl,'9999-12-31')) ASC
+                                     LIMIT 40");
+                $eq->execute([$site_id, $j, $j]);
+                $co = $pdo->prepare("SELECT nom, reference, numero_lot, quantite, quantite_min, unite, date_peremption,
+                                            DATEDIFF(date_peremption, CURDATE()) AS jours_peremption
+                                     FROM sse_consommables
+                                     WHERE site_id = ?
+                                       AND ((quantite_min > 0 AND quantite <= quantite_min)
+                                         OR (date_peremption IS NOT NULL AND date_peremption <= DATE_ADD(CURDATE(), INTERVAL ? DAY)))
+                                     ORDER BY date_peremption ASC LIMIT 40");
+                $co->execute([$site_id, $j]);
+                return [
+                    'fenetre_jours'          => $j,
+                    'equipements_a_verifier' => $eq->fetchAll(PDO::FETCH_ASSOC),
+                    'consommables_a_traiter' => $co->fetchAll(PDO::FETCH_ASSOC),
+                ];
+            }
         }
         return ['erreur' => 'Outil inconnu : ' . $name];
     } catch (Throwable $e) {
@@ -252,7 +334,18 @@ function ai_tool_run(PDO $pdo, string $name, array $in, int $site_id, int $user_
 
 /** Noms des actions d'écriture. */
 function ai_action_names(): array {
-    return ['rempotage', 'marquer_produit_retire', 'archiver_lot', 'ajuster_quantite', 'signaler_biomed', 'creer_alerte', 'generer_rapport'];
+    return ['rempotage', 'marquer_produit_retire', 'archiver_lot', 'ajuster_quantite', 'renouveler_lot', 'signaler_biomed', 'creer_alerte', 'generer_rapport'];
+}
+
+/** Normalise une date de péremption libre (MM/AAAA, JJ/MM/AAAA, AAAA-MM, AAAA-MM-JJ) en AAAA-MM-JJ, ou null. */
+function ai_norm_date(?string $s): ?string {
+    $s = trim((string)$s);
+    if ($s === '') return null;
+    if (preg_match('#^(\d{2})/(\d{4})$#', $s, $m))            return $m[2] . '-' . $m[1] . '-01';
+    if (preg_match('#^(\d{2})/(\d{2})/(\d{4})$#', $s, $m))    return $m[3] . '-' . $m[2] . '-' . $m[1];
+    if (preg_match('#^(\d{4})-(\d{2})$#', $s, $m))            return $m[1] . '-' . $m[2] . '-01';
+    if (preg_match('#^\d{4}-\d{2}-\d{2}$#', $s))              return $s;
+    return null;
 }
 function ai_tool_is_action(string $name): bool {
     return in_array($name, ai_action_names(), true);
@@ -297,6 +390,16 @@ function ai_actions_defs(PDO $pdo): array {
                 'quantite'   => ['type' => 'number',  'description' => "Nouvelle quantité absolue. Utiliser SOIT quantite SOIT delta."],
                 'delta'      => ['type' => 'number',  'description' => "Variation relative (négative pour retirer). Utiliser SOIT quantite SOIT delta."],
             ], 'required' => ['produit_id']],
+        ],
+        'action_renouveler_lot' => [
+            'name'        => 'renouveler_lot',
+            'description' => "Renouvelle un lot périmé/bientôt périmé : remplace tout ou partie de sa quantité par un lot neuf (nouveau numéro de lot + nouvelle péremption). Si la quantité renouvelée = tout le lot, la ligne est simplement mise à jour ; sinon l'ancien lot diminue et un nouveau lot est créé. Utilise d'abord chercher_stock pour obtenir le produit_id. Soumis à confirmation.",
+            'input_schema' => ['type' => 'object', 'properties' => [
+                'produit_id'     => ['type' => 'integer', 'description' => "ID du lot à renouveler (via chercher_stock)."],
+                'date_peremption'=> ['type' => 'string',  'description' => "Nouvelle péremption. Formats : MM/AAAA, JJ/MM/AAAA, AAAA-MM ou AAAA-MM-JJ."],
+                'numero_lot'     => ['type' => 'string',  'description' => "Nouveau numéro de lot (optionnel)."],
+                'quantite'       => ['type' => 'number',  'description' => "Quantité à renouveler (optionnel). Par défaut : tout le lot."],
+            ], 'required' => ['produit_id', 'date_peremption']],
         ],
         'action_signaler_biomed' => [
             'name'        => 'signaler_biomed',
@@ -450,6 +553,41 @@ function ai_action_proposal(PDO $pdo, string $name, array $in, int $site_id): ar
             ];
         }
 
+        case 'renouveler_lot': {
+            if (function_exists('action_permise') && !action_permise('renouveler'))
+                return ['status' => 'error', 'message' => "Votre rôle n'a pas le droit de renouveler un lot."];
+            $pid   = (int)($in['produit_id'] ?? 0);
+            $ndate = ai_norm_date($in['date_peremption'] ?? '');
+            $nlot  = trim($in['numero_lot'] ?? '') ?: null;
+            if (!$ndate) return ['status' => 'error', 'message' => "Nouvelle date de péremption invalide (attendu MM/AAAA, JJ/MM/AAAA ou AAAA-MM-JJ)."];
+            $st = $pdo->prepare("SELECT pr.id, pr.nom, pr.dci, pr.dosage, pr.quantite, pr.unite, pr.numero_lot, pr.date_peremption, e.nom AS emplacement
+                                 FROM produits pr JOIN emplacements e ON e.id = pr.emplacement_id
+                                 WHERE pr.id = ? AND e.site_id = ? AND pr.statut = 'actif'");
+            $st->execute([$pid, $site_id]);
+            $p = $st->fetch(PDO::FETCH_ASSOC);
+            if (!$p) return ['status' => 'error', 'message' => "Lot introuvable (ID $pid). Utilise chercher_stock."];
+            $qold = (float)$p['quantite'];
+            $qren = array_key_exists('quantite', $in) && $in['quantite'] !== null && $in['quantite'] !== ''
+                  ? min((float)$in['quantite'], $qold) : $qold;
+            if ($qren <= 0) return ['status' => 'error', 'message' => "Quantité à renouveler invalide."];
+            $fmt = fn($n) => rtrim(rtrim(number_format($n, 2, '.', ''), '0'), '.');
+            $ident = trim(($p['dci'] ?: $p['nom']) . ' ' . ($p['dosage'] ?? ''));
+            return [
+                'status'        => 'pending_confirm',
+                'action'        => 'renouveler_lot',
+                'params'        => ['produit_id' => $pid, 'date_peremption' => $ndate, 'numero_lot' => $nlot, 'quantite' => $qren],
+                'titre'         => '♻️ Renouveler le lot',
+                'lignes'        => array_values(array_filter([
+                    $ident . ' — ' . $p['emplacement'],
+                    'Ancien : lot ' . ($p['numero_lot'] ?: '—') . ' · pér. ' . ($p['date_peremption'] ?: '—'),
+                    'Nouveau : lot ' . ($nlot ?: '—') . ' · pér. ' . $ndate,
+                    'Quantité renouvelée : ' . $fmt($qren) . ' ' . ($p['unite'] ?? '') . ($qren < $qold ? (' (sur ' . $fmt($qold) . ')') : ' (lot entier)'),
+                ])),
+                'confirm_label' => 'Renouveler',
+                'message'       => 'Renouvellement à confirmer',
+            ];
+        }
+
         case 'signaler_biomed': {
             $mid   = (int)($in['materiel_id'] ?? 0);
             $titre = trim($in['titre'] ?? '');
@@ -590,6 +728,58 @@ function ai_action_run(PDO $pdo, string $name, array $in, int $site_id, int $use
                 audit_log($pdo, 'MODIF_PRODUIT', 'produits', $pid, ['quantite' => $avant], ['quantite' => $apres, 'via' => 'assistant_ia']);
                 $fmt = fn($n) => rtrim(rtrim(number_format($n, 2, '.', ''), '0'), '.');
                 return ['status' => 'success', 'message' => $p['nom'] . ' : quantité ajustée à ' . $fmt($apres) . '.', 'lien' => '/products.php'];
+            }
+
+            case 'renouveler_lot': {
+                if (function_exists('action_permise') && !action_permise('renouveler'))
+                    return ['status' => 'error', 'message' => "Permission refusée (renouveler)."];
+                $pid   = (int)($in['produit_id'] ?? 0);
+                $ndate = ai_norm_date($in['date_peremption'] ?? '');
+                $nlot  = trim($in['numero_lot'] ?? '') ?: null;
+                if (!$ndate) return ['status' => 'error', 'message' => 'Date de péremption invalide.'];
+                $st = $pdo->prepare("SELECT pr.* FROM produits pr JOIN emplacements e ON e.id = pr.emplacement_id
+                                     WHERE pr.id = ? AND e.site_id = ? AND pr.statut = 'actif'");
+                $st->execute([$pid, $site_id]);
+                $old = $st->fetch(PDO::FETCH_ASSOC);
+                if (!$old) return ['status' => 'error', 'message' => 'Lot introuvable.'];
+                $qold = (float)$old['quantite'];
+                $qren = array_key_exists('quantite', $in) && $in['quantite'] !== null && $in['quantite'] !== ''
+                      ? min((float)$in['quantite'], $qold) : $qold;
+                if ($qren <= 0) return ['status' => 'error', 'message' => 'Quantité à renouveler invalide.'];
+                $pdo->beginTransaction();
+                if ($qren >= $qold) {
+                    // Lot entier → mise à jour de la ligne
+                    $pdo->prepare("UPDATE produits SET numero_lot = ?, date_peremption = ?, modifie_par = ?, modifie_le = NOW() WHERE id = ?")
+                        ->execute([$nlot, $ndate, $user_id, $pid]);
+                    $pdo->prepare("INSERT INTO mouvements_stock (produit_id, user_id, type, quantite_avant, quantite_delta, quantite_apres, motif)
+                                   VALUES (?, ?, 'entree', ?, 0, ?, 'Renouvellement lot (entier) via assistant IA')")
+                        ->execute([$pid, $user_id, $qold, $qold]);
+                    audit_log($pdo, 'RENOUVELLEMENT_LOT_IA', 'produits', $pid,
+                        ['numero_lot' => $old['numero_lot'], 'date_peremption' => $old['date_peremption']],
+                        ['numero_lot' => $nlot, 'date_peremption' => $ndate, 'via' => 'assistant_ia']);
+                } else {
+                    // Partiel → ancien lot diminué + nouveau lot créé
+                    $reste = $qold - $qren;
+                    $pdo->prepare("UPDATE produits SET quantite = ?, modifie_par = ?, modifie_le = NOW() WHERE id = ?")
+                        ->execute([$reste, $user_id, $pid]);
+                    $pdo->prepare("INSERT INTO produits (emplacement_id, nom, dci, dosage, forme, reference, numero_lot, quantite, quantite_min, unite, date_peremption, alerte_jours, chaine_froid, temp_stockage_min, temp_stockage_max, notes, cree_par)
+                                   SELECT emplacement_id, nom, dci, dosage, forme, reference, ?, ?, quantite_min, unite, ?, alerte_jours, chaine_froid, temp_stockage_min, temp_stockage_max, notes, ?
+                                   FROM produits WHERE id = ?")
+                        ->execute([$nlot, $qren, $ndate, $user_id, $pid]);
+                    $newId = (int)$pdo->lastInsertId();
+                    $pdo->prepare("INSERT INTO mouvements_stock (produit_id, user_id, type, quantite_avant, quantite_delta, quantite_apres, motif)
+                                   VALUES (?, ?, 'sortie', ?, ?, ?, 'Renouvellement - retrait perime via assistant IA')")
+                        ->execute([$pid, $user_id, $qold, -$qren, $reste]);
+                    $pdo->prepare("INSERT INTO mouvements_stock (produit_id, user_id, type, quantite_avant, quantite_delta, quantite_apres, motif)
+                                   VALUES (?, ?, 'entree', 0, ?, ?, 'Renouvellement - nouveau lot via assistant IA')")
+                        ->execute([$newId, $user_id, $qren, $qren]);
+                    audit_log($pdo, 'RENOUVELLEMENT_LOT_IA', 'produits', $pid,
+                        ['numero_lot' => $old['numero_lot'], 'quantite_remplacee' => $qren],
+                        ['numero_lot' => $nlot, 'date_peremption' => $ndate, 'nouveau_produit_id' => $newId, 'via' => 'assistant_ia']);
+                }
+                $pdo->commit();
+                $fmt = fn($n) => rtrim(rtrim(number_format($n, 2, '.', ''), '0'), '.');
+                return ['status' => 'success', 'message' => 'Lot « ' . $old['nom'] . ' » renouvelé (' . $fmt($qren) . ' ' . $old['unite'] . ', péremption ' . $ndate . ').', 'lien' => '/products.php'];
             }
 
             case 'signaler_biomed': {
