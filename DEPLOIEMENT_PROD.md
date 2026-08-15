@@ -1,7 +1,9 @@
 # 🚀 Déploiement prod — Cadurix (o2switch)
 
-Récap de **tout** ce qui doit passer en ligne. Couvre jusqu'à la **PR #27**
-(refonte Emplacements/PUI + refonte Médicaments + DCI + permission ±1 + filtre en arbre).
+Récap de **tout** ce qui doit passer en ligne. Couvre jusqu'à la **PR #32**
+(refonte Emplacements/PUI + refonte Médicaments + DCI + permission ±1 + filtre
+en arbre + **copilote IA complet** : réappro, ajuster/archiver/renouveler,
+corriger une fiche, reconnaissance photo, lecture multi-modules).
 
 > ⚠️ Ordre impératif : **1) SQL d'abord**, **2) fichiers ensuite**, **3) suppressions**,
 > **4) vérifs**. Et **téléverser TOUS les fichiers ensemble** (certains `require`
@@ -19,9 +21,13 @@ Dans **phpMyAdmin o2switch**, base de prod `royo5535_cadurix`, onglet SQL.
 > déjà, ne pas rejouer (ça renverrait « Duplicate column »). En cas de doute,
 > vérifier dans phpMyAdmin la structure de `emplacements`.
 
-### b) Médicaments — `migrations/PROD_a_jouer_medoc.sql`  ← **NOUVEAU, à jouer**
+### b) Médicaments — `migrations/PROD_a_jouer_medoc.sql`
 3 colonnes sur `produits` : `dci`, `dosage`, `forme`.
-Regroupe les migrations 033 + 034. À jouer **une seule fois**.
+> ✅ **Déjà joué en prod le 2026-08-15** (version IF NOT EXISTS). Rien à refaire.
+
+### c) Copilote IA — **AUCUN SQL**
+Les nouvelles capacités IA ne touchent pas la structure de la base
+(les actions sont activées par défaut, tout est tracé dans les tables existantes).
 
 ---
 
@@ -44,6 +50,15 @@ Fichiers applicatifs modifiés ou nouveaux :
     scanner/zxing-0.21.3.min.js      ← NOUVEAU (librairie scanner auto-hébergée)
     service-worker.js
     terrain.php
+
+**Copilote IA** (nouvelles capacités : réappro, ajuster/archiver/renouveler,
+corriger une fiche, reconnaissance photo, lecture fiches/biomed/SSE) :
+
+    ai/tools.php                     ← outils IA (lecture + actions)
+    ai/context.php                   ← prompt système (DCI/marque, garde-fous)
+    ai/api.php                       ← boucle agent + support photo + fix tool_use
+    ai/assistant.php                 ← bouton 📷 dans le widget
+    ai/js/assistant.js               ← capture/redimensionnement photo
 
 Optionnel (simple modèle de config, sans effet) :
 
@@ -96,3 +111,6 @@ Aucun impact prod, ne pas téléverser :
 - [ ] Page **Emplacements** : arbre PUI → sacs, icônes, contrôle scellé.
 - [ ] **Rempotage** : débit de la PUI du site (badge stock, mouvement tracé).
 - [ ] **Scanner** : fonctionne hors-ligne (librairie auto-hébergée).
+- [ ] **Copilote IA** (bouton 🤖) : « qu'est-ce qu'il faut réapprovisionner ? »
+      (liste), « il reste 3 X dans le sac Y, corrige » (carte de confirmation),
+      bouton 📷 (photo d'une boîte → lecture). Log visible dans Admin → IA.
