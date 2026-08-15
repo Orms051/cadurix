@@ -1527,12 +1527,13 @@ function renderDetail({ node, breadcrumb, enfants, stats, last_remp }, products 
 
     // Regrouper par nom ; déroulé UNITÉ par UNITÉ (une ligne par ampoule)
     const groups = {};
-    products.forEach(p => { (groups[p.nom] = groups[p.nom] || []).push(p); });
+    products.forEach(p => { const gk=(p.nom||'')+''+(p.dosage||''); (groups[gk] = groups[gk] || []).push(p); });
 
-    const rows = Object.keys(groups).sort((a,b)=>a.localeCompare(b,'fr')).map((nom, gi) => {
-      const lots = groups[nom].slice().sort((a,b)=> new Date(a.date_peremption) - new Date(b.date_peremption));
+    const rows = Object.keys(groups).sort((a,b)=>a.localeCompare(b,'fr')).map((gkey, gi) => {
+      const lots = groups[gkey].slice().sort((a,b)=> new Date(a.date_peremption) - new Date(b.date_peremption));
       const totalUnits = lots.reduce((s,l)=> s + unitCount(l), 0);
       const first = lots[0];
+      const nom = first.nom;
       const st = statusOf(first);
       const unite = escHtml(first.unite||'');
       const expandable = totalUnits > 1;
