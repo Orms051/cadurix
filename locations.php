@@ -172,7 +172,7 @@ if (isset($_GET['ajax'])) {
     // u2500u2500 Produits d'un emplacement u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500
     if ($_GET['ajax'] === 'products' && isset($_GET['id'])) {
         $id = (int)$_GET['id'];
-        $stmt = $pdo->prepare("SELECT id, nom, numero_lot, quantite, quantite_min, unite, date_peremption, notes, DATEDIFF(date_peremption, CURDATE()) AS jours_restants FROM produits WHERE emplacement_id = ? AND statut = 'actif' ORDER BY nom, date_peremption ASC");
+        $stmt = $pdo->prepare("SELECT id, nom, dosage, forme, numero_lot, quantite, quantite_min, unite, date_peremption, notes, DATEDIFF(date_peremption, CURDATE()) AS jours_restants FROM produits WHERE emplacement_id = ? AND statut = 'actif' ORDER BY nom, date_peremption ASC");
         $stmt->execute([$id]);
         echo json_encode($stmt->fetchAll(PDO::FETCH_ASSOC));
         exit;
@@ -1107,6 +1107,11 @@ require_once 'includes/header.php';
   font-size: 13px; font-weight: 600; color: var(--text);
   line-height: 1.3;
 }
+.mt-dose {
+  flex-basis: 100%; margin-left: 18px; margin-top: 1px;
+  font-size: 11.5px; color: var(--text3); line-height: 1.3;
+}
+.mt-dose b { color: #3B82F6; font-weight: 800; }
 .mt-note {
   font-size: 10px; font-weight: 600;
   padding: 2px 7px; border-radius: 4px;
@@ -1545,6 +1550,7 @@ function renderDetail({ node, breadcrumb, enfants, stats, last_remp }, products 
             <span class="mt-dot ${st.dot}"></span>
             <span class="mt-nom">${escHtml(nom)}</span>
             ${expandable ? `<span class="mt-lotbadge">${totalUnits} unités <i class="ti ti-chevron-down" id="chev-g${gi}"></i></span>` : ''}
+            ${(first.dosage||first.forme) ? `<div class="mt-dose">${first.dosage?`<b>${escHtml(first.dosage)}</b>`:''}${(first.dosage&&first.forme)?' · ':''}${first.forme?escHtml(first.forme):''}</div>` : ''}
           </td>
           <td class="mt-td mt-td-lot">${expandable ? '<span style="color:var(--text3)">—</span>' : escHtml(first.numero_lot||'—')}</td>
           <td class="mt-td mt-td-date">${st.dateStr}</td>
