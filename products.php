@@ -83,6 +83,33 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'autocomplete') {
     exit;
 }
 
+// ── AJAX incrément/décrément rapide de la quantité d'un lot ──
+if (isset($_GET['ajax']) && $_GET['ajax'] === 'inc_qte' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    header('Content-Type: application/json');
+    if (!action_permise('modifier')) { echo json_encode(['error' => 'Permission refusée']); exit; }
+    $id    = (int)($_POST['id'] ?? 0);
+    $delta = (float)str_replace(',', '.', $_POST['delta'] ?? '0');
+    if (!$id || $delta == 0) { echo json_encode(['error' => 'Paramètres invalides']); exit; }
+    $st = $pdo->prepare("SELECT p.* FROM produits p JOIN emplacements e ON e.id=p.emplacement_id WHERE p.id=? AND e.site_id=?");
+    $st->execute([$id, site_actif()]);
+    $old = $st->fetch(PDO::FETCH_ASSOC);
+    if (!$old) { echo json_encode(['error' => 'Produit introuvable']); exit; }
+    $avant = (float)$old['quantite'];
+    $apres = max(0, $avant + $delta);
+    $real  = $apres - $avant;
+    $pdo->prepare("UPDATE produits SET quantite=?, modifie_par=?, modifie_le=NOW() WHERE id=?")->execute([$apres, currentUserId(), $id]);
+    if ($real != 0) {
+        try {
+            $pdo->prepare("INSERT INTO mouvements_stock (produit_id,user_id,type,quantite_avant,quantite_delta,quantite_apres,motif) VALUES(?,?,?,?,?,?,'Ajustement rapide')")
+                ->execute([$id, currentUserId(), $real > 0 ? 'entree' : 'sortie', $avant, $real, $apres]);
+        } catch (Throwable $e) {}
+    }
+    audit_log($pdo, 'MODIF_PRODUIT', 'produits', $id, ['quantite' => $avant], ['quantite' => $apres]);
+    $fmt = rtrim(rtrim(number_format($apres, 2, '.', ''), '0'), '.');
+    echo json_encode(['ok' => true, 'quantite' => $apres, 'quantite_fmt' => $fmt]);
+    exit;
+}
+
 // ── AJAX données produit pour duplication ────────────────
 if (isset($_GET['ajax']) && $_GET['ajax'] === 'get_product') {
     header('Content-Type: application/json');
@@ -698,6 +725,13 @@ try {
         if (!empty($r['numero_lot'])) $existingLots[] = ['nom'=>mb_strtolower($r['nom']),'lot'=>mb_strtolower($r['numero_lot']),'qte'=>$r['quantite'],'loc'=>$r['loc'],'nomAff'=>$r['nom']];
     }
 } catch (Throwable $e) {}
+// Agrégat par nom (pour l'indice "existe déjà" à la saisie)
+$byName = [];
+try {
+    $stBn = $pdo->prepare("SELECT p.nom, COUNT(*) c, SUM(p.quantite) q, MAX(p.quantite_min) dot FROM produits p JOIN emplacements e ON e.id=p.emplacement_id WHERE p.statut='actif' AND $fs AND $fe GROUP BY p.nom");
+    $stBn->execute();
+    foreach ($stBn as $r) $byName[mb_strtolower($r['nom'])] = ['nom'=>$r['nom'],'c'=>(int)$r['c'],'q'=>rtrim(rtrim(number_format((float)$r['q'],2,'.',''),'0'),'.'),'dot'=>rtrim(rtrim(number_format((float)$r['dot'],2,'.',''),'0'),'.')];
+} catch (Throwable $e) {}
 $total         = $pdo->query("SELECT COUNT(*) FROM produits p JOIN emplacements e ON e.id=p.emplacement_id WHERE p.statut='actif' AND $fs AND $fe")->fetchColumn();
 $totalCold     = $pdo->query("SELECT COUNT(*) FROM produits p JOIN emplacements e ON e.id=p.emplacement_id WHERE p.statut='actif' AND p.chaine_froid=1 AND $fs AND $fe")->fetchColumn();
 $totalLowStock = $pdo->query("SELECT COUNT(*) FROM produits p JOIN emplacements e ON e.id=p.emplacement_id WHERE p.statut='actif' AND p.quantite_min>0 AND p.quantite<=p.quantite_min AND $fs AND $fe")->fetchColumn();
@@ -1125,6 +1159,7 @@ require_once 'includes/header.php';
 .px-cw { padding:9px 12px; border-radius:9px; font-size:12.5px; font-weight:600; line-height:1.35; }
 .px-cw-per { background:rgba(226,75,74,.13); color:#E24B4A; }
 .px-cw-lot { background:rgba(239,159,39,.15); color:#C77C06; }
+.px-cw-info { background:rgba(var(--primary-rgb),.10); color:var(--primary); }
 .px-selcol { width:36px; text-align:center; }
 .px-rowchk, #px-selall { width:15px; height:15px; accent-color:var(--primary); cursor:pointer; }
 .px-bulkbar { display:none; align-items:center; gap:10px; margin-bottom:12px; padding:9px 14px; background:rgba(var(--primary-rgb),.07); border:1px solid rgba(var(--primary-rgb),.25); border-radius:11px; }
@@ -1573,7 +1608,7 @@ document.addEventListener('click', function(){ var p=document.getElementById('px
 <!-- VUE GROUPÉE ─────────────────────────────────────────-->
 <?php
 $grouped = [];
-foreach ($products as $p) { $grouped[$p['nom']][] = $p; }
+foreach ($products as $p) { $grouped[$p['nom'].'|'.($p['dosage'] ?? '')][] = $p; }
 ksort($grouped);
 if (empty($grouped)): ?>
 <div class="card" style="text-align:center;padding:40px;color:var(--text2)">
@@ -1581,21 +1616,22 @@ if (empty($grouped)): ?>
 </div>
 <?php else: ?>
 <div style="display:flex;flex-direction:column;gap:10px">
-<?php foreach ($grouped as $nom => $items):
+<?php foreach ($grouped as $gkey => $items):
   $has_exp  = array_filter($items, fn($p)=>expiryStatus($p['date_peremption'])==='expired');
   $has_crit = array_filter($items, fn($p)=>expiryStatus($p['date_peremption'])==='critical');
   $has_warn = array_filter($items, fn($p)=>expiryStatus($p['date_peremption'])==='warning');
   $worst  = $has_exp?'expired':($has_crit?'critical':($has_warn?'warning':'ok'));
   $bcolor = match($worst){'expired'=>'#6b7280','critical'=>'#EF4444','warning'=>'#F59E0B',default=>'var(--primary)'};
   $first  = $items[0];
-  $key    = md5($nom);
+  $nom    = $first['nom'];
+  $key    = md5($gkey);
 ?>
 <div class="card grp-card" style="border-left:3px solid <?= $bcolor ?>;padding:0;overflow:hidden">
   <div class="grp-header" onclick="toggleGrp('<?= $key ?>')">
     <div style="display:flex;align-items:center;gap:10px;flex:1;min-width:0">
       <i class="ti ti-pill" style="font-size:16px;color:<?= $bcolor ?>;flex-shrink:0"></i>
       <div>
-        <div style="font-size:14px;font-weight:600"><?= h($nom) ?></div>
+        <div style="font-size:14px;font-weight:600"><?= h($nom) ?><?php if(!empty($first['dosage'])):?> <span style="font-size:11.5px;color:var(--text3);font-weight:500"><?= h($first['dosage']) ?><?php if(!empty($first['forme'])):?> · <?= h($first['forme']) ?><?php endif;?></span><?php endif;?></div>
         <div style="font-size:11px;color:var(--text3);margin-top:2px;display:flex;gap:8px;flex-wrap:wrap">
           <span><?= count($items) ?> stock<?= count($items)>1?'s':'' ?></span>
           <?php if($first['unite']):?><span>· <?= h($first['unite']) ?></span><?php endif;?>
@@ -1751,11 +1787,12 @@ if (empty($grouped)): ?>
           <td class="px-mono"><?= h($p['numero_lot'] ?: '—') ?></td>
           <td><span class="px-badge <?= $bc ?>"><?= $label ?></span></td>
           <td class="r px-mono"><?= $dot>0 ? $pxQ($dot) : '—' ?></td>
-          <td class="r"><?php if($qc):?><span class="px-qbadge <?= $qc ?>"><?= $pxQ($qte) ?></span><?php else:?><span class="px-mono"><?= $pxQ($qte) ?></span><?php endif;?></td>
+          <td class="r"><span id="pxq-<?= $p['id'] ?>" data-dot="<?= $dot ?>" class="px-qbadge <?= $qc ?>"><?= $pxQ($qte) ?></span></td>
           <td><span class="px-badge <?= $sbadge ?>"><?= h($p['statut']) ?></span></td>
           <?php if (canEdit()): ?>
           <td onclick="event.stopPropagation()">
             <div class="px-actions">
+              <?php if($canMod): ?><button type="button" class="btn btn-ghost btn-xs" title="Retirer 1" onclick="pxInc(<?= $p['id'] ?>,-1)">−1</button><button type="button" class="btn btn-ghost btn-xs" title="Ajouter 1" onclick="pxInc(<?= $p['id'] ?>,1)">+1</button><?php endif; ?>
               <?php if($canMod): ?><a href="products.php?edit=<?= $p['id'] ?>" class="btn btn-ghost btn-xs" title="Modifier">✏️</a><?php endif; ?>
               <?php if($canRenew): ?><button type="button" class="btn btn-ghost btn-xs" title="Renouveler (périmé)" data-rn="<?= htmlspecialchars(json_encode(['id'=>$p['id'],'nom'=>$p['nom'],'lot'=>$p['numero_lot'],'date'=>$p['date_peremption'],'qte'=>$p['quantite'],'unite'=>$p['unite']]),ENT_QUOTES) ?>" onclick="openRenew(this)">♻️</button><?php endif; ?>
               <?php if($canDup): ?><button class="btn btn-ghost btn-xs" title="Dupliquer" onclick="dupliquer(<?= $p['id'] ?>)">📋</button><?php endif; ?>
@@ -2064,6 +2101,7 @@ document.addEventListener('DOMContentLoaded', function(){ var fp=document.getEle
 
 // ── Alertes création : boîte périmée + doublon de lot ──
 var PX_EXISTING = <?= json_encode($existingLots ?? [], JSON_UNESCAPED_UNICODE) ?>;
+var PX_BYNAME = <?= json_encode($byName ?? [], JSON_UNESCAPED_UNICODE) ?>;
 var PX_IS_EDIT = <?= $editing ? 'true' : 'false' ?>;
 function pxCheckWarn(){
   var box = document.getElementById('px-createwarn'); if(!box) return;
@@ -2073,9 +2111,25 @@ function pxCheckWarn(){
   if (!PX_IS_EDIT){
     var nomEl=document.getElementById('nom-input'), lotEl=document.querySelector('[name="numero_lot"]');
     var nom=(nomEl&&nomEl.value.trim().toLowerCase())||'', lot=(lotEl&&lotEl.value.trim().toLowerCase())||'';
-    if(nom&&lot){ var m=PX_EXISTING.find(function(x){return x.nom===nom&&x.lot===lot;}); if(m){ w.push('<div class="px-cw px-cw-lot">⚠️ Le lot <b>'+escHtml(lotEl.value)+'</b> existe déjà pour '+escHtml(m.nomAff)+' ('+escHtml(m.loc)+', qté '+m.qte+'). Ajuste plutôt la quantité ?</div>'); } }
+    var lotDup = (nom&&lot) ? PX_EXISTING.find(function(x){return x.nom===nom&&x.lot===lot;}) : null;
+    if(lotDup){
+      w.push('<div class="px-cw px-cw-lot">⚠️ Le lot <b>'+escHtml(lotEl.value)+'</b> existe déjà pour '+escHtml(lotDup.nomAff)+' ('+escHtml(lotDup.loc)+', qté '+lotDup.qte+'). Ajuste plutôt la quantité ?</div>');
+    } else if(nom && PX_BYNAME[nom]){
+      var b=PX_BYNAME[nom];
+      w.push('<div class="px-cw px-cw-info">💡 <b>'+escHtml(b.nom)+'</b> existe déjà ('+b.q+' en stock'+(b.c>1?(', '+b.c+' lots'):'')+')'+((parseFloat(b.dot)||0)>0?(' · dotation '+b.dot):'')+' — tu ajoutes un <b>nouveau lot</b>.</div>');
+    }
   }
   if(w.length){ box.innerHTML=w.join(''); box.style.display='flex'; } else { box.style.display='none'; box.innerHTML=''; }
+}
+function pxInc(id, delta){
+  fetch('products.php?ajax=inc_qte',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'id='+id+'&delta='+delta})
+    .then(function(r){return r.json();}).then(function(d){
+      if(!d.ok){ alert(d.error||'Erreur'); return; }
+      var el=document.getElementById('pxq-'+id); if(!el) return;
+      el.textContent=d.quantite_fmt;
+      var dot=parseFloat(el.dataset.dot)||0, q=parseFloat(d.quantite)||0;
+      el.className='px-qbadge '+(dot>0?(q<dot?'px-q-under':(q>dot?'px-q-over':'px-q-ok')):'');
+    }).catch(function(){ alert('Erreur réseau'); });
 }
 document.addEventListener('DOMContentLoaded', function(){
   var n=document.getElementById('nom-input'); if(n) n.addEventListener('input', pxCheckWarn);
