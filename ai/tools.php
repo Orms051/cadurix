@@ -102,6 +102,61 @@ function ai_tool_is_read(string $name): bool {
     ], true);
 }
 
+/**
+ * Étend un terme de recherche avec les correspondances marque <-> molécule
+ * issues de la base de référence BDPM (medicaments_ref). Ex. « midazolam »
+ * ramène aussi « Buccolam » ; « Rivotril » ramène aussi « clonazépam ».
+ */
+function ai_synonymes_medicament(PDO $pdo, string $terme): array {
+    $t = strtolower(trim($terme));
+    $syn = [$t];
+    if ($t === '') return $syn;
+
+    // 1) Correspondances CRITIQUES curées (urgence / secours) — nom commercial <-> molécule.
+    //    Indispensable car la BDPM a des DCI manquantes (ex. Buccolam sans DCI).
+    $groupes = [
+        ['buccolam', 'hypnovel', 'midazolam'],
+        ['narcan', 'nalscue', 'prenoxad', 'naloxone'],
+        ['rivotril', 'clonazepam', 'clonazépam'],
+        ['exacyl', 'acide tranexamique', 'tranexamique'],
+        ['aspegic', 'aspégic', 'kardegic', 'kardégic', 'acide acetylsalicylique', 'acide acétylsalicylique', 'aspirine'],
+        ['cordarone', 'amiodarone'],
+        ['adrenaline', 'adrénaline', 'epinephrine', 'épinéphrine', 'anahelp', 'anapen', 'jext', 'epipen'],
+        ['solumedrol', 'solumédrol', 'solu-medrol', 'methylprednisolone', 'méthylprednisolone'],
+        ['bricanyl', 'terbutaline'],
+        ['profenid', 'profénid', 'ketoprofene', 'kétoprofène'],
+        ['ventoline', 'salbutamol'],
+        ['lasilix', 'furosemide', 'furosémide'],
+        ['valium', 'diazepam', 'diazépam'],
+        ['hypnomidate', 'etomidate', 'étomidate'],
+        ['celocurine', 'célocurine', 'suxamethonium', 'suxaméthonium'],
+        ['perfalgan', 'doliprane', 'dafalgan', 'paracetamol', 'paracétamol'],
+        ['glucagen', 'glucagon'],
+    ];
+    foreach ($groupes as $g) {
+        foreach ($g as $s) {
+            if (strlen($s) >= 4 && (strpos($t, $s) !== false || strpos($s, $t) !== false)) {
+                $syn = array_merge($syn, $g);
+                break;
+            }
+        }
+    }
+
+    // 2) Correspondances issues de la base de référence BDPM (quand le DCI y est renseigné).
+    try {
+        $q = $pdo->prepare("SELECT DISTINCT nom, dci FROM medicaments_ref
+                            WHERE actif = 1 AND (LOWER(nom) LIKE ? OR LOWER(dci) LIKE ?) LIMIT 40");
+        $q->execute(['%' . $t . '%', '%' . $t . '%']);
+        foreach ($q as $r) {
+            if (!empty($r['nom'])) $syn[] = strtolower($r['nom']);
+            if (!empty($r['dci'])) $syn[] = strtolower($r['dci']);
+        }
+    } catch (Throwable $e) {}
+
+    $syn = array_values(array_unique(array_filter(array_map('trim', $syn))));
+    return array_slice($syn, 0, 40);
+}
+
 /** Exécute un outil de lecture et renvoie un tableau (sérialisé en JSON pour le modèle). */
 function ai_tool_run(PDO $pdo, string $name, array $in, int $site_id, int $user_id): array {
     try {
@@ -125,15 +180,21 @@ function ai_tool_run(PDO $pdo, string $name, array $in, int $site_id, int $user_
             }
 
             case 'chercher_stock': {
-                $sql = "SELECT pr.id, pr.nom, pr.quantite, pr.unite, pr.numero_lot,
+                $sql = "SELECT pr.id, pr.nom, pr.dci, pr.dosage, pr.quantite, pr.unite, pr.numero_lot,
                                pr.date_peremption, e.id AS emplacement_id, e.nom AS emplacement
                         FROM produits pr
                         JOIN emplacements e ON e.id = pr.emplacement_id
                         WHERE e.site_id = ? AND pr.statut = 'actif'";
                 $args = [$site_id];
                 if (!empty($in['nom'])) {
-                    $sql .= " AND LOWER(pr.nom) LIKE ?";
-                    $args[] = '%' . strtolower($in['nom']) . '%';
+                    // Étendre marque<->molécule via la base BDPM : « midazolam » retrouve « Buccolam »
+                    $syn = ai_synonymes_medicament($pdo, $in['nom']);
+                    $ors = [];
+                    foreach ($syn as $s) {
+                        $ors[] = "LOWER(pr.nom) LIKE ?"; $args[] = '%' . $s . '%';
+                        $ors[] = "LOWER(pr.dci) LIKE ?"; $args[] = '%' . $s . '%';
+                    }
+                    $sql .= " AND (" . implode(' OR ', $ors) . ")";
                 }
                 if (!empty($in['emplacement_id'])) {
                     // Inclure l'emplacement ciblé ET tous ses sous-emplacements
@@ -211,11 +272,13 @@ function ai_tool_run(PDO $pdo, string $name, array $in, int $site_id, int $user_
             case 'chercher_medicament': {
                 $t = trim($in['terme'] ?? '');
                 if ($t === '') return ['erreur' => 'terme requis'];
-                $st = $pdo->prepare("SELECT nom_commercial, dci, dosages, unite
-                                     FROM ai_medicaments
-                                     WHERE actif = 1 AND (nom_commercial LIKE ? OR dci LIKE ?)
+                // Base de référence BDPM (medicaments_ref, ~21 000 lignes) : nom commercial <-> DCI
+                $st = $pdo->prepare("SELECT nom, dci, forme, dosage, gtin
+                                     FROM medicaments_ref
+                                     WHERE actif = 1 AND (nom LIKE ? OR dci LIKE ?)
+                                     ORDER BY (nom LIKE ?) DESC, nom
                                      LIMIT 25");
-                $st->execute(['%' . $t . '%', '%' . $t . '%']);
+                $st->execute(['%' . $t . '%', '%' . $t . '%', $t . '%']);
                 return ['resultats' => $st->fetchAll(PDO::FETCH_ASSOC)];
             }
 
