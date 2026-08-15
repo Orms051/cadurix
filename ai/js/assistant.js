@@ -46,6 +46,18 @@ const AI = {
 
         if (this.micBtn) this.micBtn.addEventListener('click', () => this.toggleVoice());
 
+        // Photo : bouton 📷 → ouvre l'appareil / la galerie
+        this.camBtn     = document.getElementById('ai-cam');
+        this.photoInput = document.getElementById('ai-photo');
+        if (this.camBtn && this.photoInput) {
+            this.camBtn.addEventListener('click', () => this.photoInput.click());
+            this.photoInput.addEventListener('change', e => {
+                const f = e.target.files && e.target.files[0];
+                if (f) this.sendPhoto(f);
+                this.photoInput.value = '';
+            });
+        }
+
         // Empêcher scroll page derrière panneau sur iOS
         this.panel.addEventListener('touchmove', e => e.stopPropagation(), { passive: true });
 
@@ -66,25 +78,29 @@ const AI = {
         if (window.innerWidth >= 768) this.input.focus();
     },
 
-    async send(msg = null) {
-        const text = msg || this.input.value.trim();
-        if (!text) return;
+    async send(msg = null, opts = null) {
+        const image = (opts && opts.image) || null;
+        const text  = msg || this.input.value.trim();
+        if (!text && !image) return;
 
         this.input.value = '';
         this.input.style.height = 'auto';
-        this.addMessage('user', text);
+        this.addMessage('user', image ? ('📷 ' + (text || 'Photo envoyée')) : text);
         this.showTyping();
         this.sendBtn.disabled = true;
 
         try {
+            const body = {
+                message: text,
+                page:    this.page,
+                history: this.history.slice(-6),
+            };
+            if (image) { body.image = image; body.media_type = 'image/jpeg'; }
+
             const res = await fetch('/ai/api.php', {
                 method:  'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body:    JSON.stringify({
-                    message: text,
-                    page:    this.page,
-                    history: this.history.slice(-6),
-                }),
+                body:    JSON.stringify(body),
             });
 
             const data = await res.json();
@@ -93,7 +109,7 @@ const AI = {
             if (data.error) {
                 this.addMessage('system', '⚠️ ' + data.error);
             } else {
-                this.history.push({ role: 'user',      content: text });
+                this.history.push({ role: 'user',      content: text || '📷 photo' });
                 this.history.push({ role: 'assistant', content: data.reply });
                 this.addMessage('assistant', data.reply);
 
@@ -112,6 +128,46 @@ const AI = {
         }
 
         this.sendBtn.disabled = false;
+    },
+
+    // Photo d'une boîte → redimensionne puis envoie à l'IA (vision + outils)
+    async sendPhoto(file) {
+        if (!file.type || file.type.indexOf('image/') !== 0) {
+            this.addMessage('system', '⚠️ Fichier non image.');
+            return;
+        }
+        try {
+            const b64 = await this.resizeToBase64(file, 1280, 0.8);
+            const caption = this.input.value.trim();
+            await this.send(caption || ' ', { image: b64 });
+        } catch (e) {
+            this.addMessage('system', '⚠️ Impossible de lire la photo : ' + e.message);
+        }
+    },
+
+    // Redimensionne l'image (max maxDim px) et renvoie le base64 JPEG (sans préfixe data:)
+    resizeToBase64(file, maxDim, quality) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onerror = () => reject(new Error('lecture échouée'));
+            reader.onload = () => {
+                const img = new Image();
+                img.onerror = () => reject(new Error('image invalide'));
+                img.onload = () => {
+                    let w = img.width, h = img.height;
+                    if (w > maxDim || h > maxDim) {
+                        const s = Math.min(maxDim / w, maxDim / h);
+                        w = Math.round(w * s); h = Math.round(h * s);
+                    }
+                    const c = document.createElement('canvas');
+                    c.width = w; c.height = h;
+                    c.getContext('2d').drawImage(img, 0, 0, w, h);
+                    resolve(c.toDataURL('image/jpeg', quality).split(',')[1]);
+                };
+                img.src = reader.result;
+            };
+            reader.readAsDataURL(file);
+        });
     },
 
     addMessage(role, text) {
