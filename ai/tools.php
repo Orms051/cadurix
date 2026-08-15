@@ -334,7 +334,7 @@ function ai_tool_run(PDO $pdo, string $name, array $in, int $site_id, int $user_
 
 /** Noms des actions d'écriture. */
 function ai_action_names(): array {
-    return ['rempotage', 'marquer_produit_retire', 'archiver_lot', 'ajuster_quantite', 'renouveler_lot', 'signaler_biomed', 'creer_alerte', 'generer_rapport'];
+    return ['rempotage', 'marquer_produit_retire', 'archiver_lot', 'ajuster_quantite', 'renouveler_lot', 'modifier_fiche', 'signaler_biomed', 'creer_alerte', 'generer_rapport'];
 }
 
 /** Normalise une date de péremption libre (MM/AAAA, JJ/MM/AAAA, AAAA-MM, AAAA-MM-JJ) en AAAA-MM-JJ, ou null. */
@@ -400,6 +400,17 @@ function ai_actions_defs(PDO $pdo): array {
                 'numero_lot'     => ['type' => 'string',  'description' => "Nouveau numéro de lot (optionnel)."],
                 'quantite'       => ['type' => 'number',  'description' => "Quantité à renouveler (optionnel). Par défaut : tout le lot."],
             ], 'required' => ['produit_id', 'date_peremption']],
+        ],
+        'action_modifier_fiche' => [
+            'name'        => 'modifier_fiche',
+            'description' => "Corrige/complète l'IDENTITÉ d'une fiche produit existante : nom commercial, DCI, dosage, forme. Ne touche NI la quantité NI le lot NI la péremption. Règle absolue : le DCI est la MOLÉCULE (ex. Paracétamol, Adrénaline), le nom commercial est la MARQUE (ex. Doliprane, Anahelp) — ne remplace JAMAIS un DCI correct par une marque. Pour compléter un DCI manquant, recopie la molécule dans le champ dci. Utilise chercher_stock pour le produit_id. Ne renseigne QUE les champs à changer. Un seul produit à la fois. Soumis à confirmation.",
+            'input_schema' => ['type' => 'object', 'properties' => [
+                'produit_id' => ['type' => 'integer', 'description' => "ID de la fiche à corriger (via chercher_stock)."],
+                'nom'        => ['type' => 'string', 'description' => "Nouveau nom commercial (marque). Optionnel."],
+                'dci'        => ['type' => 'string', 'description' => "DCI / molécule. Optionnel."],
+                'dosage'     => ['type' => 'string', 'description' => "Dosage, ex. '1 mg/1 ml'. Optionnel."],
+                'forme'      => ['type' => 'string', 'description' => "Forme, ex. 'solution injectable'. Optionnel."],
+            ], 'required' => ['produit_id']],
         ],
         'action_signaler_biomed' => [
             'name'        => 'signaler_biomed',
@@ -585,6 +596,40 @@ function ai_action_proposal(PDO $pdo, string $name, array $in, int $site_id): ar
                 ])),
                 'confirm_label' => 'Renouveler',
                 'message'       => 'Renouvellement à confirmer',
+            ];
+        }
+
+        case 'modifier_fiche': {
+            if (function_exists('action_permise') && !action_permise('modifier'))
+                return ['status' => 'error', 'message' => "Votre rôle n'a pas le droit de modifier une fiche."];
+            $pid = (int)($in['produit_id'] ?? 0);
+            $st = $pdo->prepare("SELECT pr.id, pr.nom, pr.dci, pr.dosage, pr.forme, e.nom AS emplacement
+                                 FROM produits pr JOIN emplacements e ON e.id = pr.emplacement_id
+                                 WHERE pr.id = ? AND e.site_id = ? AND pr.statut = 'actif'");
+            $st->execute([$pid, $site_id]);
+            $p = $st->fetch(PDO::FETCH_ASSOC);
+            if (!$p) return ['status' => 'error', 'message' => "Fiche introuvable (ID $pid). Utilise chercher_stock."];
+            $labels = ['nom' => 'Nom commercial', 'dci' => 'DCI', 'dosage' => 'Dosage', 'forme' => 'Forme'];
+            $params = ['produit_id' => $pid];
+            $lignes = [trim(($p['dci'] ?: $p['nom']) . ' ' . ($p['dosage'] ?? '')) . ' — ' . $p['emplacement']];
+            foreach ($labels as $f => $lbl) {
+                if (!array_key_exists($f, $in)) continue;
+                $new = trim((string)$in[$f]);
+                if ($f === 'nom' && $new === '') continue; // le nom ne se vide pas
+                $old = trim((string)($p[$f] ?? ''));
+                if ($new === $old) continue;
+                $params[$f] = $new;
+                $lignes[] = $lbl . ' : ' . ($old !== '' ? '« ' . $old . ' »' : '(vide)') . ' → ' . ($new !== '' ? '« ' . $new . ' »' : '(vide)');
+            }
+            if (count($params) <= 1) return ['status' => 'error', 'message' => "Rien à modifier (valeurs identiques)."];
+            return [
+                'status'        => 'pending_confirm',
+                'action'        => 'modifier_fiche',
+                'params'        => $params,
+                'titre'         => '✏️ Corriger la fiche',
+                'lignes'        => $lignes,
+                'confirm_label' => 'Enregistrer',
+                'message'       => 'Correction à confirmer',
             ];
         }
 
@@ -780,6 +825,33 @@ function ai_action_run(PDO $pdo, string $name, array $in, int $site_id, int $use
                 $pdo->commit();
                 $fmt = fn($n) => rtrim(rtrim(number_format($n, 2, '.', ''), '0'), '.');
                 return ['status' => 'success', 'message' => 'Lot « ' . $old['nom'] . ' » renouvelé (' . $fmt($qren) . ' ' . $old['unite'] . ', péremption ' . $ndate . ').', 'lien' => '/products.php'];
+            }
+
+            case 'modifier_fiche': {
+                if (function_exists('action_permise') && !action_permise('modifier'))
+                    return ['status' => 'error', 'message' => "Permission refusée (modifier)."];
+                $pid = (int)($in['produit_id'] ?? 0);
+                $st = $pdo->prepare("SELECT pr.* FROM produits pr JOIN emplacements e ON e.id = pr.emplacement_id
+                                     WHERE pr.id = ? AND e.site_id = ? AND pr.statut = 'actif'");
+                $st->execute([$pid, $site_id]);
+                $old = $st->fetch(PDO::FETCH_ASSOC);
+                if (!$old) return ['status' => 'error', 'message' => 'Fiche introuvable.'];
+                $sets = []; $vals = []; $avant = []; $apres = [];
+                foreach (['nom', 'dci', 'dosage', 'forme'] as $f) {
+                    if (!array_key_exists($f, $in)) continue;
+                    $new = trim((string)$in[$f]);
+                    if ($f === 'nom' && $new === '') continue;
+                    $newVal = ($new === '') ? null : mb_substr($new, 0, ($f === 'dci' ? 150 : 100));
+                    if ((string)($old[$f] ?? '') === (string)($newVal ?? '')) continue;
+                    $sets[] = "$f = ?"; $vals[] = $newVal;
+                    $avant[$f] = $old[$f]; $apres[$f] = $newVal;
+                }
+                if (!$sets) return ['status' => 'error', 'message' => 'Aucune modification.'];
+                $vals[] = $user_id; $vals[] = $pid;
+                $pdo->prepare("UPDATE produits SET " . implode(', ', $sets) . ", modifie_par = ?, modifie_le = NOW() WHERE id = ?")
+                    ->execute($vals);
+                audit_log($pdo, 'MODIF_PRODUIT', 'produits', $pid, $avant, $apres + ['via' => 'assistant_ia']);
+                return ['status' => 'success', 'message' => 'Fiche « ' . ($apres['nom'] ?? $old['nom']) . ' » corrigée.', 'lien' => '/products.php'];
             }
 
             case 'signaler_biomed': {
