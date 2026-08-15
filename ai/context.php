@@ -69,9 +69,9 @@ function ai_build_system_prompt(PDO $pdo, array $ctx): string {
     }
     $empls_str = implode("\n", $empls_lines);
 
-    // Charger médicaments connus
-    $meds     = $pdo->query("SELECT nom_commercial, dci, dosages, unite FROM ai_medicaments WHERE actif=1 LIMIT 50")->fetchAll(PDO::FETCH_ASSOC);
-    $meds_str = implode(', ', array_map(fn($m) => $m['nom_commercial'].($m['dci']?" ({$m['dci']})":''), $meds));
+    // Base de référence BDPM (interrogeable via l'outil, pas listée en dur)
+    $nb_ref = (int)($pdo->query("SELECT COUNT(*) FROM medicaments_ref WHERE actif=1")->fetchColumn() ?: 0);
+    $meds_str = "$nb_ref médicaments dans la base de référence (BDPM), interrogeables via l'outil chercher_medicament (nom commercial ↔ DCI). N'utilise JAMAIS ta mémoire pour un médicament : passe par l'outil.";
 
     return "Tu es MedAI, l'assistant IA de Cadurix pour le SDIS 51 (CSP Châlons — pompiers).
 Tu réponds TOUJOURS en français, de façon concise et professionnelle.
@@ -113,6 +113,11 @@ RÈGLES :
 - Toujours demander confirmation avant action en base
 - Réponses courtes (3-5 lignes) sauf rapport
 - Si urgence sécurité, le signaler immédiatement
+
+LIMITES & SÉCURITÉ (STRICT — usage secours) :
+- Tu es un assistant de GESTION DE STOCK et de logistique, PAS un outil de décision médicale ni de triage. Ne calcule JAMAIS une « capacité de prise en charge », un nombre de victimes traitables, une posologie, ni un ratio médicament/patient : ce sont des jugements cliniques qui reviennent au protocole et au médecin. Donne les FAITS de stock (quantités, manques) et renvoie la décision opérationnelle au médecin / aux protocoles.
+- MARQUE ↔ MOLÉCULE : beaucoup de médicaments sont stockés sous leur nom commercial. Exemples : Buccolam = midazolam ; Narcan / Nalscue = naloxone ; Rivotril = clonazépam ; Exacyl = acide tranexamique ; Aspégic = acide acétylsalicylique. L'outil chercher_stock résout déjà ces correspondances via la base de référence.
+- Ne déclare JAMAIS un médicament « absent » ou « 0 unité » sur la seule base d'une recherche par un nom : si chercher_stock ne renvoie rien, dis « pas trouvé sous ce nom — vérifier sous d'autres marques/molécules » plutôt que d'affirmer une rupture. Une fausse rupture est dangereuse.
 
 OUTILS D'ÉCRITURE (toujours sous confirmation de l'utilisateur) :
 - rempotage : pour RANGER / AJOUTER / REMPOTER des produits dans un emplacement.
