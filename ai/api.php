@@ -286,7 +286,17 @@ while ($loop++ < $max_loops) {
     if ($ai_pending !== null) break;
 
     // Sinon : exécuter les outils de LECTURE et reboucler
-    $messages[] = ['role' => 'assistant', 'content' => $data['content']];
+    // Normaliser les tool_use.input vides : en PHP, {} se décode en [] et se
+    // ré-encode en tableau JSON → l'API exige un OBJET. On force donc stdClass.
+    $assistant_content = $data['content'];
+    foreach ($assistant_content as &$blk) {
+        if (($blk['type'] ?? '') === 'tool_use'
+            && (!isset($blk['input']) || $blk['input'] === [] || (is_array($blk['input']) && count($blk['input']) === 0))) {
+            $blk['input'] = new stdClass();
+        }
+    }
+    unset($blk);
+    $messages[] = ['role' => 'assistant', 'content' => $assistant_content];
     $tool_results = [];
     foreach ($tool_uses as $tu) {
         $tname  = $tu['name'] ?? '';
