@@ -86,7 +86,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'autocomplete') {
 // ── AJAX incrément/décrément rapide de la quantité d'un lot ──
 if (isset($_GET['ajax']) && $_GET['ajax'] === 'inc_qte' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     header('Content-Type: application/json');
-    if (!action_permise('modifier')) { echo json_encode(['error' => 'Permission refusée']); exit; }
+    if (!action_permise('ajuster')) { echo json_encode(['error' => 'Permission refusée']); exit; }
     $id    = (int)($_POST['id'] ?? 0);
     $delta = (float)str_replace(',', '.', $_POST['delta'] ?? '0');
     if (!$id || $delta == 0) { echo json_encode(['error' => 'Paramètres invalides']); exit; }
@@ -290,6 +290,7 @@ $sort = $_GET['sort'] ?? 'peremption';
 if (!isset($sortMap[$sort])) $sort = 'peremption';
 $dir  = (strtolower($_GET['dir'] ?? 'asc') === 'desc') ? 'desc' : 'asc';
 $canMod   = action_permise('modifier');
+$canAjust = action_permise('ajuster');
 $canRenew = action_permise('renouveler');
 $canDel   = action_permise('supprimer');
 
@@ -668,7 +669,7 @@ try {
 
 // Emplacements pour le select — tous niveaux confondus
 $allEmpls = $pdo->prepare("
-    SELECT e.id, e.nom, e.parent_id, e.actif,
+    SELECT e.id, e.nom, e.parent_id, e.actif, e.type,
            ep.nom AS parent_nom
     FROM emplacements e
     LEFT JOIN emplacements ep ON e.parent_id = ep.id
@@ -699,6 +700,24 @@ function renderEmplOptions(array $tree, $selectedId = null, int $depth = 0): str
         $html .= "<option value=\"{$e['id']}\" $selected>{$prefix}{$arrow}" . htmlspecialchars($e['nom'], ENT_QUOTES) . "</option>";
         if (!empty($e['children'])) {
             $html .= renderEmplOptions($e['children'], $selectedId, $depth + 1);
+        }
+    }
+    return $html;
+}
+
+// Options du menu déroulant de filtre : arbre indenté (PUI en tête, sacs décalés)
+function renderEmplFilterOptions(array $tree, $filterEmpl, int $depth = 0): string {
+    $html = '';
+    foreach ($tree as $e) {
+        $prefix = str_repeat('&nbsp;&nbsp;&nbsp;', $depth);
+        $icon   = $depth === 0
+            ? ((($e['type'] ?? '') === 'pui') ? '🏢 ' : '📦 ')
+            : '↳ ';
+        $sel = ($filterEmpl == $e['id']) ? 'selected' : '';
+        $html .= '<option value="' . h(pf_url(['emplacement' => $e['id']])) . '" ' . $sel . '>'
+               . $prefix . $icon . h($e['nom']) . '</option>';
+        if (!empty($e['children'])) {
+            $html .= renderEmplFilterOptions($e['children'], $filterEmpl, $depth + 1);
         }
     }
     return $html;
@@ -1322,16 +1341,18 @@ const SR_EMPLS = <?= json_encode($empl_for_js) ?>;
 
       <div class="px-fsect"><div class="px-fsect-h">💊 Identification</div>
         <div class="form-group" style="position:relative">
-          <label class="form-label">Nom commercial (princeps / générique) *</label>
-          <input type="text" name="nom" id="nom-input" class="form-control" required
-                 value="<?= h($editing['nom'] ?? '') ?>"
-                 placeholder="Ex: Doliprane, Adrénaline Aguettant…"
+          <label class="form-label">DCI (molécule) <span style="font-weight:400;color:var(--text3);font-size:11px">— affichée en premier</span></label>
+          <input type="text" name="dci" id="dci-input" class="form-control"
+                 value="<?= h($editing['dci'] ?? '') ?>"
+                 placeholder="Ex: Paracétamol, Clonazépam…"
                  autocomplete="off" oninput="acNom(this.value)">
           <div id="ac-list"></div>
         </div>
         <div class="form-group">
-          <label class="form-label">DCI (molécule) <span style="font-weight:400;color:var(--text3);font-size:11px">— affichée en premier</span></label>
-          <input type="text" name="dci" class="form-control" value="<?= h($editing['dci'] ?? '') ?>" placeholder="Ex: Paracétamol, Adrénaline…">
+          <label class="form-label">Nom commercial (princeps / générique) *</label>
+          <input type="text" name="nom" id="nom-input" class="form-control" required
+                 value="<?= h($editing['nom'] ?? '') ?>"
+                 placeholder="Ex: Doliprane, Rivotril…" autocomplete="off">
         </div>
         <div class="form-row">
           <div class="form-group">
@@ -1597,9 +1618,7 @@ $advActive = (in_array($filterStatus,$advStatuses,true)?1:0) + ($horizon!=='1'?1
   <div class="px-selbox">📍
     <select onchange="if(this.value)location.href=this.value">
       <option value="<?= h(pf_url(['emplacement'=>0])) ?>" <?= !$filterEmpl?'selected':'' ?>>Tous les sacs / PUI</option>
-      <?php foreach ($allEmpls as $e): $lbl=($e['parent_nom']?$e['parent_nom'].' › ':'').$e['nom']; ?>
-      <option value="<?= h(pf_url(['emplacement'=>$e['id']])) ?>" <?= $filterEmpl==$e['id']?'selected':'' ?>><?= h($lbl) ?></option>
-      <?php endforeach; ?>
+      <?= renderEmplFilterOptions($emplTree, $filterEmpl) ?>
     </select>
   </div>
   <?php if($pxBulk && $nbExpired>0): ?><button type="button" class="px-chip" onclick="pxSelectPerimes()">💀 Sélectionner les périmés</button><?php endif; ?>
@@ -1798,7 +1817,7 @@ if (empty($grouped)): ?>
           <?php if (canEdit()): ?>
           <td onclick="event.stopPropagation()">
             <div class="px-actions">
-              <?php if($canMod): ?><button type="button" class="btn btn-ghost btn-xs" title="Retirer 1" onclick="pxInc(<?= $p['id'] ?>,-1)">−1</button><button type="button" class="btn btn-ghost btn-xs" title="Ajouter 1" onclick="pxInc(<?= $p['id'] ?>,1)">+1</button><?php endif; ?>
+              <?php if($canAjust): ?><button type="button" class="btn btn-ghost btn-xs" title="Retirer 1" onclick="pxInc(<?= $p['id'] ?>,-1)">−1</button><button type="button" class="btn btn-ghost btn-xs" title="Ajouter 1" onclick="pxInc(<?= $p['id'] ?>,1)">+1</button><?php endif; ?>
               <?php if($canMod): ?><a href="products.php?edit=<?= $p['id'] ?>" class="btn btn-ghost btn-xs" title="Modifier">✏️</a><?php endif; ?>
               <?php if($canRenew): ?><button type="button" class="btn btn-ghost btn-xs" title="Renouveler (périmé)" data-rn="<?= htmlspecialchars(json_encode(['id'=>$p['id'],'nom'=>$p['nom'],'lot'=>$p['numero_lot'],'date'=>$p['date_peremption'],'qte'=>$p['quantite'],'unite'=>$p['unite']]),ENT_QUOTES) ?>" onclick="openRenew(this)">♻️</button><?php endif; ?>
               <?php if($canDup): ?><button class="btn btn-ghost btn-xs" title="Dupliquer" onclick="dupliquer(<?= $p['id'] ?>)">📋</button><?php endif; ?>
@@ -2266,6 +2285,7 @@ function acSelect(i) {
   const cf = document.querySelector('[name="chaine_froid"]');
   if (cf) { cf.checked = d.chaine_froid == 1; var sw=document.getElementById('px-cold-sw'); if(sw) sw.classList.toggle('on', cf.checked); }
   if (typeof pxDotChip === 'function') pxDotChip();
+  if (typeof pxCheckWarn === 'function') pxCheckWarn();
 }
 
 // Navigation clavier dans l'autocomplete
