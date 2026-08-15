@@ -353,7 +353,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($type === 'save_button_perms') {
         if (!($_SESSION['super_admin'] ?? false) && !isAdmin()) { flashError("Réservé aux administrateurs."); echo '<script>window.location.href=(window.location.pathname.includes("/admin/")?"?tab=users&onglet=roles":"users.php?onglet=roles");</script>'; exit; }
         foreach (array_keys(roles_editables()) as $rk) {
-            foreach (['creer','modifier','renouveler','dupliquer','archiver','supprimer','historique'] as $act) {
+            foreach (['creer','modifier','ajuster','renouveler','dupliquer','archiver','supprimer','historique'] as $act) {
                 $on = isset($_POST['btnperm'][$rk][$act]) ? 1 : 0;
                 $pdo->prepare("INSERT INTO role_permissions (role,module,niveau) VALUES(?,?,?) ON DUPLICATE KEY UPDATE niveau=?")
                     ->execute([$rk, 'action_'.$act, $on, $on]);
@@ -399,7 +399,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         // Étage 2 : actions détaillées
         foreach ($rolesE as $rk) {
-            foreach (['creer','modifier','renouveler','dupliquer','archiver','supprimer','historique'] as $act) {
+            foreach (['creer','modifier','ajuster','renouveler','dupliquer','archiver','supprimer','historique'] as $act) {
                 $on = isset($_POST['actperm'][$rk][$act]) ? 1 : 0;
                 $upd->execute([$rk, 'action_'.$act, $on]);
             }
@@ -1697,7 +1697,7 @@ endif; // end onglet Modules ?>
     if (function_exists('module_perm_visible') && !module_perm_visible($mk)) continue;
     $acc_by_sec[$mc['section'] ?? 'Modules'][$mk] = $mc;
   }
-  $acc_actions = ['creer'=>'➕ Créer', 'modifier'=>'✏️ Modifier', 'renouveler'=>'♻️ Renouveler', 'dupliquer'=>'📋 Dupliquer', 'archiver'=>'📦 Archiver', 'supprimer'=>'🗑️ Supprimer', 'historique'=>'🕓 Historique'];
+  $acc_actions = ['creer'=>'➕ Créer', 'modifier'=>'✏️ Modifier', 'ajuster'=>'± Ajuster qté', 'renouveler'=>'♻️ Renouveler', 'dupliquer'=>'📋 Dupliquer', 'archiver'=>'📦 Archiver', 'supprimer'=>'🗑️ Supprimer', 'historique'=>'🕓 Historique'];
 ?>
 <style>
 .acc-hint{display:flex;align-items:center;gap:8px;background:rgba(45,212,191,.08);border:1px solid rgba(45,212,191,.25);border-radius:10px;padding:10px 14px;font-size:12.5px;color:var(--text2);margin:18px 0}
