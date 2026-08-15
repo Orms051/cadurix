@@ -62,6 +62,13 @@ function ai_tools_defs(): array {
                 'nom' => ['type' => 'string', 'description' => "Nom (ou partie) du matériel."],
             ], 'required' => ['nom']],
         ],
+        [
+            'name'        => 'stock_bas',
+            'description' => "Liste des médicaments/produits à RÉAPPROVISIONNER : ceux dont la quantité est ≤ à la dotation attendue (quantite_min). Renvoie nom, DCI, dosage, quantité, dotation, manque (dotation - quantité), unité et emplacement. À utiliser dès qu'on demande « qu'est-ce qu'il faut réappro / recommander / racheter / ce qui manque ».",
+            'input_schema' => ['type' => 'object', 'properties' => [
+                'emplacement_id' => ['type' => 'integer', 'description' => "Optionnel : restreindre à un emplacement (et ses sous-emplacements)."],
+            ], 'required' => []],
+        ],
     ];
 }
 
@@ -70,7 +77,7 @@ function ai_tool_is_read(string $name): bool {
     return in_array($name, [
         'lister_emplacements', 'chercher_stock', 'produits_peremption',
         'etat_materiel', 'rappels_actifs', 'dernieres_fiches', 'chercher_medicament',
-        'chercher_materiel',
+        'chercher_materiel', 'stock_bas',
     ], true);
 }
 
@@ -200,6 +207,37 @@ function ai_tool_run(PDO $pdo, string $name, array $in, int $site_id, int $user_
                 $st->execute([$site_id, '%' . $t . '%']);
                 return ['materiels' => $st->fetchAll(PDO::FETCH_ASSOC)];
             }
+
+            case 'stock_bas': {
+                $sql = "SELECT pr.id, pr.nom, pr.dci, pr.dosage, pr.quantite,
+                               pr.quantite_min AS dotation, pr.unite,
+                               (pr.quantite_min - pr.quantite) AS manque,
+                               e.nom AS emplacement
+                        FROM produits pr
+                        JOIN emplacements e ON e.id = pr.emplacement_id
+                        WHERE e.site_id = ? AND pr.statut = 'actif'
+                          AND pr.quantite_min > 0 AND pr.quantite <= pr.quantite_min";
+                $args = [$site_id];
+                if (!empty($in['emplacement_id'])) {
+                    // Inclure l'emplacement ciblé ET tous ses sous-emplacements
+                    $ids = [(int)$in['emplacement_id']];
+                    $frontier = $ids;
+                    $guard = 0;
+                    while ($frontier && $guard++ < 10) {
+                        $inList = implode(',', array_map('intval', $frontier));
+                        $q = $pdo->prepare("SELECT id FROM emplacements WHERE site_id = ? AND parent_id IN ($inList)");
+                        $q->execute([$site_id]);
+                        $children = array_map('intval', $q->fetchAll(PDO::FETCH_COLUMN));
+                        $frontier = array_values(array_diff($children, $ids));
+                        $ids = array_merge($ids, $frontier);
+                    }
+                    $sql .= " AND pr.emplacement_id IN (" . implode(',', array_map('intval', $ids)) . ")";
+                }
+                $sql .= " ORDER BY manque DESC, pr.nom LIMIT 80";
+                $st = $pdo->prepare($sql);
+                $st->execute($args);
+                return ['a_reapprovisionner' => $st->fetchAll(PDO::FETCH_ASSOC)];
+            }
         }
         return ['erreur' => 'Outil inconnu : ' . $name];
     } catch (Throwable $e) {
@@ -214,7 +252,7 @@ function ai_tool_run(PDO $pdo, string $name, array $in, int $site_id, int $user_
 
 /** Noms des actions d'écriture. */
 function ai_action_names(): array {
-    return ['rempotage', 'marquer_produit_retire', 'signaler_biomed', 'creer_alerte', 'generer_rapport'];
+    return ['rempotage', 'marquer_produit_retire', 'archiver_lot', 'ajuster_quantite', 'signaler_biomed', 'creer_alerte', 'generer_rapport'];
 }
 function ai_tool_is_action(string $name): bool {
     return in_array($name, ai_action_names(), true);
@@ -242,6 +280,22 @@ function ai_actions_defs(PDO $pdo): array {
             'description' => "Marque un produit comme RETIRÉ du stock (périmé ou inutilisable) : met sa quantité à 0, son statut à 'retiré' et trace une sortie. Action sensible — sera soumise à la confirmation de l'utilisateur.",
             'input_schema' => ['type' => 'object', 'properties' => [
                 'produit_id' => ['type' => 'integer', 'description' => "ID du produit à retirer (obtenu via chercher_stock)."],
+            ], 'required' => ['produit_id']],
+        ],
+        'action_archiver_lot' => [
+            'name'        => 'archiver_lot',
+            'description' => "Archive un lot/produit (le sort de la liste active sans le supprimer, statut 'archive'). Utilise d'abord chercher_stock pour obtenir le produit_id. À utiliser quand l'utilisateur veut ARCHIVER / RANGER un lot terminé/plus utilisé. Soumis à confirmation.",
+            'input_schema' => ['type' => 'object', 'properties' => [
+                'produit_id' => ['type' => 'integer', 'description' => "ID du produit/lot à archiver (obtenu via chercher_stock)."],
+            ], 'required' => ['produit_id']],
+        ],
+        'action_ajuster_quantite' => [
+            'name'        => 'ajuster_quantite',
+            'description' => "Ajuste la quantité en stock d'un produit précis. Deux modes : 'quantite' fixe la valeur absolue (ex. « il en reste 3 » → quantite=3) ; 'delta' ajoute/retire (ex. « j'en ai utilisé 2 » → delta=-2). Utilise d'abord chercher_stock pour obtenir le produit_id. Ne descend jamais sous 0. Soumis à confirmation.",
+            'input_schema' => ['type' => 'object', 'properties' => [
+                'produit_id' => ['type' => 'integer', 'description' => "ID du produit (via chercher_stock)."],
+                'quantite'   => ['type' => 'number',  'description' => "Nouvelle quantité absolue. Utiliser SOIT quantite SOIT delta."],
+                'delta'      => ['type' => 'number',  'description' => "Variation relative (négative pour retirer). Utiliser SOIT quantite SOIT delta."],
             ], 'required' => ['produit_id']],
         ],
         'action_signaler_biomed' => [
@@ -335,6 +389,64 @@ function ai_action_proposal(PDO $pdo, string $name, array $in, int $site_id): ar
                 'lignes'        => [$det, 'Quantité ' . $p['quantite'] . ' → 0, statut « retiré »'],
                 'confirm_label' => 'Retirer',
                 'message'       => 'Retrait à confirmer',
+            ];
+        }
+
+        case 'archiver_lot': {
+            if (function_exists('action_permise') && !action_permise('archiver'))
+                return ['status' => 'error', 'message' => "Votre rôle n'a pas le droit d'archiver un produit."];
+            $pid = (int)($in['produit_id'] ?? 0);
+            $st = $pdo->prepare("SELECT pr.id, pr.nom, pr.dci, pr.dosage, pr.quantite, pr.unite, pr.numero_lot, pr.date_peremption, e.nom AS emplacement
+                                 FROM produits pr JOIN emplacements e ON e.id = pr.emplacement_id
+                                 WHERE pr.id = ? AND e.site_id = ? AND pr.statut = 'actif'");
+            $st->execute([$pid, $site_id]);
+            $p = $st->fetch(PDO::FETCH_ASSOC);
+            if (!$p) return ['status' => 'error', 'message' => "Produit introuvable ou déjà archivé (ID $pid)."];
+            $ident = trim(($p['dci'] ?: $p['nom']) . ' ' . ($p['dosage'] ?? ''));
+            $det = $ident
+                 . ($p['numero_lot'] ? ' — lot ' . $p['numero_lot'] : '')
+                 . ($p['date_peremption'] ? ' — pér. ' . $p['date_peremption'] : '')
+                 . ' — ' . $p['emplacement'];
+            return [
+                'status'        => 'pending_confirm',
+                'action'        => 'archiver_lot',
+                'params'        => ['produit_id' => $pid],
+                'titre'         => '📦 Archiver le lot',
+                'lignes'        => [$det, 'Statut « actif » → « archivé » (quantité conservée)'],
+                'confirm_label' => 'Archiver',
+                'message'       => 'Archivage à confirmer',
+            ];
+        }
+
+        case 'ajuster_quantite': {
+            if (function_exists('action_permise') && !action_permise('ajuster'))
+                return ['status' => 'error', 'message' => "Votre rôle n'a pas le droit d'ajuster les quantités."];
+            $pid = (int)($in['produit_id'] ?? 0);
+            $st = $pdo->prepare("SELECT pr.id, pr.nom, pr.dci, pr.dosage, pr.quantite, pr.unite, e.nom AS emplacement
+                                 FROM produits pr JOIN emplacements e ON e.id = pr.emplacement_id
+                                 WHERE pr.id = ? AND e.site_id = ? AND pr.statut = 'actif'");
+            $st->execute([$pid, $site_id]);
+            $p = $st->fetch(PDO::FETCH_ASSOC);
+            if (!$p) return ['status' => 'error', 'message' => "Produit introuvable (ID $pid). Utilise chercher_stock."];
+            $avant = (float)$p['quantite'];
+            $hasQ = array_key_exists('quantite', $in) && $in['quantite'] !== null && $in['quantite'] !== '';
+            $hasD = array_key_exists('delta', $in)    && $in['delta']    !== null && $in['delta']    !== '';
+            if (!$hasQ && !$hasD) return ['status' => 'error', 'message' => "Précise soit la nouvelle quantité, soit la variation."];
+            $apres = $hasQ ? (float)$in['quantite'] : $avant + (float)$in['delta'];
+            if ($apres < 0) $apres = 0;
+            $fmt = fn($n) => rtrim(rtrim(number_format($n, 2, '.', ''), '0'), '.');
+            $ident = trim(($p['dci'] ?: $p['nom']) . ' ' . ($p['dosage'] ?? ''));
+            return [
+                'status'        => 'pending_confirm',
+                'action'        => 'ajuster_quantite',
+                'params'        => ['produit_id' => $pid, 'quantite' => $apres],
+                'titre'         => '± Ajuster la quantité',
+                'lignes'        => [
+                    $ident . ' — ' . $p['emplacement'],
+                    'Quantité ' . $fmt($avant) . ' → ' . $fmt($apres) . ' ' . ($p['unite'] ?? ''),
+                ],
+                'confirm_label' => 'Ajuster',
+                'message'       => 'Ajustement à confirmer',
             ];
         }
 
@@ -433,6 +545,51 @@ function ai_action_run(PDO $pdo, string $name, array $in, int $site_id, int $use
                 $pdo->commit();
                 audit_log($pdo, 'PRODUIT_RETIRE_IA', 'produits', $pid, null, ['nom' => $p['nom'], 'via' => 'assistant_ia']);
                 return ['status' => 'success', 'message' => $p['nom'] . ' retiré du stock.', 'lien' => '/products.php'];
+            }
+
+            case 'archiver_lot': {
+                if (function_exists('action_permise') && !action_permise('archiver'))
+                    return ['status' => 'error', 'message' => "Permission refusée (archiver)."];
+                $pid = (int)($in['produit_id'] ?? 0);
+                $st = $pdo->prepare("SELECT pr.id, pr.nom FROM produits pr JOIN emplacements e ON e.id = pr.emplacement_id
+                                     WHERE pr.id = ? AND e.site_id = ? AND pr.statut = 'actif'");
+                $st->execute([$pid, $site_id]);
+                $p = $st->fetch(PDO::FETCH_ASSOC);
+                if (!$p) return ['status' => 'error', 'message' => "Produit introuvable ou déjà archivé."];
+                $pdo->prepare("UPDATE produits SET statut = 'archive', modifie_par = ?, modifie_le = NOW() WHERE id = ?")
+                    ->execute([$user_id, $pid]);
+                audit_log($pdo, 'PRODUIT_ARCHIVE_IA', 'produits', $pid, ['statut' => 'actif'], ['statut' => 'archive', 'via' => 'assistant_ia']);
+                return ['status' => 'success', 'message' => $p['nom'] . ' archivé.', 'lien' => '/products.php'];
+            }
+
+            case 'ajuster_quantite': {
+                if (function_exists('action_permise') && !action_permise('ajuster'))
+                    return ['status' => 'error', 'message' => "Permission refusée (ajuster)."];
+                $pid = (int)($in['produit_id'] ?? 0);
+                $st = $pdo->prepare("SELECT pr.id, pr.nom, pr.quantite FROM produits pr JOIN emplacements e ON e.id = pr.emplacement_id
+                                     WHERE pr.id = ? AND e.site_id = ? AND pr.statut = 'actif'");
+                $st->execute([$pid, $site_id]);
+                $p = $st->fetch(PDO::FETCH_ASSOC);
+                if (!$p) return ['status' => 'error', 'message' => 'Produit introuvable.'];
+                $avant = (float)$p['quantite'];
+                $hasQ = array_key_exists('quantite', $in) && $in['quantite'] !== null && $in['quantite'] !== '';
+                $hasD = array_key_exists('delta', $in)    && $in['delta']    !== null && $in['delta']    !== '';
+                if (!$hasQ && !$hasD) return ['status' => 'error', 'message' => 'Quantité ou variation manquante.'];
+                $apres = $hasQ ? (float)$in['quantite'] : $avant + (float)$in['delta'];
+                if ($apres < 0) $apres = 0;
+                $delta = $apres - $avant;
+                $pdo->beginTransaction();
+                $pdo->prepare("UPDATE produits SET quantite = ?, modifie_par = ?, modifie_le = NOW() WHERE id = ?")
+                    ->execute([$apres, $user_id, $pid]);
+                if ($delta != 0) {
+                    $pdo->prepare("INSERT INTO mouvements_stock (produit_id, user_id, type, quantite_avant, quantite_delta, quantite_apres, motif)
+                                   VALUES (?, ?, ?, ?, ?, ?, 'Ajustement via assistant IA')")
+                        ->execute([$pid, $user_id, $delta > 0 ? 'entree' : 'sortie', $avant, $delta, $apres]);
+                }
+                $pdo->commit();
+                audit_log($pdo, 'MODIF_PRODUIT', 'produits', $pid, ['quantite' => $avant], ['quantite' => $apres, 'via' => 'assistant_ia']);
+                $fmt = fn($n) => rtrim(rtrim(number_format($n, 2, '.', ''), '0'), '.');
+                return ['status' => 'success', 'message' => $p['nom'] . ' : quantité ajustée à ' . $fmt($apres) . '.', 'lien' => '/products.php'];
             }
 
             case 'signaler_biomed': {
