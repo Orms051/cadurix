@@ -2537,6 +2537,11 @@ function showPhotoResult(d) {
       </div>
     </div>
     <input type="text" id="raf-scan" class="form-control" autocomplete="off" placeholder="📷 Scanne une boîte (DataMatrix / code)…" oninput="rafScan(this.value)">
+    <div style="margin-top:8px"><button type="button" class="btn btn-ghost btn-sm" style="width:100%" onclick="rafCamToggle()" id="raf-cam-btn">📷 Caméra</button></div>
+    <div id="raf-cam-wrap" style="display:none;position:relative;border-radius:10px;overflow:hidden;background:#000;margin-top:8px">
+      <video id="raf-video" style="width:100%;max-height:240px;object-fit:cover;display:block" muted playsinline></video>
+      <button type="button" class="btn btn-ghost btn-xs" onclick="rafCamStop()" style="position:absolute;top:8px;right:8px;background:rgba(0,0,0,.55);color:#fff;border:none">✕</button>
+    </div>
     <div class="px-scanhint" id="raf-scanmsg" style="margin:8px 0 14px">Chaque scan ajoute une ligne. Ajuste nom/qté avant de valider.</div>
     <div id="raf-list"></div>
     <div style="margin-top:10px"><button type="button" class="btn btn-ghost btn-sm" onclick="rafAddManual()">＋ Ligne manuelle</button></div>
@@ -2551,15 +2556,28 @@ var RAF=[], rafTimer=null;
 function rafEsc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 function rafEscA(s){return rafEsc(s).replace(/"/g,'&quot;');}
 function openRafale(){ RAF=[]; renderRaf(); document.getElementById('raf-scrim').classList.add('open'); document.getElementById('raf-drawer').classList.add('open'); document.body.style.overflow='hidden'; var s=document.getElementById('raf-scan'); if(s) setTimeout(function(){s.focus();},120); }
-function closeRafale(){ document.getElementById('raf-scrim').classList.remove('open'); document.getElementById('raf-drawer').classList.remove('open'); document.body.style.overflow=''; }
-function rafScan(v){ clearTimeout(rafTimer); v=(v||'').trim(); if(v.length<6) return; rafTimer=setTimeout(function(){
+function closeRafale(){ if(typeof rafCamStop==='function') rafCamStop(); document.getElementById('raf-scrim').classList.remove('open'); document.getElementById('raf-drawer').classList.remove('open'); document.body.style.overflow=''; }
+function rafHandleCode(v){ v=(v||'').trim(); if(v.length<6) return;
   fetch('products.php?ajax=parse_gs1',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'code='+encodeURIComponent(v)})
    .then(function(r){return r.json();}).then(function(d){
      RAF.push({nom:d.nom||'', lot:d.lot||'', date:d.date_exp||'', qte:1, unite:'unité'});
      var m=document.getElementById('raf-scanmsg'); if(m) m.innerHTML=(d.nom?('✓ '+rafEsc(d.nom)):'✓ Boîte ajoutée')+(d.lot?(' · lot '+rafEsc(d.lot)):'')+' — scanne la suivante…';
-     renderRaf(); var s=document.getElementById('raf-scan'); if(s){ s.value=''; s.focus(); }
+     renderRaf();
    }).catch(function(){});
-},200); }
+}
+function rafScan(v){ clearTimeout(rafTimer); v=(v||'').trim(); if(v.length<6) return; rafTimer=setTimeout(function(){ rafHandleCode(v); var s=document.getElementById('raf-scan'); if(s){ s.value=''; s.focus(); } },200); }
+var rafCamOn=false;
+function rafCamToggle(){
+  if(rafCamOn){ rafCamStop(); return; }
+  var m=document.getElementById('raf-scanmsg');
+  if(typeof CadurixScanner==='undefined'){ if(m) m.textContent='Scanner caméra indisponible ici — utilise un lecteur ou tape le code.'; return; }
+  var wrap=document.getElementById('raf-cam-wrap'); if(wrap) wrap.style.display='block';
+  var btn=document.getElementById('raf-cam-btn'); if(btn) btn.textContent='📷 Caméra active';
+  rafCamOn=true;
+  if(m) m.textContent='Caméra active — vise les DataMatrix, chaque boîte s\'ajoute…';
+  CadurixScanner.start('raf-video', function(code){ rafHandleCode(code); }, { onError:function(e){ rafCamStop(); if(m) m.textContent='Caméra indisponible : '+((e&&e.message)?e.message:e); } });
+}
+function rafCamStop(){ rafCamOn=false; if(typeof CadurixScanner!=='undefined'){ try{CadurixScanner.stop();}catch(e){} } var wrap=document.getElementById('raf-cam-wrap'); if(wrap) wrap.style.display='none'; var btn=document.getElementById('raf-cam-btn'); if(btn) btn.textContent='📷 Caméra'; }
 function rafAddManual(){ RAF.push({nom:'',lot:'',date:'',qte:1,unite:'unité'}); renderRaf(); }
 function rafQty(i,n){ RAF[i].qte=Math.max(1,(parseFloat(RAF[i].qte)||1)+n); renderRaf(); }
 function rafRemove(i){ RAF.splice(i,1); renderRaf(); }
