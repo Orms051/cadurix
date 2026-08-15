@@ -253,8 +253,8 @@ $viewMode = $_GET['view'] ?? 'list';
 $site_id     = site_actif();
 $filterEmpl  = (int)($_GET['emplacement'] ?? $_GET['location'] ?? 0);
 $filterStatus= $_GET['status'] ?? '';
-$horizon     = $_GET['horizon'] ?? '1';
-if (!in_array($horizon, ['1','2','3','6','12','all'], true)) $horizon = '1';
+$horizon     = $_GET['horizon'] ?? 'all';
+if (!in_array($horizon, ['1','2','3','6','12','all'], true)) $horizon = 'all';
 $statutLot   = $_GET['statut_lot'] ?? 'actif';
 if (!in_array($statutLot, ['actif','archive','retire'], true)) $statutLot = 'actif';
 $qSearch     = trim((string)($_GET['q'] ?? ''));
@@ -586,11 +586,30 @@ if ($filterEmpl) {
     $filterEmplData = $s->fetch(PDO::FETCH_ASSOC);
 }
 
+// Filtre emplacement : inclure aussi les sous-emplacements (comme la page Emplacements)
+$emplFilterIds = [];
+if ($filterEmpl) {
+    try {
+        $pairs = $pdo->prepare("SELECT id, parent_id FROM emplacements WHERE site_id=?");
+        $pairs->execute([$site_id]);
+        $childrenMap = [];
+        foreach ($pairs as $r) { $childrenMap[(int)($r['parent_id'] ?? 0)][] = (int)$r['id']; }
+        $stack = [(int)$filterEmpl];
+        while ($stack) {
+            $cur = array_pop($stack);
+            if (in_array($cur, $emplFilterIds, true)) continue;
+            $emplFilterIds[] = $cur;
+            foreach ($childrenMap[$cur] ?? [] as $ch) $stack[] = $ch;
+        }
+    } catch (Throwable $e) { $emplFilterIds = [(int)$filterEmpl]; }
+    if (!$emplFilterIds) $emplFilterIds = [(int)$filterEmpl];
+}
+
 // ── Liste produits ────────────────────────────────────────
 $where  = "WHERE p.statut = '$statutLot' AND $fs AND $fe";
 $params = [];
 if ($qSearch !== '')              { $where .= ' AND (p.nom LIKE ? OR p.numero_lot LIKE ? OR p.reference LIKE ?)';        $like='%'.$qSearch.'%'; array_push($params,$like,$like,$like); }
-if ($filterEmpl)                  { $where .= ' AND p.emplacement_id=?';                                                $params[] = $filterEmpl; }
+if ($filterEmpl)                  { $ph = implode(',', array_fill(0, count($emplFilterIds), '?')); $where .= " AND p.emplacement_id IN ($ph)"; foreach ($emplFilterIds as $eid) $params[] = $eid; }
 if ($filterStatus === 'expired')  { $where .= ' AND p.date_peremption < CURDATE()'; }
 if ($filterStatus === 'critical') { $where .= ' AND p.date_peremption >= CURDATE() AND DATEDIFF(p.date_peremption,CURDATE()) <= 7'; }
 if ($filterStatus === 'warning')  { $where .= ' AND DATEDIFF(p.date_peremption,CURDATE()) BETWEEN 8 AND 30'; }
@@ -1715,7 +1734,15 @@ if (empty($grouped)): ?>
               <span class="px-pico" style="background:color-mix(in srgb, <?= $col ?> 16%, transparent)">💊</span>
               <div>
                 <div class="px-pname"><?= h($p['nom']) ?><?php if($p['chaine_froid']):?><span class="px-cold" title="Chaîne du froid">❄️</span><?php endif;?><?php if($noCode):?><span class="px-nocode" title="Sans code-barres">📷</span><?php endif;?></div>
-                <?php $sub = $p['reference'] ?: ($p['unite'] ? h($p['unite']) : ''); if($sub):?><div class="px-pdose"><?= h($p['reference'] ?: $p['unite']) ?></div><?php endif;?>
+                <?php
+                  $subParts = [];
+                  if (!empty($p['dosage'])) $subParts[] = h($p['dosage']);
+                  if (!empty($p['forme']))  $subParts[] = h($p['forme']);
+                  if (!$subParts && !empty($p['reference'])) $subParts[] = h($p['reference']);
+                  if (!$subParts && !empty($p['unite']))     $subParts[] = h($p['unite']);
+                  $sub = implode(' · ', $subParts);
+                ?>
+                <?php if($sub):?><div class="px-pdose"><?= $sub ?></div><?php endif;?>
               </div>
             </div>
           </td>
