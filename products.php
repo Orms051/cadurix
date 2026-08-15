@@ -42,19 +42,19 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'autocomplete') {
     // 1. Chercher d'abord dans les stocks existants du site
     try {
         $st = $pdo->prepare("
-            SELECT DISTINCT p.nom, p.reference, p.unite, p.alerte_jours,
+            SELECT DISTINCT p.nom, p.dci, p.reference, p.unite, p.alerte_jours,
                    p.chaine_froid, p.temp_stockage_min, p.temp_stockage_max,
                    p.quantite_min, p.dosage, p.forme, p.gtin, p.ean,
                    COUNT(*) as nb_stocks, 'stock' as source
             FROM produits p
             JOIN emplacements e ON e.id=p.emplacement_id
-            WHERE e.site_id=? AND p.statut='actif' AND p.nom LIKE ?
-            GROUP BY p.nom,p.reference,p.unite,p.alerte_jours,p.chaine_froid,
+            WHERE e.site_id=? AND p.statut='actif' AND (p.nom LIKE ? OR p.dci LIKE ?)
+            GROUP BY p.nom,p.dci,p.reference,p.unite,p.alerte_jours,p.chaine_froid,
                      p.temp_stockage_min,p.temp_stockage_max,p.quantite_min,
                      p.dosage,p.forme,p.gtin,p.ean
             ORDER BY p.nom LIMIT 5
         ");
-        $st->execute([$sid, $like]);
+        $st->execute([$sid, $like, $like]);
         $results = $st->fetchAll(PDO::FETCH_ASSOC);
     } catch (Exception $e) {}
 
@@ -62,7 +62,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'autocomplete') {
     $noms_existants = array_column($results, 'nom');
     try {
         $ref_q = $pdo->prepare("
-            SELECT nom, dci as reference, unite, alerte_jours,
+            SELECT nom, dci, NULL as reference, unite, alerte_jours,
                    froid as chaine_froid, temp_min as temp_stockage_min,
                    temp_max as temp_stockage_max, 0 as quantite_min,
                    0 as nb_stocks, 'ref' as source,
@@ -469,6 +469,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && canEdit()) {
         'gtin'              => trim($_POST['gtin']           ?? '') ?: null,
         'ean'               => trim($_POST['ean']            ?? '') ?: null,
         'datamatrix'        => trim($_POST['datamatrix']     ?? '') ?: null,
+        'dci'               => trim($_POST['dci']            ?? '') ?: null,
         'dosage'            => trim($_POST['dosage']         ?? '') ?: null,
         'forme'             => trim($_POST['forme']          ?? '') ?: null,
         'quantite'          => max(0, (float)str_replace(',', '.', $_POST['quantite'] ?? '0')),
@@ -502,13 +503,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && canEdit()) {
             $old = $stmt->fetch(PDO::FETCH_ASSOC);
 
             $pdo->prepare("UPDATE produits SET
-                emplacement_id=?, nom=?, dosage=?, forme=?, reference=?, numero_lot=?, gtin=?, ean=?, datamatrix=?,
+                emplacement_id=?, nom=?, dci=?, dosage=?, forme=?, reference=?, numero_lot=?, gtin=?, ean=?, datamatrix=?,
                 quantite=?, quantite_min=?, unite=?, date_peremption=?,
                 alerte_jours=?, chaine_froid=?, temp_stockage_min=?,
                 temp_stockage_max=?, notes=?, modifie_par=?, modifie_le=NOW()
                 WHERE id=?")
                 ->execute([
-                    $f['emplacement_id'], $f['nom'], $f['dosage'], $f['forme'], $f['reference'], $f['numero_lot'], $f['gtin'], $f['ean'], $f['datamatrix'],
+                    $f['emplacement_id'], $f['nom'], $f['dci'], $f['dosage'], $f['forme'], $f['reference'], $f['numero_lot'], $f['gtin'], $f['ean'], $f['datamatrix'],
                     $f['quantite'], $f['quantite_min'], $f['unite'], $f['date_peremption'],
                     $f['alerte_jours'], $f['chaine_froid'], $f['temp_stockage_min'],
                     $f['temp_stockage_max'], $f['notes'], currentUserId(), $id
@@ -524,9 +525,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && canEdit()) {
             audit_log($pdo, 'MODIF_PRODUIT', 'produits', $id, $old, $f);
             flashSuccess("Produit « {$f['nom']} » mis à jour.");
         } else {
-            $pdo->prepare("INSERT INTO produits (emplacement_id, nom, dosage, forme, reference, numero_lot, gtin, ean, datamatrix, quantite, quantite_min, unite, date_peremption, alerte_jours, chaine_froid, temp_stockage_min, temp_stockage_max, notes, cree_par) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
+            $pdo->prepare("INSERT INTO produits (emplacement_id, nom, dci, dosage, forme, reference, numero_lot, gtin, ean, datamatrix, quantite, quantite_min, unite, date_peremption, alerte_jours, chaine_froid, temp_stockage_min, temp_stockage_max, notes, cree_par) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
                 ->execute([
-                    $f['emplacement_id'], $f['nom'], $f['dosage'], $f['forme'], $f['reference'], $f['numero_lot'], $f['gtin'], $f['ean'], $f['datamatrix'],
+                    $f['emplacement_id'], $f['nom'], $f['dci'], $f['dosage'], $f['forme'], $f['reference'], $f['numero_lot'], $f['gtin'], $f['ean'], $f['datamatrix'],
                     $f['quantite'], $f['quantite_min'], $f['unite'], $f['date_peremption'],
                     $f['alerte_jours'], $f['chaine_froid'], $f['temp_stockage_min'],
                     $f['temp_stockage_max'], $f['notes'], currentUserId()
@@ -1101,6 +1102,7 @@ require_once 'includes/header.php';
 .px-prod { display:flex; align-items:center; gap:11px; }
 .px-pico { width:36px; height:36px; border-radius:10px; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
 .px-pname { font-weight:700; color:var(--text); }
+.px-nom2 { font-weight:500; font-size:12px; color:var(--text3); }
 .px-pdose { font-size:12px; color:var(--text3); margin-top:1px; }
 .px-dose { font-weight:800; color:var(--primary); font-variant-numeric:tabular-nums; }
 .px-cold { color:#3B82F6; margin-left:5px; font-size:12px; }
@@ -1320,12 +1322,16 @@ const SR_EMPLS = <?= json_encode($empl_for_js) ?>;
 
       <div class="px-fsect"><div class="px-fsect-h">💊 Identification</div>
         <div class="form-group" style="position:relative">
-          <label class="form-label">Nom du médicament *</label>
+          <label class="form-label">Nom commercial (princeps / générique) *</label>
           <input type="text" name="nom" id="nom-input" class="form-control" required
                  value="<?= h($editing['nom'] ?? '') ?>"
-                 placeholder="Ex: Adrénaline, Doliprane…"
+                 placeholder="Ex: Doliprane, Adrénaline Aguettant…"
                  autocomplete="off" oninput="acNom(this.value)">
           <div id="ac-list"></div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">DCI (molécule) <span style="font-weight:400;color:var(--text3);font-size:11px">— affichée en premier</span></label>
+          <input type="text" name="dci" class="form-control" value="<?= h($editing['dci'] ?? '') ?>" placeholder="Ex: Paracétamol, Adrénaline…">
         </div>
         <div class="form-row">
           <div class="form-group">
@@ -1631,7 +1637,7 @@ if (empty($grouped)): ?>
     <div style="display:flex;align-items:center;gap:10px;flex:1;min-width:0">
       <i class="ti ti-pill" style="font-size:16px;color:<?= $bcolor ?>;flex-shrink:0"></i>
       <div>
-        <div style="font-size:14px;font-weight:600"><?= h($nom) ?><?php if(!empty($first['dosage'])):?> <span style="font-size:11.5px;color:var(--text3);font-weight:500"><?= h($first['dosage']) ?><?php if(!empty($first['forme'])):?> · <?= h($first['forme']) ?><?php endif;?></span><?php endif;?></div>
+        <div style="font-size:14px;font-weight:600"><?= h($first['dci'] ?: $nom) ?><?php if(!empty($first['dci']) && mb_strtolower($first['dci'])!==mb_strtolower($nom)):?> <span style="font-size:12px;color:var(--text3);font-weight:500">(<?= h($nom) ?>)</span><?php endif;?><?php if(!empty($first['dosage'])):?> <span style="font-size:11.5px;color:var(--text3);font-weight:500">· <?= h($first['dosage']) ?><?php if(!empty($first['forme'])):?> · <?= h($first['forme']) ?><?php endif;?></span><?php endif;?></div>
         <div style="font-size:11px;color:var(--text3);margin-top:2px;display:flex;gap:8px;flex-wrap:wrap">
           <span><?= count($items) ?> stock<?= count($items)>1?'s':'' ?></span>
           <?php if($first['unite']):?><span>· <?= h($first['unite']) ?></span><?php endif;?>
@@ -1770,7 +1776,7 @@ if (empty($grouped)): ?>
             <div class="px-prod">
               <span class="px-pico" style="background:color-mix(in srgb, <?= $col ?> 16%, transparent)">💊</span>
               <div>
-                <div class="px-pname"><?= h($p['nom']) ?><?php if($p['chaine_froid']):?><span class="px-cold" title="Chaîne du froid">❄️</span><?php endif;?><?php if($noCode):?><span class="px-nocode" title="Sans code-barres">📷</span><?php endif;?></div>
+                <div class="px-pname"><?= h($p['dci'] ?: $p['nom']) ?><?php if(!empty($p['dci']) && !empty($p['nom']) && mb_strtolower($p['dci'])!==mb_strtolower($p['nom'])):?> <span class="px-nom2">(<?= h($p['nom']) ?>)</span><?php endif;?><?php if($p['chaine_froid']):?><span class="px-cold" title="Chaîne du froid">❄️</span><?php endif;?><?php if($noCode):?><span class="px-nocode" title="Sans code-barres">📷</span><?php endif;?></div>
                 <?php
                   $doseHtml = !empty($p['dosage']) ? '<span class="px-dose">'.h($p['dosage']).'</span>' : '';
                   $extra = [];
@@ -2241,6 +2247,7 @@ function acSelect(i) {
   list.style.display = 'none';
   // Remplir les autres champs automatiquement
   const fields = {
+    'dci':               d.dci,
     'dosage':            d.dosage,
     'forme':             d.forme,
     'ean':               d.ean,
@@ -2438,7 +2445,7 @@ function analyzePhoto(dataUrl, mimeType) {
 }
 
 function applyPhotoData(d) {
-  var fields = { 'nom': d.nom, 'dosage': d.dosage, 'forme': d.forme, 'numero_lot': d.numero_lot, 'date_peremption': d.date_peremption, 'unite': d.unite, 'ean': d.ean, 'gtin': d.gtin, 'datamatrix': d.datamatrix };
+  var fields = { 'nom': d.nom, 'dci': d.dci, 'dosage': d.dosage, 'forme': d.forme, 'numero_lot': d.numero_lot, 'date_peremption': d.date_peremption, 'unite': d.unite, 'ean': d.ean, 'gtin': d.gtin, 'datamatrix': d.datamatrix };
   Object.keys(fields).forEach(function(k) {
     var el = document.querySelector('[name="' + k + '"]');
     if (el && fields[k]) el.value = fields[k];

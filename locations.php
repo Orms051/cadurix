@@ -172,7 +172,7 @@ if (isset($_GET['ajax'])) {
     // u2500u2500 Produits d'un emplacement u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500
     if ($_GET['ajax'] === 'products' && isset($_GET['id'])) {
         $id = (int)$_GET['id'];
-        $stmt = $pdo->prepare("SELECT id, nom, dosage, forme, numero_lot, quantite, quantite_min, unite, date_peremption, notes, DATEDIFF(date_peremption, CURDATE()) AS jours_restants FROM produits WHERE emplacement_id = ? AND statut = 'actif' ORDER BY nom, date_peremption ASC");
+        $stmt = $pdo->prepare("SELECT id, nom, dci, dosage, forme, numero_lot, quantite, quantite_min, unite, date_peremption, notes, DATEDIFF(date_peremption, CURDATE()) AS jours_restants FROM produits WHERE emplacement_id = ? AND statut = 'actif' ORDER BY nom, date_peremption ASC");
         $stmt->execute([$id]);
         echo json_encode($stmt->fetchAll(PDO::FETCH_ASSOC));
         exit;
@@ -1111,6 +1111,7 @@ require_once 'includes/header.php';
   font-size: 11.5px; color: var(--text3); font-weight: 500; white-space: nowrap;
 }
 .mt-dose b { color: var(--text2); font-weight: 600; }
+.mt-nom2 { font-weight: 500; font-size: 12px; color: var(--text3); }
 .mt-note {
   font-size: 10px; font-weight: 600;
   padding: 2px 7px; border-radius: 4px;
@@ -1548,7 +1549,7 @@ function renderDetail({ node, breadcrumb, enfants, stats, last_remp }, products 
         <tr class="mt-row ${st.rowCls}" ${expandable ? `onclick="toggleLotGroup('g${gi}')" style="cursor:pointer"` : ''}>
           <td class="mt-td mt-td-nom">
             <span class="mt-dot ${st.dot}"></span>
-            <span class="mt-nom">${escHtml(nom)}</span>
+            <span class="mt-nom">${escHtml(first.dci||nom)}${(first.dci && first.dci.toLowerCase()!==(nom||'').toLowerCase()) ? ` <span class="mt-nom2">(${escHtml(nom)})</span>` : ''}</span>
             ${(first.dosage||first.forme) ? `<span class="mt-dose">${first.dosage?`<b>${escHtml(first.dosage)}</b>`:''}${(first.dosage&&first.forme)?' · ':''}${first.forme?escHtml(first.forme):''}</span>` : ''}
             ${expandable ? `<span class="mt-lotbadge">${totalUnits} unités <i class="ti ti-chevron-down" id="chev-g${gi}"></i></span>` : ''}
           </td>
