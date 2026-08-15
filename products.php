@@ -1327,13 +1327,17 @@ const SR_EMPLS = <?= json_encode($empl_for_js) ?>;
       $formeOpts = ['Ampoule','Comprimé','Gélule','Flacon','Poche','Seringue préremplie','Sachet','Suppositoire','Pommade','Spray','Autre'];
       $uniteOpts = ['unité','ampoule','comprimé','gélule','flacon','poche','seringue','sachet','tube','mL','kit'];
       ?>
-      <button type="button" class="px-scanbig" onclick="pxScanToggle()">📷 Scanner la boîte</button>
+      <button type="button" class="px-scanbig" onclick="pxScanCam()">📷 Scanner la boîte</button>
       <div class="px-scanhint">Scanne le DataMatrix de la boîte (lecteur / copier-coller) — ou tape le nom ci-dessous (ta base + catalogue BDPM).</div>
       <div class="px-fsect" id="px-scan-dm" style="display:none">
         <div class="px-fsect-h">📷 Scanner un code (DataMatrix / code-barres)</div>
         <input type="text" id="px-dm-input" class="form-control" autocomplete="off"
                placeholder="Scanne ou colle le code de la boîte ici…" oninput="pxDmParse(this.value)">
-        <div class="px-scanhint" id="px-dm-res" style="margin:8px 0 2px">Le lecteur remplit <b>lot</b>, <b>code</b> et <b>péremption</b> tout seul.</div>
+        <div id="px-cam-wrap" style="display:none;position:relative;border-radius:10px;overflow:hidden;background:#000;margin-top:8px">
+          <video id="px-scan-video" style="width:100%;max-height:260px;object-fit:cover;display:block" muted playsinline></video>
+          <button type="button" class="btn btn-ghost btn-xs" onclick="pxCamStop()" style="position:absolute;top:8px;right:8px;background:rgba(0,0,0,.55);color:#fff;border:none">✕ Fermer la caméra</button>
+        </div>
+        <div class="px-scanhint" id="px-dm-res" style="margin:8px 0 2px">Vise le <b>DataMatrix</b> de la boîte — <b>lot</b>, <b>code</b> et <b>péremption</b> se remplissent seuls. (Ou lecteur / copier-coller.)</div>
         <?php if ($scan_photo_ok): ?>
         <div style="text-align:center;margin-top:6px"><button type="button" class="btn btn-ghost btn-xs" onclick="toggleScanPhoto()">📸 …ou reconnaissance photo (IA)</button></div>
         <?php endif; ?>
@@ -1415,7 +1419,7 @@ const SR_EMPLS = <?= json_encode($empl_for_js) ?>;
           <div style="display:flex;gap:8px">
             <input type="text" name="numero_lot" class="form-control" style="flex:1"
                    value="<?= h($editing['numero_lot'] ?? '') ?>" placeholder="LOT2024A…">
-            <button type="button" class="px-scanbtn" onclick="pxScanToggle()">🔎 Scanner</button>
+            <button type="button" class="px-scanbtn" onclick="pxScanCam()">🔎 Scanner</button>
           </div>
         </div>
         <div class="form-row">
@@ -2112,6 +2116,7 @@ function openForm() {
   document.body.style.overflow = 'hidden';
 }
 function closeForm() {
+  if (typeof pxCamStop === 'function') pxCamStop();
   if (PX_EDIT_OPEN) { window.location.href = 'products.php<?= $filterEmpl?"?emplacement=$filterEmpl":"" ?>'; return; }
   var p = document.getElementById('form-panel'), s = document.getElementById('form-scrim');
   if (p) p.classList.remove('open'); if (s) s.classList.remove('open');
@@ -2176,6 +2181,22 @@ function pxToggleCold(e){ if(e) e.stopPropagation(); var cb=document.getElementB
 // ── Scan DataMatrix / code-barres (parse GS1 -> remplit lot/code/péremption) ──
 var pxDmTimer=null;
 function pxScanToggle(){ var p=document.getElementById('px-scan-dm'); if(!p) return; var show=(p.style.display==='none'||p.style.display===''); /* toggle */ p.style.display=(p.style.display==='none')?'':'none'; if(p.style.display!=='none'){ var i=document.getElementById('px-dm-input'); if(i){ i.value=''; i.focus(); } } }
+var pxCamOn=false;
+function pxScanCam(){
+  var panel=document.getElementById('px-scan-dm'); if(panel) panel.style.display='';
+  if(pxCamOn){ pxCamStop(); return; }
+  var res=document.getElementById('px-dm-res');
+  if(typeof CadurixScanner==='undefined'){ if(res) res.textContent='Scanner caméra indisponible ici — utilise un lecteur ou tape le code.'; return; }
+  var wrap=document.getElementById('px-cam-wrap'); if(wrap) wrap.style.display='block';
+  pxCamOn=true;
+  if(res) res.textContent='Caméra active — vise le DataMatrix…';
+  CadurixScanner.start('px-scan-video', function(code){
+    var i=document.getElementById('px-dm-input'); if(i) i.value=code;
+    pxCamStop();
+    pxDmParse(code);
+  }, { onError:function(e){ pxCamStop(); if(res) res.textContent='Caméra indisponible : '+((e&&e.message)?e.message:e); } });
+}
+function pxCamStop(){ pxCamOn=false; if(typeof CadurixScanner!=='undefined'){ try{CadurixScanner.stop();}catch(e){} } var wrap=document.getElementById('px-cam-wrap'); if(wrap) wrap.style.display='none'; }
 function pxDmParse(v){ clearTimeout(pxDmTimer); var res=document.getElementById('px-dm-res'); v=(v||'').trim(); if(v.length<6) return;
   pxDmTimer=setTimeout(function(){
     fetch('products.php?ajax=parse_gs1',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'code='+encodeURIComponent(v)})
@@ -2660,4 +2681,7 @@ document.addEventListener('DOMContentLoaded', function(){
 document.addEventListener('keydown', function(e){ if(e.key==='Escape') closeRenew(); });
 </script>
 
+<!-- Moteur caméra scanner (ZXing) — partagé avec scan.php, pour le scan dans la fiche -->
+<script src="/scanner/zxing-0.21.3.min.js"></script>
+<script src="/scanner/scanner-zxing.js"></script>
 <?php require_once 'includes/footer.php'; ?>
