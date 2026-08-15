@@ -1067,7 +1067,8 @@ require_once 'includes/header.php';
 .px-prod { display:flex; align-items:center; gap:11px; }
 .px-pico { width:36px; height:36px; border-radius:10px; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
 .px-pname { font-weight:700; color:var(--text); }
-.px-pdose { font-size:11.5px; color:var(--text3); }
+.px-pdose { font-size:12px; color:var(--text3); margin-top:1px; }
+.px-dose { font-weight:800; color:var(--primary); font-variant-numeric:tabular-nums; }
 .px-cold { color:#3B82F6; margin-left:5px; font-size:12px; }
 .px-nocode { color:var(--text3); margin-left:5px; font-size:12px; }
 .px-loc { color:var(--text2); font-size:12.5px; }
@@ -1735,12 +1736,12 @@ if (empty($grouped)): ?>
               <div>
                 <div class="px-pname"><?= h($p['nom']) ?><?php if($p['chaine_froid']):?><span class="px-cold" title="Chaîne du froid">❄️</span><?php endif;?><?php if($noCode):?><span class="px-nocode" title="Sans code-barres">📷</span><?php endif;?></div>
                 <?php
-                  $subParts = [];
-                  if (!empty($p['dosage'])) $subParts[] = h($p['dosage']);
-                  if (!empty($p['forme']))  $subParts[] = h($p['forme']);
-                  if (!$subParts && !empty($p['reference'])) $subParts[] = h($p['reference']);
-                  if (!$subParts && !empty($p['unite']))     $subParts[] = h($p['unite']);
-                  $sub = implode(' · ', $subParts);
+                  $doseHtml = !empty($p['dosage']) ? '<span class="px-dose">'.h($p['dosage']).'</span>' : '';
+                  $extra = [];
+                  if (!empty($p['forme'])) $extra[] = h($p['forme']);
+                  if (!$doseHtml && !empty($p['reference'])) $extra[] = h($p['reference']);
+                  if (!$doseHtml && empty($p['forme']) && !empty($p['unite'])) $extra[] = h($p['unite']);
+                  $sub = $doseHtml . (($doseHtml && $extra) ? ' · ' : '') . implode(' · ', $extra);
                 ?>
                 <?php if($sub):?><div class="px-pdose"><?= $sub ?></div><?php endif;?>
               </div>
