@@ -1108,10 +1108,9 @@ require_once 'includes/header.php';
   line-height: 1.3;
 }
 .mt-dose {
-  flex-basis: 100%; margin-left: 18px; margin-top: 1px;
-  font-size: 11.5px; color: var(--text3); line-height: 1.3;
+  font-size: 11.5px; color: var(--text3); font-weight: 500; white-space: nowrap;
 }
-.mt-dose b { color: #3B82F6; font-weight: 800; }
+.mt-dose b { color: var(--text2); font-weight: 600; }
 .mt-note {
   font-size: 10px; font-weight: 600;
   padding: 2px 7px; border-radius: 4px;
@@ -1549,8 +1548,8 @@ function renderDetail({ node, breadcrumb, enfants, stats, last_remp }, products 
           <td class="mt-td mt-td-nom">
             <span class="mt-dot ${st.dot}"></span>
             <span class="mt-nom">${escHtml(nom)}</span>
+            ${(first.dosage||first.forme) ? `<span class="mt-dose">${first.dosage?`<b>${escHtml(first.dosage)}</b>`:''}${(first.dosage&&first.forme)?' · ':''}${first.forme?escHtml(first.forme):''}</span>` : ''}
             ${expandable ? `<span class="mt-lotbadge">${totalUnits} unités <i class="ti ti-chevron-down" id="chev-g${gi}"></i></span>` : ''}
-            ${(first.dosage||first.forme) ? `<div class="mt-dose">${first.dosage?`<b>${escHtml(first.dosage)}</b>`:''}${(first.dosage&&first.forme)?' · ':''}${first.forme?escHtml(first.forme):''}</div>` : ''}
           </td>
           <td class="mt-td mt-td-lot">${expandable ? '<span style="color:var(--text3)">—</span>' : escHtml(first.numero_lot||'—')}</td>
           <td class="mt-td mt-td-date">${st.dateStr}</td>
