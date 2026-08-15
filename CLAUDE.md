@@ -133,6 +133,7 @@ donc `INSERT … ON DUPLICATE KEY UPDATE`. Surcharges par site : `site_role_perm
     défaut `standard`) + affichage PUI dans `locations.php` (icône entrepôt,
     badge violet « PUI », sélecteur de type au formulaire). Aucune logique de
     transfert touchée. ✅ Migrations 030 + 031 (icone) + 032 (pui_id) jouées EN PROD (2026-08-10).
+    ✅ Migrations 033 (dosage/forme) + 034 (dci) jouées EN PROD (2026-08-15, via `PROD_a_jouer_medoc.sql`, IF NOT EXISTS).
   - ✅ **Étape 2a (faite)** : au rempotage, badge du stock PUI par produit
     (dispo / insuffisant / rupture), lecture seule. Endpoint `?ajax=pui_stock`.
   - ✅ **Étape 2b (faite)** : le rempotage **débite la PUI** du site (FEFO)
