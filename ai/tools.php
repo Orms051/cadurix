@@ -90,6 +90,13 @@ function ai_tools_defs(): array {
                 'jours' => ['type' => 'integer', 'description' => "Fenêtre en jours (défaut 30)."],
             ], 'required' => []],
         ],
+        [
+            'name'        => 'chercher_sse',
+            'description' => "Cherche dans le module SSE/NRBC par nom : consommables (id, quantité, dotation, péremption) et équipements (id, statut, prochain contrôle). À utiliser AVANT d'ajuster un consommable SSE ou d'enregistrer un contrôle d'équipement, pour obtenir l'id exact.",
+            'input_schema' => ['type' => 'object', 'properties' => [
+                'nom' => ['type' => 'string', 'description' => "Nom (ou partie) recherché. Vide = tout lister."],
+            ], 'required' => []],
+        ],
     ];
 }
 
@@ -98,7 +105,7 @@ function ai_tool_is_read(string $name): bool {
     return in_array($name, [
         'lister_emplacements', 'chercher_stock', 'produits_peremption',
         'etat_materiel', 'rappels_actifs', 'dernieres_fiches', 'chercher_medicament',
-        'chercher_materiel', 'stock_bas', 'fiches_anomalies', 'revisions_biomedical', 'sse_etat',
+        'chercher_materiel', 'stock_bas', 'fiches_anomalies', 'revisions_biomedical', 'sse_etat', 'chercher_sse',
     ], true);
 }
 
@@ -383,6 +390,27 @@ function ai_tool_run(PDO $pdo, string $name, array $in, int $site_id, int $user_
                     'consommables_a_traiter' => $co->fetchAll(PDO::FETCH_ASSOC),
                 ];
             }
+
+            case 'chercher_sse': {
+                $t = trim($in['nom'] ?? '');
+                $like = '%' . $t . '%';
+                $sc = "SELECT id, nom, quantite, quantite_min, unite, date_peremption, statut
+                       FROM sse_consommables WHERE site_id = ?";
+                $ac = [$site_id];
+                if ($t !== '') { $sc .= " AND nom LIKE ?"; $ac[] = $like; }
+                $sc .= " ORDER BY nom LIMIT 40";
+                $q1 = $pdo->prepare($sc); $q1->execute($ac);
+                $se = "SELECT id, nom, statut, date_peremption, date_prochain_ctrl
+                       FROM sse_equipements WHERE site_id = ? AND actif = 1";
+                $ae = [$site_id];
+                if ($t !== '') { $se .= " AND nom LIKE ?"; $ae[] = $like; }
+                $se .= " ORDER BY nom LIMIT 40";
+                $q2 = $pdo->prepare($se); $q2->execute($ae);
+                return [
+                    'consommables' => $q1->fetchAll(PDO::FETCH_ASSOC),
+                    'equipements'  => $q2->fetchAll(PDO::FETCH_ASSOC),
+                ];
+            }
         }
         return ['erreur' => 'Outil inconnu : ' . $name];
     } catch (Throwable $e) {
@@ -397,7 +425,7 @@ function ai_tool_run(PDO $pdo, string $name, array $in, int $site_id, int $user_
 
 /** Noms des actions d'écriture. */
 function ai_action_names(): array {
-    return ['rempotage', 'marquer_produit_retire', 'archiver_lot', 'ajuster_quantite', 'renouveler_lot', 'modifier_fiche', 'signaler_biomed', 'creer_alerte', 'generer_rapport'];
+    return ['rempotage', 'marquer_produit_retire', 'archiver_lot', 'ajuster_quantite', 'renouveler_lot', 'modifier_fiche', 'sse_ajuster_conso', 'sse_controle_equipement', 'signaler_biomed', 'creer_alerte', 'generer_rapport'];
 }
 
 /** Normalise une date de péremption libre (MM/AAAA, JJ/MM/AAAA, AAAA-MM, AAAA-MM-JJ) en AAAA-MM-JJ, ou null. */
@@ -474,6 +502,25 @@ function ai_actions_defs(PDO $pdo): array {
                 'dosage'     => ['type' => 'string', 'description' => "Dosage, ex. '1 mg/1 ml'. Optionnel."],
                 'forme'      => ['type' => 'string', 'description' => "Forme, ex. 'solution injectable'. Optionnel."],
             ], 'required' => ['produit_id']],
+        ],
+        'action_sse_ajuster_conso' => [
+            'name'        => 'sse_ajuster_conso',
+            'description' => "Ajuste la quantité d'un CONSOMMABLE du module SSE/NRBC. Mode 'quantite' (valeur absolue) ou 'delta' (relatif, négatif pour retirer). Utilise chercher_sse pour l'id. Soumis à confirmation.",
+            'input_schema' => ['type' => 'object', 'properties' => [
+                'conso_id' => ['type' => 'integer', 'description' => "ID du consommable SSE (via chercher_sse)."],
+                'quantite' => ['type' => 'number',  'description' => "Nouvelle quantité absolue."],
+                'delta'    => ['type' => 'number',  'description' => "Variation relative (négative pour retirer)."],
+            ], 'required' => ['conso_id']],
+        ],
+        'action_sse_controle_equipement' => [
+            'name'        => 'sse_controle_equipement',
+            'description' => "Enregistre un CONTRÔLE sur un équipement SSE/NRBC : résultat (ok / anomalie / hors_service). Met à jour le statut de l'équipement, et si une périodicité (mois) est fournie, calcule la date du prochain contrôle. Utilise chercher_sse pour l'id. Soumis à confirmation.",
+            'input_schema' => ['type' => 'object', 'properties' => [
+                'equipement_id'    => ['type' => 'integer', 'description' => "ID de l'équipement SSE (via chercher_sse)."],
+                'resultat'         => ['type' => 'string',  'description' => "ok, anomalie ou hors_service."],
+                'periodicite_mois' => ['type' => 'integer', 'description' => "Périodicité en mois pour le prochain contrôle (optionnel)."],
+                'notes'            => ['type' => 'string',  'description' => "Observations (optionnel)."],
+            ], 'required' => ['equipement_id', 'resultat']],
         ],
         'action_signaler_biomed' => [
             'name'        => 'signaler_biomed',
@@ -696,6 +743,62 @@ function ai_action_proposal(PDO $pdo, string $name, array $in, int $site_id): ar
             ];
         }
 
+        case 'sse_ajuster_conso': {
+            if (function_exists('canEdit') && !canEdit())
+                return ['status' => 'error', 'message' => "Votre rôle n'a pas le droit de modifier le stock SSE."];
+            $cid = (int)($in['conso_id'] ?? 0);
+            $st = $pdo->prepare("SELECT id, nom, quantite, unite FROM sse_consommables WHERE id = ? AND site_id = ?");
+            $st->execute([$cid, $site_id]);
+            $c = $st->fetch(PDO::FETCH_ASSOC);
+            if (!$c) return ['status' => 'error', 'message' => "Consommable SSE introuvable (ID $cid). Utilise chercher_sse."];
+            $avant = (float)$c['quantite'];
+            $hasQ = array_key_exists('quantite', $in) && $in['quantite'] !== null && $in['quantite'] !== '';
+            $hasD = array_key_exists('delta', $in)    && $in['delta']    !== null && $in['delta']    !== '';
+            if (!$hasQ && !$hasD) return ['status' => 'error', 'message' => "Précise la nouvelle quantité ou la variation."];
+            $apres = $hasQ ? (float)$in['quantite'] : $avant + (float)$in['delta'];
+            if ($apres < 0) $apres = 0;
+            $fmt = fn($n) => rtrim(rtrim(number_format($n, 2, '.', ''), '0'), '.');
+            return [
+                'status'        => 'pending_confirm',
+                'action'        => 'sse_ajuster_conso',
+                'params'        => ['conso_id' => $cid, 'quantite' => $apres],
+                'titre'         => '± Ajuster (SSE/NRBC)',
+                'lignes'        => [$c['nom'] . ' (SSE)', 'Quantité ' . $fmt($avant) . ' → ' . $fmt($apres) . ' ' . ($c['unite'] ?? '')],
+                'confirm_label' => 'Ajuster',
+                'message'       => 'Ajustement SSE à confirmer',
+            ];
+        }
+
+        case 'sse_controle_equipement': {
+            if (function_exists('canEdit') && !canEdit())
+                return ['status' => 'error', 'message' => "Votre rôle n'a pas le droit d'enregistrer un contrôle SSE."];
+            $eid = (int)($in['equipement_id'] ?? 0);
+            $res = strtolower(trim($in['resultat'] ?? ''));
+            if (!in_array($res, ['ok', 'anomalie', 'hors_service'], true))
+                return ['status' => 'error', 'message' => "Résultat invalide (attendu : ok, anomalie ou hors_service)."];
+            $st = $pdo->prepare("SELECT id, nom, statut FROM sse_equipements WHERE id = ? AND site_id = ? AND actif = 1");
+            $st->execute([$eid, $site_id]);
+            $e = $st->fetch(PDO::FETCH_ASSOC);
+            if (!$e) return ['status' => 'error', 'message' => "Équipement SSE introuvable (ID $eid). Utilise chercher_sse."];
+            $per   = (int)($in['periodicite_mois'] ?? 0);
+            $notes = trim($in['notes'] ?? '');
+            $lignes = array_values(array_filter([
+                $e['nom'] . ' (SSE)',
+                'Résultat : ' . $res,
+                $per > 0 ? "Prochain contrôle : dans $per mois" : null,
+                $notes !== '' ? $notes : null,
+            ]));
+            return [
+                'status'        => 'pending_confirm',
+                'action'        => 'sse_controle_equipement',
+                'params'        => ['equipement_id' => $eid, 'resultat' => $res, 'periodicite_mois' => $per, 'notes' => $notes],
+                'titre'         => '🧪 Contrôle SSE/NRBC',
+                'lignes'        => $lignes,
+                'confirm_label' => 'Enregistrer',
+                'message'       => 'Contrôle à confirmer',
+            ];
+        }
+
         case 'signaler_biomed': {
             $mid   = (int)($in['materiel_id'] ?? 0);
             $titre = trim($in['titre'] ?? '');
@@ -915,6 +1018,53 @@ function ai_action_run(PDO $pdo, string $name, array $in, int $site_id, int $use
                     ->execute($vals);
                 audit_log($pdo, 'MODIF_PRODUIT', 'produits', $pid, $avant, $apres + ['via' => 'assistant_ia']);
                 return ['status' => 'success', 'message' => 'Fiche « ' . ($apres['nom'] ?? $old['nom']) . ' » corrigée.', 'lien' => '/products.php'];
+            }
+
+            case 'sse_ajuster_conso': {
+                if (function_exists('canEdit') && !canEdit())
+                    return ['status' => 'error', 'message' => "Permission refusée (SSE)."];
+                $cid = (int)($in['conso_id'] ?? 0);
+                $st = $pdo->prepare("SELECT id, nom, quantite FROM sse_consommables WHERE id = ? AND site_id = ?");
+                $st->execute([$cid, $site_id]);
+                $c = $st->fetch(PDO::FETCH_ASSOC);
+                if (!$c) return ['status' => 'error', 'message' => 'Consommable SSE introuvable.'];
+                $avant = (float)$c['quantite'];
+                $hasQ = array_key_exists('quantite', $in) && $in['quantite'] !== null && $in['quantite'] !== '';
+                $hasD = array_key_exists('delta', $in)    && $in['delta']    !== null && $in['delta']    !== '';
+                if (!$hasQ && !$hasD) return ['status' => 'error', 'message' => 'Quantité ou variation manquante.'];
+                $apres = $hasQ ? (float)$in['quantite'] : $avant + (float)$in['delta'];
+                if ($apres < 0) $apres = 0;
+                $pdo->prepare("UPDATE sse_consommables SET quantite = ?, modifie_le = NOW() WHERE id = ? AND site_id = ?")
+                    ->execute([$apres, $cid, $site_id]);
+                audit_log($pdo, 'SSE_CONSO_AJUST_IA', 'sse_consommables', $cid, ['quantite' => $avant], ['quantite' => $apres, 'via' => 'assistant_ia']);
+                $fmt = fn($n) => rtrim(rtrim(number_format($n, 2, '.', ''), '0'), '.');
+                return ['status' => 'success', 'message' => $c['nom'] . ' (SSE) : quantité ajustée à ' . $fmt($apres) . '.', 'lien' => '/sse.php'];
+            }
+
+            case 'sse_controle_equipement': {
+                if (function_exists('canEdit') && !canEdit())
+                    return ['status' => 'error', 'message' => "Permission refusée (SSE)."];
+                $eid = (int)($in['equipement_id'] ?? 0);
+                $res = strtolower(trim($in['resultat'] ?? ''));
+                if (!in_array($res, ['ok', 'anomalie', 'hors_service'], true))
+                    return ['status' => 'error', 'message' => 'Résultat invalide.'];
+                $st = $pdo->prepare("SELECT id, nom FROM sse_equipements WHERE id = ? AND site_id = ? AND actif = 1");
+                $st->execute([$eid, $site_id]);
+                $e = $st->fetch(PDO::FETCH_ASSOC);
+                if (!$e) return ['status' => 'error', 'message' => 'Équipement SSE introuvable.'];
+                $per      = (int)($in['periodicite_mois'] ?? 0);
+                $notes    = trim($in['notes'] ?? '') ?: null;
+                $prochain = $per > 0 ? date('Y-m-d', strtotime("+$per months")) : null;
+                $mapStatut = ['ok' => 'operationnel', 'hors_service' => 'hs', 'anomalie' => 'revision'][$res];
+                $pdo->beginTransaction();
+                $pdo->prepare("INSERT INTO sse_controles (equipement_id, site_id, type_controle, date_controle, prochain_controle, periodicite_mois, resultat, operateur_id, notes)
+                               VALUES (?, ?, 'Contrôle via assistant IA', CURDATE(), ?, ?, ?, ?, ?)")
+                    ->execute([$eid, $site_id, $prochain, ($per > 0 ? $per : null), $res, $user_id, $notes]);
+                $pdo->prepare("UPDATE sse_equipements SET statut = ?, date_prochain_ctrl = COALESCE(?, date_prochain_ctrl), modifie_le = NOW() WHERE id = ? AND site_id = ?")
+                    ->execute([$mapStatut, $prochain, $eid, $site_id]);
+                $pdo->commit();
+                audit_log($pdo, 'SSE_CONTROLE_IA', 'sse_equipements', $eid, null, ['resultat' => $res, 'statut' => $mapStatut, 'via' => 'assistant_ia']);
+                return ['status' => 'success', 'message' => 'Contrôle enregistré pour ' . $e['nom'] . ' (' . $res . ').', 'lien' => '/sse.php'];
             }
 
             case 'signaler_biomed': {
