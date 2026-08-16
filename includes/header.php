@@ -857,11 +857,6 @@ window.VAPID_PUBLIC_KEY = <?php
       <span class="nav-icon">🌐</span> Vue globale
     </a>
     <?php endif; ?>
-    <?php if (isAdmin() && module_actif('dotations')): ?>
-    <a href="/dotations.php" class="nav-link <?= $currentPage==='dotations'?'active':'' ?>" onclick="closeSidebar()">
-      <span class="nav-icon">📋</span> Dotations réglementaires
-    </a>
-    <?php endif; ?>
     <?php if (isAdmin() && module_actif('tracabilite')): ?>
     <a href="/tracabilite.php" class="nav-link <?= $currentPage==='tracabilite'?'active':'' ?>" onclick="closeSidebar()">
       <span class="nav-icon">🔍</span> Traçabilité des lots

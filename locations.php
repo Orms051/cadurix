@@ -201,7 +201,7 @@ if (isset($_GET['ajax'])) {
     if ($_GET['ajax'] === 'dotation_save' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         header('Content-Type: application/json; charset=utf-8');
         if (!csrf_verifier()) { echo json_encode(['error' => 'Jeton CSRF invalide. Rechargez la page.']); exit; }
-        if (!peut_faire(ROLE_GESTIONNAIRE)) { echo json_encode(['error' => 'Permission refusée']); exit; }
+        if (!action_permise('dotation')) { echo json_encode(['error' => 'Permission refusée']); exit; }
         $d      = json_decode(file_get_contents('php://input'), true) ?: [];
         $emp    = (int)($d['emplacement_id'] ?? 0);
         $nom    = trim($d['nom'] ?? '') ?: 'Dotation';
@@ -1552,6 +1552,7 @@ function renderDetail({ node, breadcrumb, enfants, stats, last_remp }, products 
 
   // Boutons d'action (PHP injecte la condition gestionnaire)
   const canEdit = <?php echo peut_faire(ROLE_GESTIONNAIRE) ? 'true' : 'false'; ?>;
+  const CAN_DOTATION = <?php echo action_permise('dotation') ? 'true' : 'false'; ?>;
   const canMod   = <?php echo action_permise('modifier')   ? 'true' : 'false'; ?>;
   const canRenew = <?php echo action_permise('renouveler') ? 'true' : 'false'; ?>;
   const canDel   = <?php echo action_permise('supprimer')  ? 'true' : 'false'; ?>;
@@ -1561,7 +1562,7 @@ function renderDetail({ node, breadcrumb, enfants, stats, last_remp }, products 
   if (canEdit) actionsBtn += `<button class="btn-primary" data-ctrl-id="${node.id}" data-ctrl-nom="${escHtml(node.nom||'')}" onclick="openControle(this)">🔒 Contrôler le scellé</button>`;
   if (canEdit) actionsBtn += `<button class="btn-ghost" onclick="openModal(true)">➕ Sous-emplacement</button>`;
   if (canEdit) actionsBtn += `<button class="btn-ghost" onclick="openModalEdit(${node.id})">✏️ Modifier</button>`;
-  if (canEdit) actionsBtn += `<button class="btn-ghost" onclick="openDotation()">🎯 Dotation</button>`;
+  if (CAN_DOTATION) actionsBtn += `<button class="btn-ghost" onclick="openDotation()">🎯 Dotation</button>`;
   if (canDel)  actionsBtn += `<button class="btn-danger-ghost" onclick="deleteEmplacement(${node.id})">🗑️</button>`;
 
   // ── Liste des produits — tableau propre ──
@@ -1939,8 +1940,24 @@ init();
 </script>
 
 <!-- ── Modale : Définir la dotation d'un emplacement ── -->
+<style>
+#dotOverlay .modal-box{max-width:680px}
+#dotOverlay .modal-body{padding-bottom:6px}
+.dot-help{font-size:12.5px;color:var(--text3);margin:0 0 14px;line-height:1.45;background:rgba(59,130,246,.06);border:1px solid rgba(59,130,246,.16);border-radius:9px;padding:9px 12px}
+.dot-grid-h{display:grid;grid-template-columns:1fr 130px 60px 30px;gap:8px;padding:0 2px 7px;border-bottom:1px solid var(--border);font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text3)}
+.dot-grid-h .c{text-align:center}
+#dotLines{max-height:44vh;overflow-y:auto;display:flex;flex-direction:column;gap:7px;padding:9px 0}
+.dot-line{display:grid;grid-template-columns:1fr 130px 60px 30px;gap:8px;align-items:center}
+.dot-line input{width:100%;margin:0}
+.dot-line .dl-qte{text-align:center;font-weight:700}
+.dot-rm{border:none;background:none;color:var(--text3);cursor:pointer;padding:5px;border-radius:8px;display:flex;align-items:center;justify-content:center}
+.dot-rm:hover{color:#D42638;background:rgba(212,38,56,.10)}
+.dot-add{margin-top:2px;width:100%;padding:10px;border:1px dashed var(--border2);background:transparent;color:var(--primary);border-radius:10px;cursor:pointer;font:inherit;font-weight:600;display:flex;align-items:center;justify-content:center;gap:7px}
+.dot-add:hover{background:rgba(59,130,246,.06);border-color:var(--primary)}
+.dot-count{font-size:12.5px;color:var(--text3);margin-right:auto;font-weight:600}
+</style>
 <div class="modal-overlay" id="dotOverlay" role="dialog" aria-modal="true">
-  <div class="modal-box" style="max-width:640px">
+  <div class="modal-box">
     <div class="modal-header">
       <span>🎯 Dotation — <span id="dotEmpNom"></span></span>
       <button class="btn-icon" onclick="closeDotation()" aria-label="Fermer"><i class="ti ti-x" aria-hidden="true"></i></button>
@@ -1950,15 +1967,17 @@ init();
         <label for="dotNom">Nom du modèle de dotation</label>
         <input type="text" id="dotNom" placeholder="Ex: SAC ISP standard" autocomplete="off">
       </div>
-      <div style="font-size:12.5px;color:var(--text3);margin:2px 0 10px">Pré-rempli depuis les produits du sac et leur <b>Dotation</b>. Corrige si besoin et <b>ajoute ce qui devrait y être mais manque</b> (médoc ou matériel).</div>
+      <div class="dot-help">Composition <b>attendue</b> du sac (protocole) — médicaments <b>et</b> matériel. Pré-remplie depuis le contenu actuel : ajuste les quantités et <b>ajoute ce qui doit y être même s'il manque</b>.</div>
+      <div class="dot-grid-h"><span>Produit</span><span>Dosage</span><span class="c">Qté</span><span></span></div>
       <div id="dotLines"></div>
-      <button type="button" class="btn-ghost" onclick="dotAddLine()" style="margin-top:6px">➕ Ajouter une ligne</button>
+      <button type="button" class="dot-add" onclick="dotAddLine()"><i class="ti ti-plus" aria-hidden="true"></i> Ajouter un produit</button>
       <datalist id="dotRefList"></datalist>
       <div class="modal-error" id="dotError" role="alert"></div>
     </div>
     <div class="modal-footer">
+      <span class="dot-count" id="dotCount"></span>
       <button class="btn-ghost" onclick="closeDotation()">Annuler</button>
-      <button class="btn-primary" onclick="saveDotation()">💾 Enregistrer la dotation</button>
+      <button class="btn-primary" onclick="saveDotation()">💾 Enregistrer</button>
     </div>
   </div>
 </div>
@@ -1976,15 +1995,16 @@ function loadDotRefs(){
 function dotLineRow(nom, dosage, qte){
   var div = document.createElement('div');
   div.className = 'dot-line';
-  div.style.cssText = 'display:flex;gap:8px;margin-bottom:6px;align-items:center';
   div.innerHTML =
-    '<input type="text" class="dl-nom" list="dotRefList" placeholder="Produit (médoc ou matériel)" value="'+escHtml(nom||'')+'" style="flex:2">'
-   +'<input type="text" class="dl-dose" placeholder="Dosage" value="'+escHtml(dosage||'')+'" style="flex:1">'
-   +'<input type="number" class="dl-qte" min="0" step="1" value="'+(qte!=null?qte:1)+'" style="width:72px" title="Quantité attendue">'
-   +'<button type="button" class="btn-icon" onclick="this.parentNode.remove()" aria-label="Retirer"><i class="ti ti-trash" aria-hidden="true"></i></button>';
+    '<input type="text" class="dl-nom" list="dotRefList" placeholder="Nom du produit" value="'+escHtml(nom||'')+'">'
+   +'<input type="text" class="dl-dose" placeholder="1mg/1ml" value="'+escHtml(dosage||'')+'">'
+   +'<input type="number" class="dl-qte" min="0" step="1" value="'+(qte!=null?qte:1)+'" title="Quantité attendue">'
+   +'<button type="button" class="dot-rm" onclick="this.parentNode.remove();dotCount()" aria-label="Retirer"><i class="ti ti-trash" aria-hidden="true"></i></button>';
   document.getElementById('dotLines').appendChild(div);
+  dotCount();
 }
-function dotAddLine(){ dotLineRow('', '', 1); }
+function dotCount(){ var n=document.querySelectorAll('#dotLines .dot-line').length; var el=document.getElementById('dotCount'); if(el) el.textContent = n + ' produit'+(n>1?'s':'')+' dans la dotation'; }
+function dotAddLine(){ dotLineRow('', '', 1); var b=document.getElementById('dotLines'); b.scrollTop=b.scrollHeight; }
 function openDotation(){
   loadDotRefs();
   var dot = window._curDot;
