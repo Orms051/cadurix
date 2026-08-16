@@ -178,6 +178,70 @@ if (isset($_GET['ajax'])) {
         exit;
     }
 
+    // ── Dotation d'un emplacement (attendu vs réel) ────────────────────────
+    if ($_GET['ajax'] === 'dotation' && isset($_GET['id'])) {
+        require_once __DIR__ . '/includes/dotation.php';
+        header('Content-Type: application/json; charset=utf-8');
+        echo json_encode(dotation_ecarts($pdo, (int)$_GET['id'], $site_id), JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    // ── Dotation : produits de référence (pour l'autocomplétion de saisie) ──
+    if ($_GET['ajax'] === 'dotation_refs') {
+        header('Content-Type: application/json; charset=utf-8');
+        $r = $pdo->prepare("SELECT DISTINCT p.nom, COALESCE(p.dosage,'') AS dosage
+                            FROM produits p JOIN emplacements e ON e.id = p.emplacement_id
+                            WHERE e.site_id = ? AND p.statut = 'actif' ORDER BY p.nom LIMIT 500");
+        $r->execute([$site_id]);
+        echo json_encode($r->fetchAll(PDO::FETCH_ASSOC), JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    // ── Dotation : enregistrement d'un modèle + rattachement ───────────────
+    if ($_GET['ajax'] === 'dotation_save' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+        header('Content-Type: application/json; charset=utf-8');
+        if (!csrf_verifier()) { echo json_encode(['error' => 'Jeton CSRF invalide. Rechargez la page.']); exit; }
+        if (!peut_faire(ROLE_GESTIONNAIRE)) { echo json_encode(['error' => 'Permission refusée']); exit; }
+        $d      = json_decode(file_get_contents('php://input'), true) ?: [];
+        $emp    = (int)($d['emplacement_id'] ?? 0);
+        $nom    = trim($d['nom'] ?? '') ?: 'Dotation';
+        $mid    = (int)($d['model_id'] ?? 0);
+        $lignes = is_array($d['lignes'] ?? null) ? $d['lignes'] : [];
+        $chk = $pdo->prepare("SELECT 1 FROM emplacements WHERE id=? AND site_id=?");
+        $chk->execute([$emp, $site_id]);
+        if (!$chk->fetchColumn()) { echo json_encode(['error' => 'Emplacement invalide']); exit; }
+        try {
+            $pdo->beginTransaction();
+            if ($mid) {
+                $c = $pdo->prepare("SELECT 1 FROM dotation_modeles WHERE id=? AND site_id=?");
+                $c->execute([$mid, $site_id]);
+                if (!$c->fetchColumn()) $mid = 0;
+            }
+            if ($mid) {
+                $pdo->prepare("UPDATE dotation_modeles SET nom=? WHERE id=? AND site_id=?")->execute([mb_substr($nom,0,150), $mid, $site_id]);
+                $pdo->prepare("DELETE FROM dotation_lignes WHERE modele_id=?")->execute([$mid]);
+            } else {
+                $pdo->prepare("INSERT INTO dotation_modeles (site_id,nom,cree_par) VALUES (?,?,?)")->execute([$site_id, mb_substr($nom,0,150), currentUserId()]);
+                $mid = (int)$pdo->lastInsertId();
+            }
+            $ins = $pdo->prepare("INSERT INTO dotation_lignes (modele_id,nom,dosage,quantite_attendue,unite,ordre) VALUES (?,?,?,?,?,?)");
+            $o = 0;
+            foreach ($lignes as $L) {
+                $lnom = trim($L['nom'] ?? '');
+                if ($lnom === '') continue;
+                $ins->execute([$mid, mb_substr($lnom,0,150), (trim($L['dosage'] ?? '') ?: null), max(0,(float)($L['qte'] ?? 1)), (trim($L['unite'] ?? '') ?: 'unité'), $o++]);
+            }
+            $pdo->prepare("UPDATE emplacements SET dotation_modele_id=? WHERE id=? AND site_id=?")->execute([$mid, $emp, $site_id]);
+            $pdo->commit();
+            audit_log($pdo, 'DOTATION_DEFINIE', 'emplacements', $emp, null, ['modele_id'=>$mid, 'nb_lignes'=>$o]);
+            echo json_encode(['success' => true, 'model_id' => $mid]);
+        } catch (Throwable $e) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
+            echo json_encode(['error' => 'Erreur : ' . $e->getMessage()]);
+        }
+        exit;
+    }
+
     // ── Sauvegarde AJAX ────────────────────────────────────────────────────
     if ($_GET['ajax'] === 'save' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         if (!csrf_verifier()) { echo json_encode(['error' => 'Jeton CSRF invalide. Rechargez la page.']); exit; }
@@ -1346,14 +1410,16 @@ async function selectNode(id, autoExpand = true) {
   document.getElementById('mainEmpty').style.display   = 'none';
   document.getElementById('mainContent').style.display = 'none';
 
-  const [res, resP] = await Promise.all([
+  const [res, resP, resD] = await Promise.all([
     fetch(`locations.php?ajax=node&id=${id}`),
-    fetch(`locations.php?ajax=products&id=${id}`)
+    fetch(`locations.php?ajax=products&id=${id}`),
+    fetch(`locations.php?ajax=dotation&id=${id}`)
   ]);
   const data     = await res.json();
   const products = await resP.json();
+  let dotation = null; try { dotation = await resD.json(); } catch(e) {}
   if (data.error) return;
-  renderDetail(data, products);
+  renderDetail(data, products, dotation);
 }
 
 // ══════════════════════════════════════════
@@ -1412,7 +1478,7 @@ function _selFromUrl(){
   st.textContent='.mt-lotbadge{font-size:11px;color:var(--primary);font-weight:700;margin-left:6px;white-space:nowrap}.mt-lotbadge .ti{font-size:12px;transition:transform .2s;vertical-align:middle}.mt-sublot{background:var(--glass,rgba(0,0,0,.035))}.mt-sublotlabel{font-size:12.5px;color:var(--text2);font-family:var(--mono,monospace)}';
   document.head.appendChild(st);
 })();
-function renderDetail({ node, breadcrumb, enfants, stats, last_remp }, products = []) {
+function renderDetail({ node, breadcrumb, enfants, stats, last_remp }, products = [], dot = null) {
   // Fil d'ariane : uniquement les parents (on ne répète pas le nom courant,
   // déjà affiché dans le titre). Vide pour un emplacement de 1er niveau.
   const bcHtml = breadcrumb.slice(0, -1).map(b =>
@@ -1495,6 +1561,7 @@ function renderDetail({ node, breadcrumb, enfants, stats, last_remp }, products 
   if (canEdit) actionsBtn += `<button class="btn-primary" data-ctrl-id="${node.id}" data-ctrl-nom="${escHtml(node.nom||'')}" onclick="openControle(this)">🔒 Contrôler le scellé</button>`;
   if (canEdit) actionsBtn += `<button class="btn-ghost" onclick="openModal(true)">➕ Sous-emplacement</button>`;
   if (canEdit) actionsBtn += `<button class="btn-ghost" onclick="openModalEdit(${node.id})">✏️ Modifier</button>`;
+  if (canEdit) actionsBtn += `<button class="btn-ghost" onclick="openDotation()">🎯 Dotation</button>`;
   if (canDel)  actionsBtn += `<button class="btn-danger-ghost" onclick="deleteEmplacement(${node.id})">🗑️</button>`;
 
   // ── Liste des produits — tableau propre ──
@@ -1607,6 +1674,47 @@ function renderDetail({ node, breadcrumb, enfants, stats, last_remp }, products 
       </div>`;
   }
 
+  // ── Dotation (attendu vs réel) : chip complétude + lignes « manquant » ──
+  window._curDot = dot; window._curNodeId = node.id; window._curNodeNom = node.nom || '';
+  let dotChip = '', dotStrip = '';
+  if (dot && dot.stats && dot.modele) {
+    const cp = dot.stats.completude;
+    const cc = cp >= 100 ? 'ok' : (cp >= 70 ? 'warn' : 'danger');
+    dotChip = `<div class="loc-hchip"><div class="hn ${cc}">${cp}%</div><div class="hl">Complétude</div></div>`;
+    dotStrip = `<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:0 0 10px;font-size:13px;color:var(--text2)">
+        <span style="font-weight:700">🎯 Dotation « ${escHtml(dot.modele.nom)} »</span>
+        ${dot.stats.manquant?`<span style="color:#C0271F;font-weight:700">🔴 ${dot.stats.manquant} manquant</span>`:''}
+        ${dot.stats.insuffisant?`<span style="color:#B06A05;font-weight:700">🟠 ${dot.stats.insuffisant} insuffisant</span>`:''}
+        <span style="color:#1C8F63;font-weight:700">✅ ${dot.stats.conforme} conforme</span>
+      </div>`;
+    const miss = (dot.lignes||[]).filter(l => l.statut === 'manquant');
+    if (miss.length) {
+      const missRows = miss.map(l => `
+        <tr class="mt-row" style="background:rgba(212,38,56,.06)">
+          <td class="mt-td mt-td-nom"><span class="mt-dot" style="background:#D42638"></span>
+            <span class="mt-nom">${escHtml(l.nom)}</span>
+            ${l.dosage?`<span class="mt-dose"><b>${escHtml(l.dosage)}</b></span>`:''}</td>
+          <td class="mt-td mt-td-lot"><span style="color:var(--text3)">—</span></td>
+          <td class="mt-td mt-td-date"><span style="color:var(--text3)">—</span></td>
+          <td class="mt-td mt-td-qty">${Math.round(parseFloat(l.quantite_attendue)||0)}</td>
+          <td class="mt-td mt-td-qty"><span class="mt-qty" style="color:#C0271F;font-weight:700">0</span></td>
+          <td class="mt-td mt-td-status"><span class="mt-pill" style="background:rgba(212,38,56,.14);color:#C0271F">Manquant</span></td>
+          <td class="mt-td mt-td-action"></td>
+        </tr>`).join('');
+      if (produitsHtml) {
+        produitsHtml = produitsHtml.replace('</tbody>', missRows + '</tbody>');
+      } else {
+        produitsHtml = `<div class="med-table-wrap">
+          <div class="mt-card-head"><span class="mt-card-title">Produits</span><span class="section-count">0</span></div>
+          <table class="med-table"><thead><tr>
+            <th class="mt-th mt-th-nom">Produit</th><th class="mt-th mt-th-lot">Lot</th>
+            <th class="mt-th mt-th-date">Péremption</th><th class="mt-th mt-th-qty">Dotation</th>
+            <th class="mt-th mt-th-qty">Qté</th><th class="mt-th mt-th-status">Statut</th><th class="mt-th mt-th-action"></th>
+          </tr></thead><tbody>${missRows}</tbody></table></div>`;
+      }
+    }
+  }
+
   document.getElementById('mainContent').innerHTML = `
     ${breadcrumb.length > 1 ? `<div class="loc-breadcrumb">${bcHtml}</div>` : ''}
     <div class="loc-header">
@@ -1635,8 +1743,10 @@ function renderDetail({ node, breadcrumb, enfants, stats, last_remp }, products 
       <div class="loc-hchip"><div class="hn ${perimes>0?'danger':''}">${perimes}</div><div class="hl">Périmé${perimes>1?'s':''}</div></div>
       <div class="loc-hchip"><div class="hn ${crit>0?'warn':''}">${crit}</div><div class="hl">Critiques &lt; 7j</div></div>
       <div class="loc-hchip"><div class="hn">${rempText}</div><div class="hl">Dernier rempotage</div></div>
+      ${dotChip}
     </div>
 
+    ${dotStrip}
     ${produitsHtml}
   `;
   document.getElementById('mainContent').style.display = 'block';
@@ -1828,4 +1938,85 @@ function escHtml(s) {
 init();
 </script>
 
+<!-- ── Modale : Définir la dotation d'un emplacement ── -->
+<div class="modal-overlay" id="dotOverlay" role="dialog" aria-modal="true">
+  <div class="modal-box" style="max-width:640px">
+    <div class="modal-header">
+      <span>🎯 Dotation — <span id="dotEmpNom"></span></span>
+      <button class="btn-icon" onclick="closeDotation()" aria-label="Fermer"><i class="ti ti-x" aria-hidden="true"></i></button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label for="dotNom">Nom du modèle de dotation</label>
+        <input type="text" id="dotNom" placeholder="Ex: SAC ISP standard" autocomplete="off">
+      </div>
+      <div style="font-size:12.5px;color:var(--text3);margin:2px 0 10px">Liste des produits attendus — médicaments <b>et</b> matériel — avec la quantité voulue.</div>
+      <div id="dotLines"></div>
+      <button type="button" class="btn-ghost" onclick="dotAddLine()" style="margin-top:6px">➕ Ajouter une ligne</button>
+      <datalist id="dotRefList"></datalist>
+      <div class="modal-error" id="dotError" role="alert"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-ghost" onclick="closeDotation()">Annuler</button>
+      <button class="btn-primary" onclick="saveDotation()">💾 Enregistrer la dotation</button>
+    </div>
+  </div>
+</div>
+<script>
+let _dotRefsLoaded = false;
+function loadDotRefs(){
+  if (_dotRefsLoaded) return; _dotRefsLoaded = true;
+  fetch('locations.php?ajax=dotation_refs').then(r=>r.json()).then(rows=>{
+    document.getElementById('dotRefList').innerHTML = rows.map(x=>{
+      var v = (x.nom + (x.dosage ? (' ' + x.dosage) : '')).trim().replace(/"/g,'');
+      return '<option value="'+escHtml(v)+'">';
+    }).join('');
+  }).catch(()=>{});
+}
+function dotLineRow(nom, dosage, qte){
+  var div = document.createElement('div');
+  div.className = 'dot-line';
+  div.style.cssText = 'display:flex;gap:8px;margin-bottom:6px;align-items:center';
+  div.innerHTML =
+    '<input type="text" class="dl-nom" list="dotRefList" placeholder="Produit (médoc ou matériel)" value="'+escHtml(nom||'')+'" style="flex:2">'
+   +'<input type="text" class="dl-dose" placeholder="Dosage" value="'+escHtml(dosage||'')+'" style="flex:1">'
+   +'<input type="number" class="dl-qte" min="0" step="1" value="'+(qte!=null?qte:1)+'" style="width:72px" title="Quantité attendue">'
+   +'<button type="button" class="btn-icon" onclick="this.parentNode.remove()" aria-label="Retirer"><i class="ti ti-trash" aria-hidden="true"></i></button>';
+  document.getElementById('dotLines').appendChild(div);
+}
+function dotAddLine(){ dotLineRow('', '', 1); }
+function openDotation(){
+  loadDotRefs();
+  var dot = window._curDot;
+  document.getElementById('dotEmpNom').textContent = window._curNodeNom || '';
+  document.getElementById('dotNom').value = (dot && dot.modele) ? dot.modele.nom : '';
+  document.getElementById('dotError').classList.remove('show');
+  document.getElementById('dotLines').innerHTML = '';
+  if (dot && dot.lignes && dot.lignes.length) {
+    dot.lignes.forEach(l => dotLineRow(l.nom, l.dosage, Math.round(parseFloat(l.quantite_attendue)||0)));
+  } else { dotAddLine(); dotAddLine(); }
+  document.getElementById('dotOverlay').classList.add('open');
+}
+function closeDotation(){ document.getElementById('dotOverlay').classList.remove('open'); }
+function saveDotation(){
+  var err = document.getElementById('dotError');
+  var nom = document.getElementById('dotNom').value.trim() || 'Dotation';
+  var lignes = [].slice.call(document.querySelectorAll('#dotLines .dot-line')).map(function(d){
+    return { nom: d.querySelector('.dl-nom').value.trim(), dosage: d.querySelector('.dl-dose').value.trim(), qte: parseFloat(d.querySelector('.dl-qte').value)||0 };
+  }).filter(function(l){ return l.nom !== ''; });
+  if (!lignes.length) { err.textContent = 'Ajoute au moins un produit.'; err.classList.add('show'); return; }
+  var dot = window._curDot;
+  fetch('locations.php?ajax=dotation_save', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': '<?= $csrf ?>' },
+    body: JSON.stringify({ emplacement_id: window._curNodeId, model_id: (dot && dot.modele) ? dot.modele.id : 0, nom: nom, lignes: lignes })
+  }).then(r=>r.json()).then(function(d){
+    if (d.error) { err.textContent = d.error; err.classList.add('show'); return; }
+    closeDotation(); selectNode(window._curNodeId, false);
+  }).catch(function(){ err.textContent = 'Erreur réseau'; err.classList.add('show'); });
+}
+document.getElementById('dotOverlay').addEventListener('click', function(e){
+  if (e.target === document.getElementById('dotOverlay')) closeDotation();
+});
+</script>
 <?php require_once 'includes/footer.php'; ?>
