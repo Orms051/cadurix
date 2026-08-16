@@ -141,7 +141,7 @@ function action_permise(string $action): bool {
             global $pdo;
             $role = function_exists('role_sur_site') ? role_sur_site() : null; // clé BRUTE (administrateur, gestionnaire…) = celle de role_permissions
             if ($role && isset($pdo) && $pdo instanceof PDO) {
-                $st = $pdo->prepare("SELECT module, niveau FROM role_permissions WHERE role=? AND module IN ('action_modifier','action_renouveler','action_supprimer','action_historique','action_ajuster')");
+                $st = $pdo->prepare("SELECT module, niveau FROM role_permissions WHERE role=? AND module IN ('action_modifier','action_renouveler','action_supprimer','action_historique','action_ajuster','action_dotation')");
                 $st->execute([$role]);
                 foreach ($st as $r) $cache[$r['module']] = (int)$r['niveau'];
             }
