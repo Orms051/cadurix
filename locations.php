@@ -1675,7 +1675,7 @@ function renderDetail({ node, breadcrumb, enfants, stats, last_remp }, products 
   }
 
   // ── Dotation (attendu vs réel) : chip complétude + lignes « manquant » ──
-  window._curDot = dot; window._curNodeId = node.id; window._curNodeNom = node.nom || '';
+  window._curDot = dot; window._curNodeId = node.id; window._curNodeNom = node.nom || ''; window._curProducts = products || [];
   let dotChip = '', dotStrip = '';
   if (dot && dot.stats && dot.modele) {
     const cp = dot.stats.completude;
@@ -1950,7 +1950,7 @@ init();
         <label for="dotNom">Nom du modèle de dotation</label>
         <input type="text" id="dotNom" placeholder="Ex: SAC ISP standard" autocomplete="off">
       </div>
-      <div style="font-size:12.5px;color:var(--text3);margin:2px 0 10px">Liste des produits attendus — médicaments <b>et</b> matériel — avec la quantité voulue.</div>
+      <div style="font-size:12.5px;color:var(--text3);margin:2px 0 10px">Pré-rempli depuis les produits du sac et leur <b>Dotation</b>. Corrige si besoin et <b>ajoute ce qui devrait y être mais manque</b> (médoc ou matériel).</div>
       <div id="dotLines"></div>
       <button type="button" class="btn-ghost" onclick="dotAddLine()" style="margin-top:6px">➕ Ajouter une ligne</button>
       <datalist id="dotRefList"></datalist>
@@ -1994,7 +1994,16 @@ function openDotation(){
   document.getElementById('dotLines').innerHTML = '';
   if (dot && dot.lignes && dot.lignes.length) {
     dot.lignes.forEach(l => dotLineRow(l.nom, l.dosage, Math.round(parseFloat(l.quantite_attendue)||0)));
-  } else { dotAddLine(); dotAddLine(); }
+  } else {
+    // Pas encore de dotation : pré-remplir depuis les produits du sac + leur Dotation (quantite_min)
+    var seen = {};
+    (window._curProducts || []).forEach(function(p){
+      var k = (p.nom||'') + '|' + (p.dosage||'');
+      if (seen[k]) return; seen[k] = 1;
+      dotLineRow(p.nom, p.dosage, Math.max(1, Math.round(parseFloat(p.quantite_min)||1)));
+    });
+    if (!document.getElementById('dotLines').children.length) { dotAddLine(); dotAddLine(); }
+  }
   document.getElementById('dotOverlay').classList.add('open');
 }
 function closeDotation(){ document.getElementById('dotOverlay').classList.remove('open'); }
