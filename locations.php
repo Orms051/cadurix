@@ -2009,7 +2009,7 @@ function openDotation(){
   loadDotRefs();
   var dot = window._curDot;
   document.getElementById('dotEmpNom').textContent = window._curNodeNom || '';
-  document.getElementById('dotNom').value = (dot && dot.modele) ? dot.modele.nom : '';
+  document.getElementById('dotNom').value = (dot && dot.modele) ? dot.modele.nom : (window._curNodeNom || '');
   document.getElementById('dotError').classList.remove('show');
   document.getElementById('dotLines').innerHTML = '';
   if (dot && dot.lignes && dot.lignes.length) {
