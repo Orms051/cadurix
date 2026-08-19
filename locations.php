@@ -198,6 +198,32 @@ if (isset($_GET['ajax'])) {
         exit;
     }
 
+    // ── Dotation : liste des modèles du site (pour le sélecteur) ───────────
+    if ($_GET['ajax'] === 'dotation_models') {
+        header('Content-Type: application/json; charset=utf-8');
+        $r = $pdo->prepare("SELECT m.id, m.nom, COUNT(DISTINCT l.id) AS nb,
+                                   (SELECT COUNT(*) FROM emplacements e WHERE e.dotation_modele_id=m.id AND e.site_id=?) AS nb_sacs
+                            FROM dotation_modeles m LEFT JOIN dotation_lignes l ON l.modele_id=m.id
+                            WHERE m.site_id=? AND m.actif=1 GROUP BY m.id, m.nom ORDER BY m.nom");
+        $r->execute([$site_id, $site_id]);
+        echo json_encode($r->fetchAll(PDO::FETCH_ASSOC), JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    // ── Dotation : lignes d'un modèle donné (pour charger un modèle existant) ──
+    if ($_GET['ajax'] === 'dotation_model_lignes' && isset($_GET['id'])) {
+        header('Content-Type: application/json; charset=utf-8');
+        $mid = (int)$_GET['id'];
+        $c = $pdo->prepare("SELECT nom FROM dotation_modeles WHERE id=? AND site_id=?");
+        $c->execute([$mid, $site_id]);
+        $mnom = $c->fetchColumn();
+        if ($mnom === false) { echo json_encode(['nom' => '', 'lignes' => []]); exit; }
+        $r = $pdo->prepare("SELECT nom, dosage, quantite_attendue FROM dotation_lignes WHERE modele_id=? ORDER BY ordre, nom");
+        $r->execute([$mid]);
+        echo json_encode(['nom' => $mnom, 'lignes' => $r->fetchAll(PDO::FETCH_ASSOC)], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
     // ── Dotation : enregistrement d'un modèle + rattachement ───────────────
     if ($_GET['ajax'] === 'dotation_save' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         header('Content-Type: application/json; charset=utf-8');
@@ -1981,10 +2007,15 @@ init();
     </div>
     <div class="modal-body">
       <div class="form-group">
-        <label for="dotNom">Nom du modèle de dotation</label>
+        <label for="dotModelSel">Modèle de dotation</label>
+        <select id="dotModelSel" onchange="onDotModelChange()"></select>
+        <div id="dotSharedNote" style="display:none;font-size:12px;color:#B06A05;margin-top:5px"></div>
+      </div>
+      <div class="form-group">
+        <label for="dotNom">Nom du modèle</label>
         <input type="text" id="dotNom" placeholder="Ex: SAC ISP standard" autocomplete="off">
       </div>
-      <div class="dot-help">Composition <b>attendue</b> du sac (protocole) — médicaments <b>et</b> matériel. Pré-remplie depuis le contenu actuel : ajuste les quantités et <b>ajoute ce qui doit y être même s'il manque</b>.</div>
+      <div class="dot-help">Composition <b>attendue</b> du sac (protocole) — médicaments <b>et</b> matériel. Choisis un <b>modèle existant</b> (partagé entre sacs identiques) ou crée-en un nouveau, pré-rempli depuis le contenu actuel.</div>
       <div class="dot-grid-h"><span>Produit</span><span>Dosage</span><span class="c">Qté</span><span></span></div>
       <div id="dotLines"></div>
       <button type="button" class="dot-add" onclick="dotAddLine()"><i class="ti ti-plus" aria-hidden="true"></i> Ajouter un produit</button>
@@ -2022,40 +2053,73 @@ function dotLineRow(nom, dosage, qte){
 }
 function dotCount(){ var n=document.querySelectorAll('#dotLines .dot-line').length; var el=document.getElementById('dotCount'); if(el) el.textContent = n + ' produit'+(n>1?'s':'')+' dans la dotation'; }
 function dotAddLine(){ dotLineRow('', '', 1); var b=document.getElementById('dotLines'); b.scrollTop=b.scrollHeight; }
+var _dotModels = [];
+function loadDotModels(cb){
+  fetch('locations.php?ajax=dotation_models').then(r=>r.json()).then(function(rows){
+    _dotModels = rows || [];
+    var sel = document.getElementById('dotModelSel');
+    var cur = (window._curDot && window._curDot.modele) ? String(window._curDot.modele.id) : 'new';
+    sel.innerHTML = _dotModels.map(function(m){
+      return '<option value="'+m.id+'">'+escHtml(m.nom)+' · '+m.nb+' produit'+(m.nb>1?'s':'')
+           + (m.nb_sacs>0 ? (' · '+m.nb_sacs+' sac'+(m.nb_sacs>1?'s':'')) : '')+'</option>';
+    }).join('') + '<option value="new">➕ Nouveau modèle (depuis ce sac)</option>';
+    sel.value = cur;
+    if (cb) cb();
+  }).catch(function(){ if (cb) cb(); });
+}
+function dotFillFromProducts(){
+  document.getElementById('dotLines').innerHTML = '';
+  var seen = {};
+  (window._curProducts || []).forEach(function(p){
+    var k = (p.nom||'') + '|' + (p.dosage||'');
+    if (seen[k]) return; seen[k] = 1;
+    dotLineRow(p.nom, p.dosage, Math.max(1, Math.round(parseFloat(p.quantite_min)||1)));
+  });
+  if (!document.getElementById('dotLines').children.length) { dotAddLine(); dotAddLine(); }
+}
+function dotSharedNote(){
+  var sel = document.getElementById('dotModelSel'), note = document.getElementById('dotSharedNote');
+  var m = _dotModels.filter(function(x){ return String(x.id)===sel.value; })[0];
+  if (m && m.nb_sacs > 1) { note.style.display='block'; note.textContent = '⚠️ Modèle partagé par '+m.nb_sacs+' sacs — tes modifications s\'appliqueront à tous.'; }
+  else { note.style.display='none'; }
+}
+function onDotModelChange(){
+  var sel = document.getElementById('dotModelSel');
+  dotSharedNote();
+  if (sel.value === 'new') {
+    document.getElementById('dotNom').value = window._curNodeNom || '';
+    dotFillFromProducts();
+    return;
+  }
+  fetch('locations.php?ajax=dotation_model_lignes&id=' + encodeURIComponent(sel.value)).then(r=>r.json()).then(function(d){
+    document.getElementById('dotNom').value = d.nom || '';
+    document.getElementById('dotLines').innerHTML = '';
+    (d.lignes || []).forEach(function(l){ dotLineRow(l.nom, l.dosage, Math.round(parseFloat(l.quantite_attendue)||0)); });
+    if (!document.getElementById('dotLines').children.length) { dotAddLine(); }
+    dotCount();
+  }).catch(function(){});
+}
 function openDotation(){
   loadDotRefs();
-  var dot = window._curDot;
   document.getElementById('dotEmpNom').textContent = window._curNodeNom || '';
-  document.getElementById('dotNom').value = (dot && dot.modele) ? dot.modele.nom : (window._curNodeNom || '');
   document.getElementById('dotError').classList.remove('show');
-  document.getElementById('dotLines').innerHTML = '';
-  if (dot && dot.lignes && dot.lignes.length) {
-    dot.lignes.forEach(l => dotLineRow(l.nom, l.dosage, Math.round(parseFloat(l.quantite_attendue)||0)));
-  } else {
-    // Pas encore de dotation : pré-remplir depuis les produits du sac + leur Dotation (quantite_min)
-    var seen = {};
-    (window._curProducts || []).forEach(function(p){
-      var k = (p.nom||'') + '|' + (p.dosage||'');
-      if (seen[k]) return; seen[k] = 1;
-      dotLineRow(p.nom, p.dosage, Math.max(1, Math.round(parseFloat(p.quantite_min)||1)));
-    });
-    if (!document.getElementById('dotLines').children.length) { dotAddLine(); dotAddLine(); }
-  }
+  loadDotModels(function(){ onDotModelChange(); });
   document.getElementById('dotOverlay').classList.add('open');
 }
 function closeDotation(){ document.getElementById('dotOverlay').classList.remove('open'); }
 function saveDotation(){
   var err = document.getElementById('dotError');
   var nom = document.getElementById('dotNom').value.trim() || 'Dotation';
+  var sel = document.getElementById('dotModelSel');
+  var modelId = (sel.value === 'new') ? 0 : (parseInt(sel.value) || 0);
   var lignes = [].slice.call(document.querySelectorAll('#dotLines .dot-line')).map(function(d){
     return { nom: d.querySelector('.dl-nom').value.trim(), dosage: d.querySelector('.dl-dose').value.trim(), qte: parseFloat(d.querySelector('.dl-qte').value)||0 };
   }).filter(function(l){ return l.nom !== ''; });
   if (!lignes.length) { err.textContent = 'Ajoute au moins un produit.'; err.classList.add('show'); return; }
-  var dot = window._curDot;
   fetch('locations.php?ajax=dotation_save', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': '<?= $csrf ?>' },
-    body: JSON.stringify({ emplacement_id: window._curNodeId, model_id: (dot && dot.modele) ? dot.modele.id : 0, nom: nom, lignes: lignes })
+    body: JSON.stringify({ emplacement_id: window._curNodeId, model_id: modelId, nom: nom, lignes: lignes })
   }).then(r=>r.json()).then(function(d){
     if (d.error) { err.textContent = d.error; err.classList.add('show'); return; }
     closeDotation(); selectNode(window._curNodeId, false);
