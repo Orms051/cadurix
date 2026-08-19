@@ -89,6 +89,8 @@ $debut_mois = date('Y-m-01');
 $fin_mois   = date('Y-m-t');
 $nb_mois    = (int)$pdo->query("SELECT COUNT(*) FROM rempotages WHERE site_id=$site_id AND debut_le >= '$debut_mois' AND debut_le <= '$fin_mois 23:59:59'")->fetchColumn();
 $nb_produits_mois = (int)$pdo->query("SELECT COALESCE(SUM(ra.quantite),0) FROM rempotage_articles ra JOIN rempotages r ON r.id=ra.rempotage_id WHERE r.site_id=$site_id AND r.debut_le >= '$debut_mois'")->fetchColumn();
+$_hist_where = "site_id=$site_id" . (!isAdmin() ? " AND user_id=".(int)currentUserId() : "");
+$nb_total_hist = (int)$pdo->query("SELECT COUNT(*) FROM rempotages WHERE $_hist_where")->fetchColumn();
 
 // Dernier rempotage
 $dernier = $pdo->query("
@@ -183,8 +185,8 @@ require_once 'includes/header.php';
   </div>
   <div class="kpi-card" style="border-top:3px solid #f59e0b">
     <div class="kpi-label">Total historique</div>
-    <div class="kpi-value"><?= count($rempotages) ?></div>
-    <div class="kpi-foot">Rempotages</div>
+    <div class="kpi-value"><?= $nb_total_hist ?></div>
+    <div class="kpi-foot"><?= isAdmin() ? 'Tous les rempotages' : 'Mes rempotages' ?></div>
   </div>
 </div>
 
@@ -248,8 +250,12 @@ require_once 'includes/header.php';
         </div>
       </div>
       <div style="text-align:right;flex-shrink:0">
-        <div style="font-size:.8rem;font-weight:700"><?= $r['nb_articles'] ?> produit(s)</div>
-        <span style="font-size:.7rem;padding:.15rem .5rem;border-radius:99px;background:<?= $st['color'] ?>22;color:<?= $st['color'] ?>;border:1px solid <?= $st['color'] ?>44"><?= $st['label'] ?></span>
+        <div style="font-size:.76rem;font-weight:700">
+          <?php if ((int)$r['nb_crees']>0): ?><span style="color:#10b981">+<?= (int)$r['nb_crees'] ?> remis</span><?php endif; ?>
+          <?php if ((int)$r['nb_non_scannes']>0): ?><span style="color:#ef4444;margin-left:6px">−<?= (int)$r['nb_non_scannes'] ?> retirés</span><?php endif; ?>
+          <?php if ((int)$r['nb_crees']<=0 && (int)$r['nb_non_scannes']<=0): ?><span style="color:var(--text3)"><?= (int)$r['nb_articles'] ?> produit(s)</span><?php endif; ?>
+        </div>
+        <span style="display:inline-block;margin-top:.25rem;font-size:.7rem;padding:.15rem .5rem;border-radius:99px;background:<?= $st['color'] ?>22;color:<?= $st['color'] ?>;border:1px solid <?= $st['color'] ?>44"><?= $st['label'] ?></span>
       </div>
     </a>
     <?php endforeach; ?>
@@ -283,15 +289,20 @@ require_once 'includes/header.php';
       </div>
 
       <!-- Articles -->
+      <?php
+      $_remis   = count(array_filter($articles, fn($a)=>($a['action']??'cree')!=='retire'));
+      $_retires = count($articles) - $_remis;
+      ?>
       <div style="font-size:.7rem;text-transform:uppercase;letter-spacing:1.5px;color:var(--text3);font-weight:700;margin-bottom:.5rem">
-        <?= count($articles) ?> produit(s) rempoté(s)
+        <?= count($articles) ?> mouvement(s) ·
+        <span style="color:#10b981"><?= $_remis ?> remis</span><?php if ($_retires): ?> · <span style="color:#ef4444"><?= $_retires ?> retirés</span><?php endif; ?>
       </div>
 
       <?php if (empty($articles)): ?>
       <p style="color:var(--text3);font-size:.85rem">Aucun article enregistré.</p>
       <?php else: ?>
-      <?php foreach ($articles as $a): ?>
-      <div class="art-row">
+      <?php foreach ($articles as $a): $isCree = ($a['action'] ?? 'cree') !== 'retire'; $col = $isCree ? '#10b981' : '#ef4444'; ?>
+      <div class="art-row" style="border-left:3px solid <?= $col ?>">
         <div style="flex:1;min-width:0">
           <div style="font-weight:600"><?= h($a['nom'] ?? 'Produit #'.$a['produit_id']) ?></div>
           <div style="font-size:.72rem;color:var(--text3);margin-top:.15rem">
@@ -299,8 +310,8 @@ require_once 'includes/header.php';
             <?= $a['date_peremption'] ? 'Exp. '.date('m/Y', strtotime($a['date_peremption'])) : 'Pas de date' ?>
           </div>
         </div>
-        <div style="font-weight:700;font-size:.9rem;flex-shrink:0">
-          +<?= number_format($a['quantite'],0) ?> <?= h($a['unite']??'unité') ?>
+        <div style="font-weight:700;font-size:.9rem;flex-shrink:0;color:<?= $col ?>">
+          <?= $isCree ? '+' : '−' ?><?= number_format($a['quantite'],0) ?> <?= h($a['unite']??'unité') ?>
         </div>
       </div>
       <?php endforeach; ?>
