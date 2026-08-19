@@ -105,3 +105,29 @@ function dotation_ecarts(PDO $pdo, int $emp_id, int $site_id): ?array {
         ],
     ];
 }
+
+/**
+ * Cockpit « prêt à partir » : complétude de tous les emplacements rattachés à
+ * une dotation, triés du moins complet au plus complet.
+ */
+function dotation_cockpit(PDO $pdo, int $site_id): array {
+    $sacs = [];
+    $q = $pdo->prepare("SELECT id, nom FROM emplacements
+                        WHERE site_id = ? AND actif = 1 AND dotation_modele_id IS NOT NULL
+                        ORDER BY nom");
+    $q->execute([$site_id]);
+    foreach ($q->fetchAll(PDO::FETCH_ASSOC) as $e) {
+        $ec = dotation_ecarts($pdo, (int)$e['id'], $site_id);
+        if (!$ec) continue;
+        $sacs[] = [
+            'id'          => (int)$e['id'],
+            'nom'         => $e['nom'],
+            'completude'  => $ec['stats']['completude'],
+            'manquant'    => $ec['stats']['manquant'],
+            'insuffisant' => $ec['stats']['insuffisant'],
+            'total'       => $ec['stats']['total'],
+        ];
+    }
+    usort($sacs, fn($a, $b) => $a['completude'] <=> $b['completude']);
+    return $sacs;
+}

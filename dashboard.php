@@ -19,6 +19,7 @@ $biomed_hs=$biomed_maint=$biomed_total=0;
 $sse_alerte=$sse_conso_perime=0;
 $rappels_actifs=[];
 $msg_non_lus=0;
+$dot_sacs=[]; $dot_prets=0; $dot_incomplets=0;
 
 if ($site_id) {
     $fs = "e.site_id=".intval($site_id);
@@ -98,6 +99,16 @@ if ($site_id) {
     try {
         $recent_inter = $pdo->query("SELECT im.cree_le, im.reference, im.statut, u.prenom, COUNT(il.id) AS nb FROM interventions_materiel im JOIN utilisateurs u ON u.id=im.user_id LEFT JOIN interventions_lignes il ON il.intervention_id=im.id WHERE im.site_id=".intval($site_id)." GROUP BY im.id ORDER BY im.cree_le DESC LIMIT 4")->fetchAll(PDO::FETCH_ASSOC);
     } catch(Exception $e){}
+
+    // ── Cockpit dotation « prêt à partir » ──
+    if (!function_exists('action_permise') || action_permise('dotation_voir')) {
+        try {
+            require_once __DIR__ . '/includes/dotation.php';
+            $dot_sacs       = dotation_cockpit($pdo, (int)$site_id);
+            $dot_prets      = count(array_filter($dot_sacs, fn($s) => $s['completude'] >= 100));
+            $dot_incomplets = count($dot_sacs) - $dot_prets;
+        } catch (Throwable $e) {}
+    }
 }
 
 $site_info = null;
@@ -473,6 +484,12 @@ if (nav_peut($nav_perms,'biomed') && $biomed_hs > 0) {
         'tt'=>"$biomed_hs matériel".($biomed_hs>1?'s':'')." hors service",
         'sb'=>'Intervention nécessaire','go'=>'Voir','lien'=>'materiel.php'];
 }
+if ($dot_incomplets > 0) {
+    $_pire = $dot_sacs[0]['nom'] ?? '';
+    $todo[] = ['ic'=>'🎯','bg'=>'rgba(245,158,11,.14)',
+        'tt'=>"$dot_incomplets sac".($dot_incomplets>1?'s':'')." incomplet".($dot_incomplets>1?'s':'')." (dotation)",
+        'sb'=>'À compléter'.($_pire!==''?" — ex. « ".h($_pire)." »":''),'go'=>'Voir','lien'=>'locations.php'.(isset($dot_sacs[0]['id'])?'?sel='.$dot_sacs[0]['id']:'')];
+}
 if (!empty($todo)):
 ?>
 <div class="db-todo">
@@ -603,6 +620,40 @@ if (!empty($kpis)):
 
 <!-- Colonne droite -->
 <div>
+
+  <!-- Cockpit dotation : prêt à partir -->
+  <?php if (!empty($dot_sacs)): ?>
+  <div class="db-card">
+    <div class="db-card-head">
+      <div class="db-card-title">🎯 Prêt à partir</div>
+      <a href="locations.php" style="font-size:.72rem;color:var(--primary);text-decoration:none">Emplacements →</a>
+    </div>
+    <div style="padding:12px 16px 4px;display:flex;gap:10px">
+      <div style="flex:1;text-align:center;padding:10px;background:rgba(16,185,129,.06);border:1px solid rgba(16,185,129,.2);border-radius:9px">
+        <div style="font-size:1.3rem;font-weight:800;color:#34d399"><?= $dot_prets ?></div>
+        <div style="font-size:.68rem;color:var(--text3)">✅ Prêts</div>
+      </div>
+      <div style="flex:1;text-align:center;padding:10px;background:<?= $dot_incomplets>0?'rgba(245,158,11,.06)':'var(--bg3)' ?>;border:1px solid <?= $dot_incomplets>0?'rgba(245,158,11,.2)':'var(--border)' ?>;border-radius:9px">
+        <div style="font-size:1.3rem;font-weight:800;color:<?= $dot_incomplets>0?'#fbbf24':'var(--text)' ?>"><?= $dot_incomplets ?></div>
+        <div style="font-size:.68rem;color:var(--text3)">À compléter</div>
+      </div>
+    </div>
+    <?php foreach (array_slice(array_values(array_filter($dot_sacs, fn($s)=>$s['completude']<100)), 0, 5) as $s):
+      $c = $s['completude']>=70?'#fbbf24':'#f87171'; ?>
+    <a href="locations.php?sel=<?= $s['id'] ?>" class="db-row" style="text-decoration:none;color:var(--text)">
+      <div style="flex:1;min-width:0">
+        <div style="font-size:.82rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><?= h($s['nom']) ?></div>
+        <div style="font-size:.68rem;color:var(--text3)"><?= $s['manquant'] ?> manquant<?= $s['manquant']>1?'s':'' ?><?= $s['insuffisant']>0?' · '.$s['insuffisant'].' insuff.':'' ?></div>
+      </div>
+      <div style="width:64px;height:6px;background:var(--border);border-radius:4px;overflow:hidden;flex-shrink:0"><div style="width:<?= $s['completude'] ?>%;height:100%;background:<?= $c ?>"></div></div>
+      <div style="font-size:.78rem;font-weight:700;color:<?= $c ?>;width:36px;text-align:right"><?= $s['completude'] ?>%</div>
+    </a>
+    <?php endforeach; ?>
+    <?php if ($dot_incomplets===0): ?>
+    <div style="padding:14px 16px;text-align:center;color:#34d399;font-size:.85rem;font-weight:600">✅ Tous les sacs sont conformes</div>
+    <?php endif; ?>
+  </div>
+  <?php endif; ?>
 
   <!-- Biomédical -->
   <?php if (nav_peut($nav_perms,'biomed') && $biomed_total > 0): ?>
