@@ -97,6 +97,18 @@ function ai_tools_defs(): array {
                 'nom' => ['type' => 'string', 'description' => "Nom (ou partie) recherché. Vide = tout lister."],
             ], 'required' => []],
         ],
+        [
+            'name'        => 'dotation_sacs',
+            'description' => "État de complétude de TOUS les sacs/PUI ayant une dotation définie (composition attendue vs réel) : pour chacun, le % de complétude, le nombre de produits manquants et insuffisants. Trié du moins complet au plus complet. À utiliser pour « quels sacs sont incomplets / prêts à partir ? ».",
+            'input_schema' => ['type' => 'object', 'properties' => new stdClass(), 'required' => []],
+        ],
+        [
+            'name'        => 'dotation_manques',
+            'description' => "Détail des écarts de dotation d'UN sac/emplacement précis (par nom) : la liste de ce qui MANQUE (attendu mais absent) et de ce qui est INSUFFISANT (présent sous le seuil), avec quantité attendue vs réelle. À utiliser pour « qu'est-ce qui manque dans le SAC X ? ».",
+            'input_schema' => ['type' => 'object', 'properties' => [
+                'emplacement' => ['type' => 'string', 'description' => "Nom (ou partie) du sac/emplacement."],
+            ], 'required' => ['emplacement']],
+        ],
     ];
 }
 
@@ -106,6 +118,7 @@ function ai_tool_is_read(string $name): bool {
         'lister_emplacements', 'chercher_stock', 'produits_peremption',
         'etat_materiel', 'rappels_actifs', 'dernieres_fiches', 'chercher_medicament',
         'chercher_materiel', 'stock_bas', 'fiches_anomalies', 'revisions_biomedical', 'sse_etat', 'chercher_sse',
+        'dotation_sacs', 'dotation_manques',
     ], true);
 }
 
@@ -409,6 +422,36 @@ function ai_tool_run(PDO $pdo, string $name, array $in, int $site_id, int $user_
                 return [
                     'consommables' => $q1->fetchAll(PDO::FETCH_ASSOC),
                     'equipements'  => $q2->fetchAll(PDO::FETCH_ASSOC),
+                ];
+            }
+
+            case 'dotation_sacs': {
+                require_once __DIR__ . '/../includes/dotation.php';
+                return ['sacs' => dotation_cockpit($pdo, $site_id)];
+            }
+
+            case 'dotation_manques': {
+                require_once __DIR__ . '/../includes/dotation.php';
+                $nom = trim($in['emplacement'] ?? '');
+                if ($nom === '') return ['erreur' => 'emplacement requis'];
+                $st = $pdo->prepare("SELECT id, nom FROM emplacements
+                                     WHERE site_id = ? AND actif = 1 AND dotation_modele_id IS NOT NULL AND nom LIKE ?
+                                     ORDER BY nom LIMIT 1");
+                $st->execute([$site_id, '%' . $nom . '%']);
+                $e = $st->fetch(PDO::FETCH_ASSOC);
+                if (!$e) return ['erreur' => "Aucun sac « $nom » avec une dotation définie."];
+                $ec = dotation_ecarts($pdo, (int)$e['id'], $site_id);
+                if (!$ec) return ['erreur' => 'Pas de dotation sur ce sac.'];
+                $fmt = fn($arr) => array_values(array_map(fn($l) => [
+                    'produit'  => trim(($l['dci'] ?: $l['nom']) . ' ' . ($l['dosage'] ?? '')),
+                    'attendu'  => (float)$l['quantite_attendue'],
+                    'present'  => (float)$l['qte_reel'],
+                ], $arr));
+                return [
+                    'emplacement' => $e['nom'],
+                    'completude'  => $ec['stats']['completude'],
+                    'manquant'    => $fmt(array_filter($ec['lignes'], fn($l) => $l['statut'] === 'manquant')),
+                    'insuffisant' => $fmt(array_filter($ec['lignes'], fn($l) => $l['statut'] === 'insuffisant')),
                 ];
             }
         }
