@@ -482,7 +482,7 @@ require_once 'includes/header.php';
     <div class="rmp-card">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;gap:6px;flex-wrap:wrap">
         <div class="card-title" style="margin:0">À remettre (le neuf)</div>
-        <?php if ($ia_on): ?><button type="button" class="btn btn-ghost btn-sm" id="rmp-ia-btn" onclick="RMP.iaConso()">🤖 J'ai utilisé…</button><?php endif; ?>
+        <?php if ($ia_on): ?><button type="button" class="btn btn-ghost btn-sm" id="rmp-ia-btn" onclick="RMP.iaConso()">🎤 J'ai utilisé…</button><?php endif; ?>
       </div>
       <div id="rmp-lines"><div class="rmp-empty">Ajoute des produits depuis la liste de gauche.</div></div>
     </div>
@@ -648,24 +648,36 @@ const RMP = {
     this.renderLines();
   },
   bumpQty(i,d){ var l=this.lignes[i]; if(!l) return; l.quantite=Math.max(0.01, Math.round(((parseFloat(l.quantite)||1)+d)*100)/100); this.renderLines(); },
-  // IA : « j'ai utilisé … » en langage naturel → remplit les lignes (matché au sac)
+  // IA VOCALE : tu dis ce que tu as utilisé → l'IA remplit les lignes (matché au sac)
+  iaLabel(t){ var b=document.getElementById('rmp-ia-btn'); if(b){ b.textContent=t; } },
   iaConso(){
-    var empl = document.getElementById('rmp-empl').value;
-    if(!empl){ alert('Choisis d\'abord un sac.'); return; }
-    var texte = prompt('Dis (ou écris) ce que tu as utilisé en intervention :\n\nEx. « 2 adrénaline 1mg/1ml, 1 midazolam, 3 compresses »');
-    if(!texte || !texte.trim()) return;
-    var btn = document.getElementById('rmp-ia-btn');
-    if(btn){ btn.disabled=true; btn.textContent='🤖 Analyse…'; }
-    var done = ()=>{ if(btn){ btn.disabled=false; btn.textContent='🤖 J\'ai utilisé…'; } };
+    if(!document.getElementById('rmp-empl').value){ alert('Choisis d\'abord un sac.'); return; }
+    var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if(!SR){ // pas de vocal → repli texte
+      var t = prompt('Écris ce que tu as utilisé :\nEx. « 2 adrénaline 1mg/1ml, 1 midazolam »');
+      if(t && t.trim()) this.sendConso(t.trim());
+      return;
+    }
+    var self=this, btn=document.getElementById('rmp-ia-btn');
+    var rec=new SR(); rec.lang='fr-FR'; rec.continuous=false; rec.interimResults=false;
+    rec.onstart =()=>{ if(btn){ btn.disabled=false; btn.style.color='#EF9F27'; } self.iaLabel('🎤 Parle… (ce que tu as utilisé)'); };
+    rec.onresult=e=>{ self.sendConso(e.results[0][0].transcript); };
+    rec.onerror =e=>{ if(btn) btn.style.color=''; self.iaLabel('🎤 J\'ai utilisé…'); if(e.error!=='no-speech' && e.error!=='aborted') alert('Micro : '+e.error); };
+    rec.onend   =()=>{ if(btn) btn.style.color=''; if(btn && btn.textContent.indexOf('Parle')>=0) self.iaLabel('🎤 J\'ai utilisé…'); };
+    try{ rec.start(); }catch(e){ self.iaLabel('🎤 J\'ai utilisé…'); }
+  },
+  sendConso(texte){
+    var empl=document.getElementById('rmp-empl').value; if(!empl || !texte) return;
+    var btn=document.getElementById('rmp-ia-btn');
+    if(btn) btn.disabled=true; this.iaLabel('🤖 Analyse…');
+    var done=()=>{ if(btn){ btn.disabled=false; btn.style.color=''; } this.iaLabel('🎤 J\'ai utilisé…'); };
     fetch('/rempotage.php?ajax=ia_conso',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({texte:texte,emplacement:empl})})
      .then(r=>r.json()).then(d=>{
        done();
        if(d.error){ alert('IA : '+d.error); return; }
-       var items = d.items||[];
-       if(!items.length){ alert('Je n\'ai rien reconnu parmi les produits de ce sac. Reformule, ou ajoute à la main.'); return; }
-       items.forEach(it=>{
-         var p = this.produits.find(x=>x.nom===it.nom);
-         if(!p) return;
+       var items=d.items||[];
+       if(!items.length){ alert('Rien reconnu dans ce sac pour : « '+texte+' ».\nReformule ou clique les produits.'); return; }
+       items.forEach(it=>{ var p=this.produits.find(x=>x.nom===it.nom); if(!p) return;
          this.add({nom:p.nom,unite:p.unite,emplacement_id:p.emplacement_id,emplacement:p.emplacement});
          var last=this.lignes[this.lignes.length-1]; if(last) last.quantite=Math.max(0.01, parseFloat(it.quantite)||1);
        });
