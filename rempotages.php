@@ -69,9 +69,20 @@ if (($_GET['ajax'] ?? '') === 'ia_periode' && $_SERVER['REQUEST_METHOD'] === 'PO
     $pd = date('Y-m-01', strtotime($d.' -1 month')); $pf = date('Y-m-t', strtotime($pd)).' 23:59:59';
     $nb_prev = (int)$pdo->query("SELECT COUNT(*) FROM rempotages r WHERE r.site_id=".(int)$site_id." AND r.debut_le>='$pd' AND r.debut_le<='$pf'".(!isAdmin()?" AND r.user_id=".(int)currentUserId():''))->fetchColumn();
     $consoTxt = implode(', ', array_map(fn($c)=>$c['nom'].' ('.rtrim(rtrim(number_format($c['q'],1,'.',''),'0'),'.').')', $conso)) ?: 'aucun';
+    // Débit par PUI sur la période
+    $puiTxt = '';
+    foreach ($pdo->query("SELECT id,nom FROM emplacements WHERE site_id=".(int)$site_id." AND type='pui' AND actif=1")->fetchAll(PDO::FETCH_ASSOC) as $pui) {
+        $pids=[(int)$pui['id']]; $fr=$pids; $g=0;
+        while ($fr && $g++<12) { $inp=implode(',',array_map('intval',$fr)); $chd=array_map('intval',$pdo->query("SELECT id FROM emplacements WHERE site_id=".(int)$site_id." AND parent_id IN ($inp)")->fetchAll(PDO::FETCH_COLUMN)); $fr=array_values(array_diff($chd,$pids)); $pids=array_merge($pids,$fr); }
+        $inp=implode(',',array_map('intval',$pids));
+        $qd=(float)$pdo->query("SELECT COALESCE(SUM(ABS(m.quantite_delta)),0) FROM mouvements_stock m JOIN produits p ON p.id=m.produit_id WHERE p.emplacement_id IN ($inp) AND m.motif LIKE '%bit PUI%' AND m.cree_le>='$d' AND m.cree_le<='$f'")->fetchColumn();
+        if ($qd>0) $puiTxt .= ($puiTxt?', ':'').$pui['nom'].' ('.rtrim(rtrim(number_format($qd,1,'.',''),'0'),'.').' u.)';
+    }
     $prompt = "Tu es l'assistant logistique d'un centre de secours (SDIS/SSSM). Analyse l'activité de rempotage du mois $mois.\n"
             . "- Rempotages ce mois : $nb (mois précédent : $nb_prev).\n"
-            . "- Produits les plus remis (= consommés en intervention, du plus au moins) : $consoTxt.\n\n"
+            . "- Produits les plus remis (= consommés en intervention, du plus au moins) : $consoTxt.\n"
+            . ($puiTxt ? "- Débit des PUI (stock central fourni) : $puiTxt.\n" : "")
+            . "\n"
             . "Rédige une SYNTHÈSE courte et concrète en français (4 à 6 phrases). Mets en **gras** les points clés. "
             . "Couvre : la tendance d'activité (hausse/baisse vs mois précédent), les produits qui partent le plus, "
             . "et termine par 2-3 RECOMMANDATIONS de réapprovisionnement prioritaire. Ton professionnel et direct. "
@@ -209,6 +220,24 @@ $trend = $pdo->query("SELECT DATE(r.debut_le) j, COUNT(*) n
                       FROM rempotages r WHERE $c_where GROUP BY DATE(r.debut_le) ORDER BY j")->fetchAll(PDO::FETCH_ASSOC);
 $conso_total = 0; foreach ($top_conso as $t) $conso_total += (float)$t['q'];
 
+// Débit par PUI sur la période (ce que chaque PUI a fourni)
+$pui_debits = [];
+$_du = !isAdmin() ? " AND m.user_id=".(int)currentUserId() : '';
+foreach ($pdo->query("SELECT id, nom FROM emplacements WHERE site_id=".(int)$site_id." AND type='pui' AND actif=1 ORDER BY nom")->fetchAll(PDO::FETCH_ASSOC) as $pui) {
+    $pids = [(int)$pui['id']]; $fr = $pids; $g = 0;
+    while ($fr && $g++ < 12) {
+        $inp = implode(',', array_map('intval', $fr));
+        $ch = array_map('intval', $pdo->query("SELECT id FROM emplacements WHERE site_id=".(int)$site_id." AND parent_id IN ($inp)")->fetchAll(PDO::FETCH_COLUMN));
+        $fr = array_values(array_diff($ch, $pids)); $pids = array_merge($pids, $fr);
+    }
+    $inp = implode(',', array_map('intval', $pids));
+    $st = $pdo->prepare("SELECT COALESCE(SUM(ABS(m.quantite_delta)),0) FROM mouvements_stock m JOIN produits p ON p.id=m.produit_id
+                         WHERE p.emplacement_id IN ($inp) AND m.motif LIKE '%bit PUI%' AND m.cree_le>=? AND m.cree_le<=?$_du");
+    $st->execute([$c_debut, $c_fin]);
+    $qd = (float)$st->fetchColumn();
+    if ($qd > 0) $pui_debits[] = ['nom'=>$pui['nom'], 'q'=>$qd];
+}
+
 require_once 'includes/header.php';
 ?>
 <style>
@@ -320,6 +349,19 @@ require_once 'includes/header.php';
       <?php endif; ?>
     </div>
   </div>
+  <?php if (!empty($pui_debits)): ?>
+  <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border)">
+    <div style="font-size:.7rem;text-transform:uppercase;letter-spacing:1px;color:var(--text3);font-weight:700;margin-bottom:.6rem">🏢 Débit PUI sur la période <span style="font-weight:400;text-transform:none;letter-spacing:0">(ce que chaque PUI a fourni)</span></div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap">
+      <?php foreach ($pui_debits as $pd): ?>
+      <div style="flex:1;min-width:170px;background:rgba(139,92,246,.06);border:1px solid rgba(139,92,246,.2);border-radius:10px;padding:10px 14px">
+        <div style="font-size:.78rem;color:var(--text2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><?= h($pd['nom']) ?></div>
+        <div style="font-size:1.3rem;font-weight:800;color:#8b5cf6"><?= rtrim(rtrim(number_format($pd['q'],1,'.',''),'0'),'.') ?> <span style="font-size:.72rem;font-weight:600;color:var(--text3)">unités fournies</span></div>
+      </div>
+      <?php endforeach; ?>
+    </div>
+  </div>
+  <?php endif; ?>
 </div>
 <style>@media(min-width:900px){ .conso-grid{grid-template-columns:1.35fr 1fr !important} }</style>
 
