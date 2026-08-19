@@ -280,7 +280,7 @@ $ia_photo_on = function_exists('module_actif') && module_actif('ia_photo');
 require_once 'includes/header.php';
 ?>
 <style>
-.rmp-wrap{max-width:1200px;margin:0 auto}
+.rmp-wrap{margin:0}
 .rmp-card{background:var(--glass);border:1px solid var(--border);border-radius:14px;padding:16px;margin-bottom:14px}
 .rmp-grid{display:grid;grid-template-columns:1fr;gap:14px}
 .rmp-search{width:100%;padding:12px;font-size:1rem;border:1px solid var(--border);border-radius:10px;margin-bottom:10px}
@@ -298,7 +298,6 @@ require_once 'includes/header.php';
 .rmp-del{border:none;background:transparent;color:var(--red);font-size:1.15rem;cursor:pointer}
 .rmp-empty{text-align:center;color:var(--text3);padding:26px 10px;font-size:.9rem}
 @media(min-width:900px){
-  .rmp-wrap{max-width:1500px}
   .rmp-grid{grid-template-columns:290px 400px minmax(0,1fr);align-items:start;gap:18px}
   .rmp-card{padding:18px}
   .rmp-cat{max-height:calc(100vh - 300px)}
