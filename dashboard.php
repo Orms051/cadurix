@@ -16,7 +16,6 @@ $site_id = site_actif();
 $total=$expired=$critical=$warning=$lowStock=$emplCount=0;
 $urgent=$chart_mois=$recent_remp=$recent_fiches=$recent_inter=[];
 $biomed_hs=$biomed_maint=$biomed_total=0;
-$dot_total=$dot_conformes=$dot_non_conformes=0;
 $sse_alerte=$sse_conso_perime=0;
 $rappels_actifs=[];
 $msg_non_lus=0;
@@ -40,23 +39,6 @@ if ($site_id) {
         $biomed_maint = (int)$pdo->query("SELECT COUNT(*) FROM materiels WHERE site_id=".intval($site_id)." AND statut='maintenance'")->fetchColumn();
     } catch(Exception $e){}
 
-    // ── Dotations réglementaires ──
-    try {
-        $dots = $pdo->prepare("
-            SELECT d.quantite_min, d.categorie,
-                COALESCE((SELECT SUM(sc.quantite) FROM sse_consommables sc WHERE sc.site_id=:s1 AND d.categorie IN ('sse','consommable') AND sc.nom LIKE CONCAT('%',COALESCE(d.nom_produit_reference,d.nom),'%')),0) +
-                COALESCE((SELECT SUM(p.quantite) FROM produits p JOIN emplacements e ON e.id=p.emplacement_id WHERE e.site_id=:s2 AND d.categorie IN ('medicament','consommable') AND p.nom LIKE CONCAT('%',COALESCE(d.nom_produit_reference,d.nom),'%')),0) +
-                COALESCE((SELECT COUNT(*) FROM materiels m WHERE m.site_id=:s3 AND m.statut NOT IN ('hors_service','reforme') AND d.categorie IN ('materiel','autre') AND m.nom LIKE CONCAT('%',COALESCE(d.nom_produit_reference,d.nom),'%')),0) AS stock_actuel
-            FROM dotations_reglementaires d
-            WHERE d.site_id=:s4 AND d.actif=1
-        ");
-        $dots->execute([':s1'=>$site_id,':s2'=>$site_id,':s3'=>$site_id,':s4'=>$site_id]);
-        foreach ($dots->fetchAll(PDO::FETCH_ASSOC) as $d) {
-            $dot_total++;
-            if ($d['stock_actuel'] >= $d['quantite_min']) $dot_conformes++;
-            else $dot_non_conformes++;
-        }
-    } catch(Exception $e){}
 
     // ── SSE/NRBC ──
     try {
@@ -125,12 +107,10 @@ if ($site_id) {
     $site_info = $s->fetch(PDO::FETCH_ASSOC);
 }
 
-$dot_taux = $dot_total > 0 ? round($dot_conformes / $dot_total * 100) : 100;
 $score_global = 100;
 if ($expired > 0) $score_global -= 30;
 if ($critical > 0) $score_global -= 15;
 if ($biomed_hs > 0) $score_global -= 15;
-if ($dot_non_conformes > 0) $score_global -= 20;
 if (!empty($rappels_actifs)) $score_global -= 20;
 $score_global = max(0, $score_global);
 $score_color = $score_global >= 80 ? '#34d399' : ($score_global >= 60 ? '#fbbf24' : '#f87171');
@@ -488,11 +468,6 @@ if (nav_peut($nav_perms,'medicaments') && $expired > 0) {
         'tt'=>"$expired produit".($expired>1?'s':'')." périmé".($expired>1?'s':''),
         'sb'=>'À retirer du stock','go'=>'Retirer','lien'=>'alerts.php'];
 }
-if (nav_peut($nav_perms,'dotations') && $dot_non_conformes > 0) {
-    $todo[] = ['ic'=>'📋','bg'=>'rgba(245,158,11,.14)',
-        'tt'=>"$dot_non_conformes dotation".($dot_non_conformes>1?'s':'')." non conforme".($dot_non_conformes>1?'s':''),
-        'sb'=>'Sous le minimum réglementaire','go'=>'Compléter','lien'=>'dotations.php'];
-}
 if (nav_peut($nav_perms,'biomed') && $biomed_hs > 0) {
     $todo[] = ['ic'=>'🔧','bg'=>'rgba(239,68,68,.12)',
         'tt'=>"$biomed_hs matériel".($biomed_hs>1?'s':'')." hors service",
@@ -528,9 +503,6 @@ if (nav_peut($nav_perms,'medicaments')) {
   $kpis[] = ['v'=>$total,'l'=>'Produits en stock','i'=>'💊','c'=>'var(--primary)','link'=>'products.php','alert'=>false];
   $al_per = $expired + $critical;
   $kpis[] = ['v'=>$al_per,'l'=>'Alertes péremption','i'=>'⚠️','c'=>$al_per>0?'#ef4444':'#34d399','link'=>'alerts.php','alert'=>$al_per>0];
-}
-if (nav_peut($nav_perms,'dotations') && $dot_total > 0) {
-  $kpis[] = ['v'=>$dot_taux.'%','l'=>'Conformité dotations','i'=>'📋','c'=>$dot_taux>=90?'#34d399':($dot_taux>=70?'#fbbf24':'#f87171'),'link'=>'dotations.php','alert'=>$dot_non_conformes>0];
 }
 if (nav_peut($nav_perms,'messagerie')) {
   $kpis[] = ['v'=>$msg_non_lus,'l'=>'Messages non lus','i'=>'💬','c'=>$msg_non_lus>0?'#60a5fa':'var(--text2)','link'=>'messaging.php','alert'=>false];
@@ -599,36 +571,6 @@ if (!empty($kpis)):
   </div>
   <?php endif; ?>
 
-  <!-- Dotations réglementaires -->
-  <?php if (nav_peut($nav_perms,'dotations') && $dot_total > 0): ?>
-  <div class="db-card" style="margin-bottom:20px">
-    <div class="db-card-head">
-      <div class="db-card-title">📋 Dotations réglementaires</div>
-      <a href="dotations.php" style="font-size:.72rem;color:var(--primary);text-decoration:none">Gérer →</a>
-    </div>
-    <div style="padding:14px 16px">
-      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:14px">
-        <div style="text-align:center;padding:10px;background:var(--bg3);border-radius:9px">
-          <div style="font-size:1.4rem;font-weight:800"><?= $dot_total ?></div>
-          <div style="font-size:.7rem;color:var(--text3)">Total</div>
-        </div>
-        <div style="text-align:center;padding:10px;background:rgba(16,185,129,.06);border:1px solid rgba(16,185,129,.2);border-radius:9px">
-          <div style="font-size:1.4rem;font-weight:800;color:#34d399"><?= $dot_conformes ?></div>
-          <div style="font-size:.7rem;color:var(--text3)">✅ Conformes</div>
-        </div>
-        <div style="text-align:center;padding:10px;background:<?= $dot_non_conformes>0?'rgba(239,68,68,.06)':'var(--bg3)' ?>;border:1px solid <?= $dot_non_conformes>0?'rgba(239,68,68,.2)':'var(--border)' ?>;border-radius:9px">
-          <div style="font-size:1.4rem;font-weight:800;color:<?= $dot_non_conformes>0?'#f87171':'var(--text)' ?>"><?= $dot_non_conformes ?></div>
-          <div style="font-size:.7rem;color:var(--text3)">❌ Non conformes</div>
-        </div>
-      </div>
-      <div class="conf-wrap">
-        <span style="font-size:.75rem;color:var(--text3);flex-shrink:0">Conformité</span>
-        <div class="conf-bar"><div class="conf-fill" style="width:<?= $dot_taux ?>%;background:<?= $dot_taux>=90?'#34d399':($dot_taux>=70?'#fbbf24':'#ef4444') ?>"></div></div>
-        <span style="font-size:.82rem;font-weight:700;color:<?= $dot_taux>=90?'#34d399':($dot_taux>=70?'#fbbf24':'#f87171') ?>;flex-shrink:0"><?= $dot_taux ?>%</span>
-      </div>
-    </div>
-  </div>
-  <?php endif; ?>
 
   <?php if (nav_peut($nav_perms,'medicaments')): ?>
   <!-- Graphique péremptions -->

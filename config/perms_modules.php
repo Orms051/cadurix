@@ -34,7 +34,6 @@ function modules_permissions(): array {
         'messagerie'    => ['label'=>'Messagerie',               'icon'=>'💬', 'section'=>'Messagerie'],
         // ── Administration ──
         'admin'         => ['label'=>'Administration',           'icon'=>'⚙️', 'section'=>'Administration'],
-        'dotations'     => ['label'=>'Dotations réglementaires', 'icon'=>'📦', 'section'=>'Administration'],
         'tracabilite'   => ['label'=>'Traçabilité des lots',     'icon'=>'🏷️', 'section'=>'Administration'],
         'vue_globale'   => ['label'=>'Vue globale (super admin)','icon'=>'🌐', 'section'=>'Administration'],
     ];
@@ -62,7 +61,7 @@ function module_flag_map(): array {
         'scanner'=>'scanner', 'fiches'=>'fiches', 'rempotages'=>'rempotages', 'terrain'=>'terrain',
         'sse'=>'sse_nrbc', 'equipements'=>'biomedical', 'biomed'=>'biomedical',
         'messagerie'=>'messagerie', 'ia'=>'assistant_ia',
-        'dotations'=>'dotations', 'tracabilite'=>'tracabilite',
+        'tracabilite'=>'tracabilite',
     ];
 }
 function module_perm_visible(string $permKey): bool {
