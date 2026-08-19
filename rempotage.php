@@ -76,7 +76,17 @@ if (($_GET['ajax'] ?? '') === 'pui_stock') {
             'stock' => (float)$r['stock'],
             'lots'  => (int)$r['lots'],
             'unite' => $r['unite'],
+            'fefo'  => null,
         ];
+    }
+    // Lot FEFO (le plus proche de la péremption) par produit → pré-remplissage lot/date
+    $fe = $pdo->query("SELECT nom, numero_lot, date_peremption FROM produits
+                       WHERE emplacement_id IN ($inIds) AND statut='actif' AND quantite > 0
+                       ORDER BY (date_peremption IS NULL), date_peremption ASC, id ASC");
+    foreach ($fe->fetchAll(PDO::FETCH_ASSOC) as $r) {
+        if (isset($map[$r['nom']]) && $map[$r['nom']]['fefo'] === null) {
+            $map[$r['nom']]['fefo'] = ['lot' => $r['numero_lot'], 'exp' => $r['date_peremption']];
+        }
     }
     echo json_encode(['pui'=>true, 'stock'=>$map]);
     exit;
@@ -292,9 +302,12 @@ require_once 'includes/header.php';
 .rmp-line{border:1px solid var(--border);border-radius:12px;padding:12px;margin-bottom:10px;background:var(--bg2)}
 .rmp-line .top{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
 .rmp-line .nom{font-weight:700}
-.rmp-fields{display:grid;grid-template-columns:1fr 1fr 80px;gap:8px}
+.rmp-fields{display:grid;grid-template-columns:1fr 1fr 128px;gap:8px}
 .rmp-fields label{font-size:.68rem;text-transform:uppercase;letter-spacing:.04em;color:var(--text3)}
 .rmp-fields input{width:100%;padding:9px;border:1px solid var(--border);border-radius:8px;font-size:.9rem}
+.rmp-qty{display:flex;align-items:center;gap:4px}
+.rmp-step{width:32px;flex-shrink:0;border:1px solid var(--border);background:var(--glass);color:var(--text);border-radius:8px;font-size:1.15rem;font-weight:700;cursor:pointer;padding:7px 0;line-height:1}
+.rmp-step:hover{border-color:var(--primary);color:var(--primary)}
 .rmp-del{border:none;background:transparent;color:var(--red);font-size:1.15rem;cursor:pointer}
 .rmp-empty{text-align:center;color:var(--text3);padding:26px 10px;font-size:.9rem}
 @media(min-width:900px){
@@ -454,10 +467,11 @@ const RMP = {
     const info = this.puiStock[nom];
     const stock = info ? info.stock : 0;
     const need  = parseFloat(qty) || 0;
+    const rnd = n => Math.round(n * 100) / 100;
     let cls, txt;
-    if (stock <= 0)        { cls = 'pui-b-out';  txt = 'PUI : rupture'; }
-    else if (stock < need) { cls = 'pui-b-low';  txt = 'PUI : ' + stock + ' (insuffisant)'; }
-    else                   { cls = 'pui-b-ok';   txt = 'PUI : ' + stock + ' dispo'; }
+    if (stock <= 0)        { cls = 'pui-b-out';  txt = '🏢 PUI : rupture'; }
+    else if (stock < need) { cls = 'pui-b-low';  txt = '🏢 PUI ' + rnd(stock) + ' → manque ' + rnd(need - stock); }
+    else                   { cls = 'pui-b-ok';   txt = '🏢 PUI ' + rnd(stock) + ' → reste ' + rnd(stock - need); }
     return '<span class="pui-badge '+cls+'">'+txt+'</span>';
   },
   esc(s){ return String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); },
@@ -487,9 +501,15 @@ const RMP = {
   },
 
   add(p){
-    this.lignes.push({nom:p.nom,unite:p.unite||'unité',emplacement_id:p.emplacement_id,numero_lot:'',date_peremption:'',quantite:1});
+    // Pré-remplir le nouveau lot + la date depuis le lot PUI le plus proche (FEFO) :
+    // le neuf remis provient de la PUI, donc c'est ce lot-là qui partira.
+    var lot='', exp='', fromPui=false;
+    var info = this.puiStock[p.nom];
+    if (info && info.fefo){ lot = info.fefo.lot || ''; exp = (info.fefo.exp||'').substring(0,7); fromPui = !!(lot || exp); }
+    this.lignes.push({nom:p.nom,unite:p.unite||'unité',emplacement_id:p.emplacement_id,numero_lot:lot,date_peremption:exp,quantite:1,fromPui:fromPui});
     this.renderLines();
   },
+  bumpQty(i,d){ var l=this.lignes[i]; if(!l) return; l.quantite=Math.max(0.01, Math.round(((parseFloat(l.quantite)||1)+d)*100)/100); this.renderLines(); },
   setField(i,f,v){
     this.lignes[i][f] = (f==='quantite') ? Math.max(0.01,parseFloat(v)||1) : v;
     if (f==='quantite') { const b=document.getElementById('pui-badge-'+i); if(b) b.innerHTML=this.puiBadge(this.lignes[i].nom,this.lignes[i].quantite); }
@@ -618,8 +638,12 @@ const RMP = {
       '<div class="rmp-fields">'+
         '<div><label>Nouveau lot</label><input type="text" value="'+this.esc(l.numero_lot)+'" oninput="RMP.setField('+i+',\'numero_lot\',this.value)" placeholder="Lot"></div>'+
         '<div><label>Péremption</label><input type="month" value="'+this.esc(l.date_peremption)+'" oninput="RMP.setField('+i+',\'date_peremption\',this.value)"></div>'+
-        '<div><label>Qté</label><input type="number" min="0.01" step="0.01" value="'+l.quantite+'" oninput="RMP.setField('+i+',\'quantite\',this.value)"></div>'+
-      '</div></div>').join('');
+        '<div><label>Qté</label><div class="rmp-qty"><button type="button" class="rmp-step" onclick="RMP.bumpQty('+i+',-1)">−</button>'+
+          '<input type="number" min="0.01" step="0.01" value="'+l.quantite+'" oninput="RMP.setField('+i+',\'quantite\',this.value)" style="text-align:center">'+
+          '<button type="button" class="rmp-step" onclick="RMP.bumpQty('+i+',1)">+</button></div></div>'+
+      '</div>'+
+      (l.fromPui ? '<div style="font-size:.7rem;color:#8B5CF6;margin-top:7px">🏢 Lot &amp; date pris dans la PUI (FEFO) — modifie si besoin</div>' : '')+
+      '</div>').join('');
     save.disabled=false;
   },
 };
