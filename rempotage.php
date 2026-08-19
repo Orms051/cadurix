@@ -46,10 +46,17 @@ if (($_GET['ajax'] ?? '') === 'sac_produits') {
    (emplacement type='pui' + ses sous-emplacements). Aucune écriture. */
 if (($_GET['ajax'] ?? '') === 'pui_stock') {
     header('Content-Type: application/json');
-    // PUI(s) du site
-    $puis = $pdo->prepare("SELECT id FROM emplacements WHERE site_id=? AND type='pui' AND actif=1");
-    $puis->execute([$site_id]);
-    $ids = array_map('intval', $puis->fetchAll(PDO::FETCH_COLUMN));
+    // PUI choisie (sélecteur) ou toutes les PUI du site
+    $pui_sel = (int)($_GET['pui'] ?? 0);
+    if ($pui_sel) {
+        $ck = $pdo->prepare("SELECT id FROM emplacements WHERE id=? AND site_id=? AND type='pui' AND actif=1");
+        $ck->execute([$pui_sel, $site_id]);
+        $ids = $ck->fetchColumn() ? [$pui_sel] : [];
+    } else {
+        $puis = $pdo->prepare("SELECT id FROM emplacements WHERE site_id=? AND type='pui' AND actif=1");
+        $puis->execute([$site_id]);
+        $ids = array_map('intval', $puis->fetchAll(PDO::FETCH_COLUMN));
+    }
     if (!$ids) { echo json_encode(['pui'=>false, 'stock'=>[]]); exit; }
 
     // Descendants (mêmes bornes que sac_produits)
@@ -138,9 +145,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'enreg
         $pui_ids        = [];
         $pui_shortfalls = [];   // règle « autoriser + signaler » : manques non bloquants
         $pui_debits     = 0;
-        $puis = $pdo->prepare("SELECT id FROM emplacements WHERE site_id=? AND type='pui' AND actif=1");
-        $puis->execute([$site_id]);
-        $pui_ids = array_map('intval', $puis->fetchAll(PDO::FETCH_COLUMN));
+        // PUI source choisie via le sélecteur ; sinon toutes les PUI du site (compat)
+        $pui_source = (int)($_POST['pui_source'] ?? 0);
+        if ($pui_source) {
+            $ck = $pdo->prepare("SELECT id FROM emplacements WHERE id=? AND site_id=? AND type='pui' AND actif=1");
+            $ck->execute([$pui_source, $site_id]);
+            if (!$ck->fetchColumn()) $pui_source = 0;
+        }
+        if ($pui_source) {
+            $pui_ids = [$pui_source];
+        } else {
+            $puis = $pdo->prepare("SELECT id FROM emplacements WHERE site_id=? AND type='pui' AND actif=1");
+            $puis->execute([$site_id]);
+            $pui_ids = array_map('intval', $puis->fetchAll(PDO::FETCH_COLUMN));
+        }
         if ($pui_ids) {
             $frontier = $pui_ids; $guard = 0;
             while ($frontier && $guard++ < 12) {
@@ -285,6 +303,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'enreg
 $sacs = $pdo->prepare("SELECT id, nom FROM emplacements WHERE site_id=? AND parent_id IS NULL AND actif=1 ORDER BY nom");
 $sacs->execute([$site_id]);
 $sacs = $sacs->fetchAll(PDO::FETCH_ASSOC);
+// PUI(s) du site pour le sélecteur de source
+$puis_list = $pdo->prepare("SELECT id, nom FROM emplacements WHERE site_id=? AND type='pui' AND actif=1 ORDER BY nom");
+$puis_list->execute([$site_id]);
+$puis_list = $puis_list->fetchAll(PDO::FETCH_ASSOC);
 $ia_photo_on = function_exists('module_actif') && module_actif('ia_photo');
 
 require_once 'includes/header.php';
@@ -353,12 +375,25 @@ require_once 'includes/header.php';
         <option value="">— Choisir —</option>
         <?php foreach ($sacs as $s): ?><option value="<?= (int)$s['id'] ?>"><?= h($s['nom']) ?></option><?php endforeach; ?>
       </select>
+      <?php if (!empty($puis_list)): ?>
+      <label class="form-label" style="margin-top:12px">🏢 PUI source <span style="font-weight:400;color:var(--text3);font-size:.85em">(d'où vient le neuf)</span></label>
+      <select id="rmp-pui" class="form-control" style="font-size:1rem;padding:11px">
+        <?php if (count($puis_list) > 1): ?><option value="">— Choisir la PUI —</option><?php endif; ?>
+        <?php foreach ($puis_list as $p): ?><option value="<?= (int)$p['id'] ?>"><?= h($p['nom']) ?></option><?php endforeach; ?>
+      </select>
+      <?php endif; ?>
       <div class="rmp-ctx-row" style="display:flex;gap:10px;margin-top:12px;flex-wrap:wrap">
         <div style="flex:1;min-width:140px"><label class="form-label">N° intervention (optionnel)</label>
           <input type="text" id="rmp-ref" class="form-control" placeholder="Ex : 2026-0142"></div>
         <div style="flex:2;min-width:180px"><label class="form-label">Notes (optionnel)</label>
           <input type="text" id="rmp-notes" class="form-control" placeholder="Précisions…"></div>
       </div>
+      <?php if (!empty($puis_list)): ?>
+      <div style="margin-top:16px">
+        <div class="card-title" style="margin:0 0 6px;font-size:.85rem">🏢 PUI en direct <span style="font-weight:400;color:var(--text3);font-size:.82em">(stock → reste après)</span></div>
+        <div id="rmp-pui-live" style="border:1px solid var(--border);border-radius:10px;max-height:340px;overflow:auto"><div class="rmp-empty" style="padding:14px">Choisis une PUI pour voir son stock.</div></div>
+      </div>
+      <?php endif; ?>
     </div>
 
     <!-- Catalogue du sac -->
@@ -389,6 +424,7 @@ require_once 'includes/header.php';
     <input type="hidden" name="reference" id="rmp-ref-hidden">
     <input type="hidden" name="notes" id="rmp-notes-hidden">
     <input type="hidden" name="articles" id="rmp-articles">
+    <input type="hidden" name="pui_source" id="rmp-pui-hidden">
     <button type="button" class="btn btn-primary" style="width:100%;padding:14px;font-size:1rem" id="rmp-save" disabled onclick="RMP.askRetires()">
       ✅ Enregistrer le rempotage
     </button>
@@ -444,6 +480,8 @@ const RMP = {
   init(){
     document.getElementById('rmp-empl').addEventListener('change', e => this.loadSac(e.target.value));
     document.getElementById('rmp-search').addEventListener('input', e => this.renderCat(e.target.value));
+    var puiEl = document.getElementById('rmp-pui');
+    if (puiEl) puiEl.addEventListener('change', () => this.loadPui());
     document.getElementById('rmp-form').addEventListener('submit', e => {
       e.preventDefault();
       if (this.lignes.length) this.askRetires();   // → ouvre l'écran « Indiquer les lots retirés ? »
@@ -452,13 +490,33 @@ const RMP = {
   },
 
   async loadPui(){
+    var puiEl = document.getElementById('rmp-pui');
+    var pid = puiEl ? puiEl.value : '';
     try {
-      const r = await fetch('/rempotage.php?ajax=pui_stock');
+      const r = await fetch('/rempotage.php?ajax=pui_stock' + (pid ? '&pui='+encodeURIComponent(pid) : ''));
       const d = await r.json();
       this.puiExists = !!(d && d.pui);
       this.puiStock  = (d && d.stock) || {};
     } catch(e){ this.puiExists = false; this.puiStock = {}; }
     if (this.lignes.length) this.renderLines();
+    this.renderPuiLive();
+  },
+  // Suivi PUI en direct : liste du stock de la PUI choisie, avec ce qui restera après ce rempotage
+  renderPuiLive(){
+    var box = document.getElementById('rmp-pui-live'); if(!box) return;
+    if(!this.puiExists){ box.innerHTML = '<div class="rmp-empty" style="padding:14px">Choisis une PUI pour voir son stock.</div>'; return; }
+    // quantité à retirer par produit (somme des lignes)
+    var need = {}; this.lignes.forEach(l=>{ need[l.nom]=(need[l.nom]||0)+(parseFloat(l.quantite)||0); });
+    var noms = Object.keys(this.puiStock).sort((a,b)=>a.localeCompare(b,'fr'));
+    if(!noms.length){ box.innerHTML='<div class="rmp-empty" style="padding:14px">PUI vide.</div>'; return; }
+    var rnd = n => Math.round(n*100)/100;
+    box.innerHTML = noms.map(nom=>{
+      var st = this.puiStock[nom].stock||0, n = need[nom]||0, reste = rnd(st-n);
+      var col = reste<0 ? '#E24B4A' : (n>0 ? '#EF9F27' : 'var(--text2)');
+      return '<div style="display:flex;align-items:center;gap:8px;padding:7px 10px;border-bottom:1px solid var(--border);font-size:.82rem">'+
+        '<div style="flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+this.esc(nom)+'</div>'+
+        '<div style="font-weight:700;color:'+col+'">'+(n>0?(rnd(st)+' → '+reste):rnd(st))+'</div></div>';
+    }).join('');
   },
 
   // Badge « dispo PUI » pour une ligne (lecture seule, ne bloque rien)
@@ -512,12 +570,14 @@ const RMP = {
   bumpQty(i,d){ var l=this.lignes[i]; if(!l) return; l.quantite=Math.max(0.01, Math.round(((parseFloat(l.quantite)||1)+d)*100)/100); this.renderLines(); },
   setField(i,f,v){
     this.lignes[i][f] = (f==='quantite') ? Math.max(0.01,parseFloat(v)||1) : v;
-    if (f==='quantite') { const b=document.getElementById('pui-badge-'+i); if(b) b.innerHTML=this.puiBadge(this.lignes[i].nom,this.lignes[i].quantite); }
+    if (f==='quantite') { const b=document.getElementById('pui-badge-'+i); if(b) b.innerHTML=this.puiBadge(this.lignes[i].nom,this.lignes[i].quantite); this.renderPuiLive(); }
   },
   remove(i){ this.lignes.splice(i,1); this.renderLines(); },
 
   askRetires(){
     if(!this.lignes.length) return;
+    var puiEl = document.getElementById('rmp-pui');
+    if (puiEl && !puiEl.value) { alert('Choisis d\'abord la PUI source (d\'où vient le neuf).'); puiEl.focus(); return; }
     document.getElementById('rmp-confirm-body').innerHTML =
       '<div style="text-align:center;padding:8px 0">'+
       '<div style="font-size:1.05rem;font-weight:700;margin-bottom:6px">Indiquer les lots retirés ?</div>'+
@@ -551,6 +611,8 @@ const RMP = {
     document.getElementById('rmp-empl-hidden').value  = document.getElementById('rmp-empl').value;
     document.getElementById('rmp-ref-hidden').value   = document.getElementById('rmp-ref').value;
     document.getElementById('rmp-notes-hidden').value = document.getElementById('rmp-notes').value;
+    var puiEl = document.getElementById('rmp-pui');
+    document.getElementById('rmp-pui-hidden').value   = puiEl ? puiEl.value : '';
     document.getElementById('rmp-articles').value     = JSON.stringify(this.lignes);
     document.getElementById('rmp-form').submit();
   },
@@ -632,7 +694,7 @@ const RMP = {
 
   renderLines(){
     const box=document.getElementById('rmp-lines'), save=document.getElementById('rmp-save');
-    if(!this.lignes.length){ box.innerHTML='<div class="rmp-empty">Ajoute des produits depuis la liste de gauche.</div>'; save.disabled=true; return; }
+    if(!this.lignes.length){ box.innerHTML='<div class="rmp-empty">Ajoute des produits depuis la liste de gauche.</div>'; save.disabled=true; this.renderPuiLive(); return; }
     box.innerHTML=this.lignes.map((l,i)=>'<div class="rmp-line">'+
       '<div class="top"><div class="nom">'+this.esc(l.nom)+' <span id="pui-badge-'+i+'">'+this.puiBadge(l.nom,l.quantite)+'</span></div><button type="button" class="rmp-del" onclick="RMP.remove('+i+')">🗑️</button></div>'+
       '<div class="rmp-fields">'+
@@ -645,6 +707,7 @@ const RMP = {
       (l.fromPui ? '<div style="font-size:.7rem;color:#8B5CF6;margin-top:7px">🏢 Lot &amp; date pris dans la PUI (FEFO) — modifie si besoin</div>' : '')+
       '</div>').join('');
     save.disabled=false;
+    this.renderPuiLive();
   },
 };
 document.addEventListener('DOMContentLoaded',()=>RMP.init());
