@@ -1445,7 +1445,7 @@ const SR_EMPLS = <?= json_encode($empl_for_js) ?>;
       <div class="px-fsect"><div class="px-fsect-h">📦 Stock</div>
         <div class="form-row">
           <div class="form-group">
-            <label class="form-label">Quantité</label>
+            <label class="form-label">Quantité présente</label>
             <div class="px-stepper">
               <button type="button" onclick="pxQ(-1)">−</button>
               <input type="number" name="quantite" id="px-qte" step="0.01" min="0" value="<?= $editing['quantite'] ?? '0' ?>" oninput="pxDotChip()">
@@ -1454,23 +1454,22 @@ const SR_EMPLS = <?= json_encode($empl_for_js) ?>;
             <span class="px-dotchip" id="px-dotchip"></span>
           </div>
           <div class="form-group">
-            <label class="form-label">Dotation (qté min)</label>
-            <input type="number" name="quantite_min" id="px-dot" class="form-control" step="0.01" min="0" value="<?= $editing['quantite_min'] ?? '0' ?>" oninput="pxDotChip()">
-          </div>
-        </div>
-        <div class="form-row">
-          <div class="form-group">
             <label class="form-label">Unité</label>
             <select name="unite" class="form-control">
               <?php $cu = $editing['unite'] ?? 'unité'; if ($cu !== '' && !in_array($cu, $uniteOpts, true)) echo '<option selected>'.h($cu).'</option>'; ?>
               <?php foreach ($uniteOpts as $uo): ?><option <?= $cu===$uo ? 'selected' : '' ?>><?= $uo ?></option><?php endforeach; ?>
             </select>
           </div>
+        </div>
+        <div class="form-row">
           <div class="form-group">
             <label class="form-label">Alerter X jours avant péremption</label>
             <input type="number" name="alerte_jours" class="form-control" min="1" max="365" value="<?= $editing['alerte_jours'] ?? '30' ?>">
           </div>
         </div>
+        <?php /* La dotation (qté attendue) se définit au niveau du SAC (bouton 🎯 Dotation dans Emplacements). Ici on ne gère que la quantité présente ; on préserve la valeur existante. */ ?>
+        <input type="hidden" name="quantite_min" id="px-dot" value="<?= $editing['quantite_min'] ?? '0' ?>">
+        <div class="px-dot-note" style="font-size:12px;color:var(--text3);margin-top:-4px">🎯 La <b>dotation</b> (quantité attendue) se règle dans le sac — pas ici. Cette fiche gère seulement la <b>quantité présente</b>.</div>
       </div><!-- /sect stock -->
       <?php endif; ?>
 

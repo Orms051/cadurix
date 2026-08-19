@@ -232,6 +232,21 @@ if (isset($_GET['ajax'])) {
                 $ins->execute([$mid, mb_substr($lnom,0,150), (trim($L['dosage'] ?? '') ?: null), max(0,(float)($L['qte'] ?? 1)), (trim($L['unite'] ?? '') ?: 'unité'), $o++]);
             }
             $pdo->prepare("UPDATE emplacements SET dotation_modele_id=? WHERE id=? AND site_id=?")->execute([$mid, $emp, $site_id]);
+            // Propager la quantité attendue -> quantite_min des produits présents (cohérence coloration / alertes / IA)
+            require_once __DIR__ . '/includes/dotation.php';
+            $attMap = [];
+            foreach ($lignes as $L) {
+                $ln = trim($L['nom'] ?? ''); if ($ln === '') continue;
+                $attMap[dotation_cle($ln, $L['dosage'] ?? '')] = max(0, (float)($L['qte'] ?? 0));
+            }
+            $subIds  = dotation_subtree_ids($pdo, $emp, $site_id);
+            $inList  = implode(',', array_map('intval', $subIds));
+            $present = $pdo->query("SELECT id, nom, dosage FROM produits WHERE statut='actif' AND emplacement_id IN ($inList)")->fetchAll(PDO::FETCH_ASSOC);
+            $updQm   = $pdo->prepare("UPDATE produits SET quantite_min = ? WHERE id = ?");
+            foreach ($present as $pp) {
+                $k = dotation_cle($pp['nom'], $pp['dosage']);
+                if (isset($attMap[$k])) $updQm->execute([$attMap[$k], $pp['id']]);
+            }
             $pdo->commit();
             audit_log($pdo, 'DOTATION_DEFINIE', 'emplacements', $emp, null, ['modele_id'=>$mid, 'nb_lignes'=>$o]);
             echo json_encode(['success' => true, 'model_id' => $mid]);
