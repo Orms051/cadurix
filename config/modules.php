@@ -64,10 +64,6 @@ function modules_registry(): array {
             'nom' => 'Médicaments / Produits', 'groupe' => 'Stock', 'icone' => '💊',
             'defaut' => true, 'params' => [],
         ],
-        'dotations' => [
-            'nom' => 'Dotations réglementaires', 'groupe' => 'Stock', 'icone' => '📋',
-            'defaut' => true, 'params' => [],
-        ],
         'tracabilite' => [
             'nom' => 'Traçabilité des lots', 'groupe' => 'Stock', 'icone' => '🔍',
             'defaut' => true, 'params' => [],

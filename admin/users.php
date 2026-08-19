@@ -334,7 +334,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     'equipements','biomed','biomed_admin',
                     'ia',
                     'messagerie',
-                    'admin','dotations','tracabilite'];
+                    'admin','tracabilite'];
         $roles_editables = array_keys(roles_editables()); // inclut 'sse' — source unique config/roles.php
         foreach ($roles_editables as $role) {
             foreach ($modules as $module) {
