@@ -285,9 +285,9 @@ if (!in_array($horizon, ['1','2','3','6','12','all'], true)) $horizon = 'all';
 $statutLot   = $_GET['statut_lot'] ?? 'actif';
 if (!in_array($statutLot, ['actif','archive','retire'], true)) $statutLot = 'actif';
 $qSearch     = trim((string)($_GET['q'] ?? ''));
-$sortMap = ['nom'=>'p.nom','lot'=>'p.numero_lot','emplacement'=>'e.nom','qte'=>'p.quantite','peremption'=>'p.date_peremption','statut'=>'p.date_peremption'];
-$sort = $_GET['sort'] ?? 'peremption';
-if (!isset($sortMap[$sort])) $sort = 'peremption';
+$sortMap = ['dci'=>"COALESCE(NULLIF(p.dci,''),p.nom)",'nom'=>'p.nom','lot'=>'p.numero_lot','emplacement'=>'e.nom','qte'=>'p.quantite','peremption'=>'p.date_peremption','statut'=>'p.date_peremption'];
+$sort = $_GET['sort'] ?? 'dci';
+if (!isset($sortMap[$sort])) $sort = 'dci';
 $dir  = (strtolower($_GET['dir'] ?? 'asc') === 'desc') ? 'desc' : 'asc';
 $canMod   = action_permise('modifier');
 $canAjust = action_permise('ajuster');
@@ -484,8 +484,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && canEdit()) {
         'notes'             => trim($_POST['notes'] ?? '') ?: null,
     ];
 
-    if (!$f['nom'] || !$f['date_peremption'] || !$f['emplacement_id']) {
-        flashError("Nom, emplacement et date de péremption sont obligatoires.");
+    if (!$f['nom']) { $f['nom'] = $f['dci']; } // repli : le nom (regroupement/affichage) reprend la DCI si non renseigné
+    if (!$f['dci'] || !$f['date_peremption'] || !$f['emplacement_id']) {
+        flashError("DCI, emplacement et date de péremption sont obligatoires.");
     } elseif (currentRole() === 'saisie' && $id) {
         // Saisie : mise à jour date uniquement
         $stmt = $pdo->prepare("SELECT p.* FROM produits p JOIN emplacements e ON e.id=p.emplacement_id WHERE p.id=? AND e.site_id=?");
@@ -1345,16 +1346,16 @@ const SR_EMPLS = <?= json_encode($empl_for_js) ?>;
 
       <div class="px-fsect"><div class="px-fsect-h">💊 Identification</div>
         <div class="form-group" style="position:relative">
-          <label class="form-label">DCI (molécule) <span style="font-weight:400;color:var(--text3);font-size:11px">— affichée en premier</span></label>
-          <input type="text" name="dci" id="dci-input" class="form-control"
+          <label class="form-label">DCI (molécule) * <span style="font-weight:400;color:var(--text3);font-size:11px">— affichée en premier</span></label>
+          <input type="text" name="dci" id="dci-input" class="form-control" required
                  value="<?= h($editing['dci'] ?? '') ?>"
                  placeholder="Ex: Paracétamol, Clonazépam…"
                  autocomplete="off" oninput="acNom(this.value)">
           <div id="ac-list"></div>
         </div>
         <div class="form-group">
-          <label class="form-label">Nom commercial (princeps / générique) *</label>
-          <input type="text" name="nom" id="nom-input" class="form-control" required
+          <label class="form-label">Nom commercial (princeps / générique) <span style="font-weight:400;color:var(--text3);font-size:11px">— optionnel</span></label>
+          <input type="text" name="nom" id="nom-input" class="form-control"
                  value="<?= h($editing['nom'] ?? '') ?>"
                  placeholder="Ex: Doliprane, Rivotril…" autocomplete="off">
         </div>
@@ -1585,7 +1586,7 @@ $advActive = (in_array($filterStatus,$advStatuses,true)?1:0) + ($horizon!=='1'?1
   </form>
   <div class="px-selbox">↕
     <select onchange="if(this.value)location.href=this.value">
-      <?php foreach (['peremption'=>'Péremption','nom'=>'Nom','qte'=>'Quantité','emplacement'=>'Emplacement','lot'=>'Lot'] as $sk=>$sl): ?>
+      <?php foreach (['dci'=>'DCI (A→Z)','peremption'=>'Péremption','nom'=>'Nom commercial','qte'=>'Quantité','emplacement'=>'Emplacement','lot'=>'Lot'] as $sk=>$sl): ?>
       <option value="<?= h(pf_url(['sort'=>$sk])) ?>" <?= $sort===$sk?'selected':'' ?>><?= $sl ?></option>
       <?php endforeach; ?>
     </select>
