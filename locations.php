@@ -284,6 +284,17 @@ if (isset($_GET['ajax'])) {
         exit;
     }
 
+    // ── Dotation : compléter un sac depuis la PUI ──────────────────────────
+    if ($_GET['ajax'] === 'dotation_completer' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+        header('Content-Type: application/json; charset=utf-8');
+        if (!csrf_verifier()) { echo json_encode(['error' => 'Jeton CSRF invalide. Rechargez la page.']); exit; }
+        if (!action_permise('dotation')) { echo json_encode(['error' => 'Permission refusée']); exit; }
+        require_once __DIR__ . '/includes/dotation.php';
+        $d = json_decode(file_get_contents('php://input'), true) ?: [];
+        echo json_encode(dotation_completer($pdo, (int)($d['emplacement_id'] ?? 0), $site_id, currentUserId()), JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
     // ── Sauvegarde AJAX ────────────────────────────────────────────────────
     if ($_GET['ajax'] === 'save' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         if (!csrf_verifier()) { echo json_encode(['error' => 'Jeton CSRF invalide. Rechargez la page.']); exit; }
@@ -1730,6 +1741,7 @@ function renderDetail({ node, breadcrumb, enfants, stats, last_remp }, products 
         ${dot.stats.manquant?`<span style="color:#C0271F;font-weight:700">🔴 ${dot.stats.manquant} manquant</span>`:''}
         ${dot.stats.insuffisant?`<span style="color:#B06A05;font-weight:700">🟠 ${dot.stats.insuffisant} insuffisant</span>`:''}
         <span style="color:#1C8F63;font-weight:700">✅ ${dot.stats.conforme} conforme</span>
+        ${(CAN_DOTATION && (dot.stats.manquant + dot.stats.insuffisant) > 0) ? `<button onclick="completerDotation()" style="margin-left:auto;font:inherit;font-size:12.5px;font-weight:700;cursor:pointer;background:var(--primary);color:#fff;border:none;border-radius:8px;padding:6px 12px">⚡ Compléter depuis la PUI</button>` : ''}
       </div>`;
     const miss = (dot.lignes||[]).filter(l => l.statut === 'manquant');
     if (miss.length) {
@@ -2107,6 +2119,22 @@ function openDotation(){
   document.getElementById('dotOverlay').classList.add('open');
 }
 function closeDotation(){ document.getElementById('dotOverlay').classList.remove('open'); }
+function completerDotation(){
+  if (!window._curNodeId) return;
+  if (!confirm('Compléter ce sac depuis la PUI du site ?\nLes manques disponibles en PUI seront transférés (débit PUI, FEFO). Le manque non couvert sera signalé.')) return;
+  fetch('locations.php?ajax=dotation_completer', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': '<?= $csrf ?>' },
+    body: JSON.stringify({ emplacement_id: window._curNodeId })
+  }).then(r=>r.json()).then(function(d){
+    if (d.error) { alert(d.error); return; }
+    var msg = d.message || 'Terminé.';
+    if (d.ajoutes && d.ajoutes.length) msg += '\n\nAjouté depuis la PUI :\n- ' + d.ajoutes.join('\n- ');
+    if (d.manques && d.manques.length) msg += '\n\nEncore en manque (PUI insuffisante) :\n- ' + d.manques.join('\n- ');
+    alert(msg);
+    selectNode(window._curNodeId, false);
+  }).catch(function(){ alert('Erreur réseau'); });
+}
 function saveDotation(){
   var err = document.getElementById('dotError');
   var nom = document.getElementById('dotNom').value.trim() || 'Dotation';

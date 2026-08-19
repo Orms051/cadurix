@@ -131,3 +131,101 @@ function dotation_cockpit(PDO $pdo, int $site_id): array {
     usort($sacs, fn($a, $b) => $a['completude'] <=> $b['completude']);
     return $sacs;
 }
+
+/**
+ * Complète un sac depuis la PUI du site : pour chaque manque (manquant/insuffisant),
+ * transfère la quantité voulue de la PUI (FEFO) vers le sac. Règle « autoriser +
+ * signaler » : on prend ce qui est dispo, jamais de négatif, le manque restant est noté.
+ * Tout est tracé dans mouvements_stock. Renvoie un bilan.
+ */
+function dotation_completer(PDO $pdo, int $emp_id, int $site_id, int $user_id): array {
+    $ec = dotation_ecarts($pdo, $emp_id, $site_id);
+    if (!$ec) return ['status' => 'error', 'message' => "Ce sac n'a pas de dotation définie."];
+
+    $besoins = [];
+    foreach ($ec['lignes'] as $l) {
+        $need = (float)$l['quantite_attendue'] - (float)$l['qte_reel'];
+        if (in_array($l['statut'], ['manquant', 'insuffisant'], true) && $need > 0.0001) {
+            $besoins[] = [
+                'nom' => $l['nom'], 'dci' => $l['dci'], 'dosage' => $l['dosage'],
+                'attendu' => (float)$l['quantite_attendue'], 'need' => $need,
+                'cle' => dotation_cle($l['nom'], $l['dosage']),
+            ];
+        }
+    }
+    if (!$besoins) return ['status' => 'success', 'message' => 'Ce sac est déjà conforme.', 'ajoutes' => [], 'manques' => []];
+
+    // PUI(s) du site + sous-emplacements
+    $q = $pdo->prepare("SELECT id FROM emplacements WHERE site_id = ? AND type = 'pui' AND actif = 1");
+    $q->execute([$site_id]);
+    $pui_ids = array_map('intval', $q->fetchAll(PDO::FETCH_COLUMN));
+    $frontier = $pui_ids; $guard = 0;
+    while ($frontier && $guard++ < 12) {
+        $in = implode(',', array_map('intval', $frontier));
+        $c = $pdo->prepare("SELECT id FROM emplacements WHERE site_id = ? AND parent_id IN ($in)");
+        $c->execute([$site_id]);
+        $ch = array_map('intval', $c->fetchAll(PDO::FETCH_COLUMN));
+        $frontier = array_values(array_diff($ch, $pui_ids));
+        $pui_ids  = array_merge($pui_ids, $frontier);
+    }
+    if (!$pui_ids || in_array($emp_id, $pui_ids, true))
+        return ['status' => 'error', 'message' => "Aucune PUI configurée sur ce site (ou l'emplacement est lui-même une PUI)."];
+    $inPui = implode(',', array_map('intval', $pui_ids));
+
+    $ajoutes = []; $manques = [];
+    try {
+        $pdo->beginTransaction();
+        foreach ($besoins as $b) {
+            $lots = $pdo->query("SELECT id,nom,dci,dosage,forme,unite,quantite,numero_lot,date_peremption,alerte_jours,chaine_froid,gtin,ean
+                                 FROM produits WHERE emplacement_id IN ($inPui) AND statut='actif' AND quantite > 0
+                                 ORDER BY date_peremption ASC, id ASC")->fetchAll(PDO::FETCH_ASSOC);
+            $reste = $b['need']; $pris = 0;
+            foreach ($lots as $lot) {
+                if ($reste <= 0) break;
+                if (dotation_cle($lot['nom'], $lot['dosage']) !== $b['cle']) continue;
+                $dispo = (float)$lot['quantite'];
+                $deb = min($dispo, $reste);
+                if ($deb <= 0) continue;
+                $nqp = $dispo - $deb;
+                $pdo->prepare("UPDATE produits SET quantite=? WHERE id=?")->execute([$nqp, $lot['id']]);
+                $pdo->prepare("INSERT INTO mouvements_stock (produit_id,user_id,type,quantite_avant,quantite_delta,quantite_apres,motif)
+                               VALUES (?,?,'sortie',?,?,?,'Complétion dotation — débit PUI')")
+                    ->execute([(int)$lot['id'], $user_id, $dispo, -$deb, $nqp]);
+                // Ajout au sac (même lot si déjà présent, sinon nouvelle ligne)
+                $ex = $pdo->prepare("SELECT id, quantite FROM produits WHERE emplacement_id=? AND nom=? AND COALESCE(numero_lot,'')=COALESCE(?,'') AND statut='actif' LIMIT 1");
+                $ex->execute([$emp_id, $lot['nom'], $lot['numero_lot']]);
+                $exr = $ex->fetch(PDO::FETCH_ASSOC);
+                if ($exr) {
+                    $nq = (float)$exr['quantite'] + $deb;
+                    $pdo->prepare("UPDATE produits SET quantite=?, modifie_par=?, modifie_le=NOW() WHERE id=?")->execute([$nq, $user_id, $exr['id']]);
+                    $pdo->prepare("INSERT INTO mouvements_stock (produit_id,user_id,type,quantite_avant,quantite_delta,quantite_apres,motif)
+                                   VALUES (?,?,'entree',?,?,?,'Complétion dotation — depuis PUI')")
+                        ->execute([(int)$exr['id'], $user_id, (float)$exr['quantite'], $deb, $nq]);
+                } else {
+                    $pdo->prepare("INSERT INTO produits (emplacement_id,nom,dci,dosage,forme,numero_lot,quantite,quantite_min,unite,date_peremption,alerte_jours,chaine_froid,gtin,ean,statut,cree_par)
+                                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,'actif',?)")
+                        ->execute([$emp_id, $lot['nom'], $lot['dci'], $lot['dosage'], $lot['forme'], $lot['numero_lot'], $deb, $b['attendu'], $lot['unite'], $lot['date_peremption'], $lot['alerte_jours'], $lot['chaine_froid'], $lot['gtin'], $lot['ean'], $user_id]);
+                    $nid = (int)$pdo->lastInsertId();
+                    $pdo->prepare("INSERT INTO mouvements_stock (produit_id,user_id,type,quantite_avant,quantite_delta,quantite_apres,motif)
+                                   VALUES (?,?,'entree',0,?,?,'Complétion dotation — depuis PUI')")
+                        ->execute([$nid, $user_id, $deb, $deb]);
+                }
+                $reste -= $deb; $pris += $deb;
+            }
+            $fmt = fn($n) => rtrim(rtrim(number_format($n, 2, '.', ''), '0'), '.');
+            $label = trim(($b['dci'] ?: $b['nom']) . ' ' . ($b['dosage'] ?? ''));
+            if ($pris > 0)          $ajoutes[] = $label . ' ×' . $fmt($pris);
+            if ($reste > 0.0001)    $manques[] = $label . ' (manque ' . $fmt($reste) . ')';
+        }
+        $pdo->commit();
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        return ['status' => 'error', 'message' => 'Erreur : ' . $e->getMessage()];
+    }
+    if (function_exists('audit_log')) {
+        audit_log($pdo, 'DOTATION_COMPLETION_PUI', 'emplacements', $emp_id, null, ['ajoutes' => count($ajoutes), 'manques' => count($manques)]);
+    }
+    $msg = $ajoutes ? (count($ajoutes) . ' produit(s) complété(s) depuis la PUI') : 'Rien à compléter depuis la PUI';
+    if ($manques) $msg .= ' · ' . count($manques) . ' encore en manque (PUI insuffisante)';
+    return ['status' => 'success', 'message' => $msg, 'ajoutes' => $ajoutes, 'manques' => $manques];
+}

@@ -468,7 +468,7 @@ function ai_tool_run(PDO $pdo, string $name, array $in, int $site_id, int $user_
 
 /** Noms des actions d'écriture. */
 function ai_action_names(): array {
-    return ['rempotage', 'marquer_produit_retire', 'archiver_lot', 'ajuster_quantite', 'renouveler_lot', 'modifier_fiche', 'sse_ajuster_conso', 'sse_controle_equipement', 'signaler_biomed', 'creer_alerte', 'generer_rapport'];
+    return ['rempotage', 'marquer_produit_retire', 'archiver_lot', 'ajuster_quantite', 'renouveler_lot', 'modifier_fiche', 'sse_ajuster_conso', 'sse_controle_equipement', 'completer_dotation', 'signaler_biomed', 'creer_alerte', 'generer_rapport'];
 }
 
 /** Normalise une date de péremption libre (MM/AAAA, JJ/MM/AAAA, AAAA-MM, AAAA-MM-JJ) en AAAA-MM-JJ, ou null. */
@@ -564,6 +564,13 @@ function ai_actions_defs(PDO $pdo): array {
                 'periodicite_mois' => ['type' => 'integer', 'description' => "Périodicité en mois pour le prochain contrôle (optionnel)."],
                 'notes'            => ['type' => 'string',  'description' => "Observations (optionnel)."],
             ], 'required' => ['equipement_id', 'resultat']],
+        ],
+        'action_completer_dotation' => [
+            'name'        => 'completer_dotation',
+            'description' => "Complète un sac depuis la PUI du site : transfère les produits manquants ou insuffisants de sa dotation, depuis la PUI (FEFO), vers le sac. Prends le NOM du sac. Le manque non couvert par la PUI est signalé, jamais bloquant. Soumis à confirmation.",
+            'input_schema' => ['type' => 'object', 'properties' => [
+                'emplacement' => ['type' => 'string', 'description' => "Nom du sac à compléter (ex. « SAC ISP 1 »)."],
+            ], 'required' => ['emplacement']],
         ],
         'action_signaler_biomed' => [
             'name'        => 'signaler_biomed',
@@ -842,6 +849,33 @@ function ai_action_proposal(PDO $pdo, string $name, array $in, int $site_id): ar
             ];
         }
 
+        case 'completer_dotation': {
+            if (function_exists('action_permise') && !action_permise('dotation'))
+                return ['status' => 'error', 'message' => "Votre rôle n'a pas le droit de compléter une dotation."];
+            require_once __DIR__ . '/../includes/dotation.php';
+            $nom = trim($in['emplacement'] ?? '');
+            if ($nom === '') return ['status' => 'error', 'message' => 'Nom du sac requis.'];
+            $st = $pdo->prepare("SELECT id, nom FROM emplacements WHERE site_id=? AND actif=1 AND dotation_modele_id IS NOT NULL AND nom LIKE ? ORDER BY nom LIMIT 1");
+            $st->execute([$site_id, '%' . $nom . '%']);
+            $e = $st->fetch(PDO::FETCH_ASSOC);
+            if (!$e) return ['status' => 'error', 'message' => "Aucun sac « $nom » avec une dotation définie."];
+            $ec = dotation_ecarts($pdo, (int)$e['id'], $site_id);
+            $manq = ($ec['stats']['manquant'] ?? 0) + ($ec['stats']['insuffisant'] ?? 0);
+            if ($manq <= 0) return ['status' => 'error', 'message' => $e['nom'] . ' est déjà conforme, rien à compléter.'];
+            return [
+                'status'        => 'pending_confirm',
+                'action'        => 'completer_dotation',
+                'params'        => ['emplacement_id' => (int)$e['id']],
+                'titre'         => '⚡ Compléter depuis la PUI',
+                'lignes'        => [
+                    $e['nom'] . ' — ' . $manq . ' produit(s) à compléter',
+                    'Transfert depuis la PUI (FEFO). Le manque non couvert sera signalé.',
+                ],
+                'confirm_label' => 'Compléter',
+                'message'       => 'Complétion à confirmer',
+            ];
+        }
+
         case 'signaler_biomed': {
             $mid   = (int)($in['materiel_id'] ?? 0);
             $titre = trim($in['titre'] ?? '');
@@ -1108,6 +1142,16 @@ function ai_action_run(PDO $pdo, string $name, array $in, int $site_id, int $use
                 $pdo->commit();
                 audit_log($pdo, 'SSE_CONTROLE_IA', 'sse_equipements', $eid, null, ['resultat' => $res, 'statut' => $mapStatut, 'via' => 'assistant_ia']);
                 return ['status' => 'success', 'message' => 'Contrôle enregistré pour ' . $e['nom'] . ' (' . $res . ').', 'lien' => '/sse.php'];
+            }
+
+            case 'completer_dotation': {
+                if (function_exists('action_permise') && !action_permise('dotation'))
+                    return ['status' => 'error', 'message' => 'Permission refusée (dotation).'];
+                require_once __DIR__ . '/../includes/dotation.php';
+                $eid = (int)($in['emplacement_id'] ?? 0);
+                $r = dotation_completer($pdo, $eid, $site_id, $user_id);
+                if (($r['status'] ?? '') !== 'success') return ['status' => 'error', 'message' => $r['message'] ?? 'Erreur.'];
+                return ['status' => 'success', 'message' => $r['message'], 'lien' => '/locations.php?sel=' . $eid];
             }
 
             case 'signaler_biomed': {
