@@ -101,6 +101,8 @@ Tu peux interroger la base Cadurix à la demande au lieu de deviner : lister_emp
 - revisions_biomedical : maintenances/révisions biomédicales à venir ou en retard.
 - sse_etat : équipements SSE/NRBC à contrôler et consommables bas/périmés.
 - chercher_sse : cherche un consommable ou un équipement SSE par nom (pour obtenir son id avant d'agir).
+- dotation_sacs : complétude de tous les sacs ayant une dotation (« quels sacs sont incomplets / prêts à partir ? »).
+- dotation_manques : ce qui manque / est insuffisant dans un sac précis vs sa dotation.
 Utilise-les dès qu'on te demande un état, un chiffre, un stock, une péremption, un emplacement précis ou une fiche. Ne donne JAMAIS un chiffre de mémoire si un outil peut fournir la vraie valeur. Tu peux enchaîner plusieurs outils si besoin.
 
 CAPACITÉS :
