@@ -99,6 +99,68 @@ if (($_GET['ajax'] ?? '') === 'pui_stock') {
     exit;
 }
 
+/* ── AJAX : IA « ce que j'ai utilisé » → liste [{nom, quantite}] matchée au sac ── */
+if (($_GET['ajax'] ?? '') === 'ia_conso' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    header('Content-Type: application/json; charset=utf-8');
+    if (function_exists('module_actif') && !module_actif('assistant_ia')) { echo json_encode(['error'=>"Assistant IA désactivé."]); exit; }
+    $actif   = $pdo->query("SELECT valeur FROM ai_settings WHERE cle='actif'")->fetchColumn();
+    $api_key = $pdo->query("SELECT valeur FROM ai_settings WHERE cle='api_key'")->fetchColumn();
+    $model   = $pdo->query("SELECT valeur FROM ai_settings WHERE cle='model'")->fetchColumn() ?: 'claude-haiku-4-5-20251001';
+    if (!$actif || $actif !== '1' || !$api_key) { echo json_encode(['error'=>"IA non configurée."]); exit; }
+
+    $data  = json_decode(file_get_contents('php://input'), true) ?: [];
+    $texte = trim(mb_substr((string)($data['texte'] ?? ''), 0, 500));
+    $empl  = (int)($data['emplacement'] ?? 0);
+    if ($texte === '' || !$empl) { echo json_encode(['error'=>"Dis ce que tu as utilisé, et choisis un sac."]); exit; }
+
+    // Produits du sac (+ sous-emplacements)
+    $ids = [$empl]; $frontier = [$empl]; $guard = 0;
+    while ($frontier && $guard++ < 12) {
+        $in = implode(',', array_map('intval', $frontier));
+        $q = $pdo->prepare("SELECT id FROM emplacements WHERE site_id=? AND parent_id IN ($in)");
+        $q->execute([$site_id]);
+        $children = array_map('intval', $q->fetchAll(PDO::FETCH_COLUMN));
+        $frontier = array_values(array_diff($children, $ids));
+        $ids = array_merge($ids, $frontier);
+    }
+    $inIds = implode(',', array_map('intval', $ids));
+    $noms = $pdo->query("SELECT DISTINCT nom FROM produits WHERE emplacement_id IN ($inIds) AND statut='actif' ORDER BY nom")->fetchAll(PDO::FETCH_COLUMN);
+    if (!$noms) { echo json_encode(['ok'=>true, 'items'=>[]]); exit; }
+    $liste = implode(', ', $noms);
+
+    $prompt = "Tu assistes un rempotage de sac de secours. Produits présents dans le sac (liste fermée) :\n$liste\n\n"
+            . "L'agent déclare ce qu'il a UTILISÉ en intervention : \"$texte\".\n"
+            . "Renvoie UNIQUEMENT un tableau JSON valide, sans aucun texte ni balise autour : "
+            . "[{\"nom\":\"<nom EXACT tel qu'écrit dans la liste>\",\"quantite\":<nombre entier>}]. "
+            . "Ne garde que ce qui correspond clairement à un produit de la liste (le dosage compte : Adrénaline 1mg/1ml ≠ 5mg/5ml). "
+            . "Si l'agent ne précise pas la quantité, mets 1. Si rien ne correspond, renvoie [].";
+
+    $payload = ['model'=>$model, 'max_tokens'=>500, 'messages'=>[['role'=>'user','content'=>$prompt]]];
+    $is_prod = str_contains($_SERVER['HTTP_HOST'] ?? '', 'cadurix.fr');
+    $ch = curl_init('https://api.anthropic.com/v1/messages');
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true, CURLOPT_POST => true,
+        CURLOPT_POSTFIELDS => json_encode($payload),
+        CURLOPT_HTTPHEADER => ['Content-Type: application/json','x-api-key: '.$api_key,'anthropic-version: 2023-06-01'],
+        CURLOPT_TIMEOUT => 30, CURLOPT_SSL_VERIFYPEER => $is_prod, CURLOPT_SSL_VERIFYHOST => $is_prod ? 2 : 0,
+    ]);
+    $resp = curl_exec($ch); $http = curl_getinfo($ch, CURLINFO_HTTP_CODE); $cerr = curl_error($ch); curl_close($ch);
+    if ($resp === false || $cerr) { echo json_encode(['error'=>"Réseau IA : $cerr"]); exit; }
+    $j = json_decode($resp, true);
+    if ($http !== 200 || empty($j['content'][0]['text'])) { echo json_encode(['error'=>($j['error']['message'] ?? "Erreur IA HTTP $http")]); exit; }
+    $txt = trim(preg_replace('/```json|```/', '', $j['content'][0]['text']));
+    $items = json_decode($txt, true);
+    if (!is_array($items)) { echo json_encode(['ok'=>true, 'items'=>[]]); exit; }
+    // Ne garder que les produits réellement présents dans le sac
+    $set = array_flip($noms); $out = [];
+    foreach ($items as $it) {
+        $n = trim((string)($it['nom'] ?? ''));
+        if ($n !== '' && isset($set[$n])) $out[] = ['nom'=>$n, 'quantite'=>max(1,(float)($it['quantite'] ?? 1))];
+    }
+    echo json_encode(['ok'=>true, 'items'=>$out], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
 /* ── AJAX : lookup code-barres (composant scanner partagé, jamais modifié) ── */
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'lookup_barcode') {
     header('Content-Type: application/json');
@@ -308,6 +370,8 @@ $puis_list = $pdo->prepare("SELECT id, nom FROM emplacements WHERE site_id=? AND
 $puis_list->execute([$site_id]);
 $puis_list = $puis_list->fetchAll(PDO::FETCH_ASSOC);
 $ia_photo_on = function_exists('module_actif') && module_actif('ia_photo');
+$ia_on       = (!function_exists('module_actif') || module_actif('assistant_ia'))
+             && ($pdo->query("SELECT valeur FROM ai_settings WHERE cle='actif'")->fetchColumn() === '1');
 
 require_once 'includes/header.php';
 ?>
@@ -330,6 +394,8 @@ require_once 'includes/header.php';
 .rmp-qty{display:flex;align-items:center;gap:4px}
 .rmp-step{width:32px;flex-shrink:0;border:1px solid var(--border);background:var(--glass);color:var(--text);border-radius:8px;font-size:1.15rem;font-weight:700;cursor:pointer;padding:7px 0;line-height:1}
 .rmp-step:hover{border-color:var(--primary);color:var(--primary)}
+.rmp-recap{display:none}
+#rmp-save{width:100%;padding:14px;font-size:1rem}
 .rmp-del{border:none;background:transparent;color:var(--red);font-size:1.15rem;cursor:pointer}
 .rmp-empty{text-align:center;color:var(--text3);padding:26px 10px;font-size:.9rem}
 @media(min-width:900px){
@@ -339,7 +405,9 @@ require_once 'includes/header.php';
   #rmp-lines{max-height:calc(100vh - 250px);overflow:auto;padding-right:4px}
   .rmp-ctx-row{flex-direction:column}
   .rmp-ctx-row>div{min-width:0 !important}
-  #rmp-save{max-width:520px;margin:0 auto;display:block}
+  .rmp-savebar{position:sticky;bottom:0;display:flex;align-items:center;gap:16px;background:var(--bg);border-top:1px solid var(--border);padding:12px 0;margin-top:6px;z-index:5}
+  .rmp-recap{display:block;font-size:.92rem;color:var(--text2);font-weight:600;margin-right:auto}
+  #rmp-save{width:auto;flex-shrink:0;padding:13px 30px;font-size:1rem}
 }
 @media(min-width:1300px){ .rmp-grid{grid-template-columns:300px 440px minmax(0,1fr)} }
 .rmp-confirm{position:fixed;inset:0;background:rgba(0,0,0,.55);display:none;align-items:center;justify-content:center;z-index:1100;padding:16px}
@@ -412,12 +480,15 @@ require_once 'includes/header.php';
 
     <!-- Lignes à remettre -->
     <div class="rmp-card">
-      <div class="card-title" style="margin-bottom:10px">À remettre (le neuf)</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;gap:6px;flex-wrap:wrap">
+        <div class="card-title" style="margin:0">À remettre (le neuf)</div>
+        <?php if ($ia_on): ?><button type="button" class="btn btn-ghost btn-sm" id="rmp-ia-btn" onclick="RMP.iaConso()">🤖 J'ai utilisé…</button><?php endif; ?>
+      </div>
       <div id="rmp-lines"><div class="rmp-empty">Ajoute des produits depuis la liste de gauche.</div></div>
     </div>
   </div>
 
-  <form method="post" id="rmp-form">
+  <form method="post" id="rmp-form" class="rmp-savebar">
     <?= csrf_field() ?>
     <input type="hidden" name="action" value="enregistrer">
     <input type="hidden" name="emplacement" id="rmp-empl-hidden">
@@ -425,7 +496,8 @@ require_once 'includes/header.php';
     <input type="hidden" name="notes" id="rmp-notes-hidden">
     <input type="hidden" name="articles" id="rmp-articles">
     <input type="hidden" name="pui_source" id="rmp-pui-hidden">
-    <button type="button" class="btn btn-primary" style="width:100%;padding:14px;font-size:1rem" id="rmp-save" disabled onclick="RMP.askRetires()">
+    <span id="rmp-recap" class="rmp-recap"></span>
+    <button type="button" class="btn btn-primary" id="rmp-save" disabled onclick="RMP.askRetires()">
       ✅ Enregistrer le rempotage
     </button>
   </form>
@@ -480,6 +552,7 @@ const RMP = {
   init(){
     document.getElementById('rmp-empl').addEventListener('change', e => this.loadSac(e.target.value));
     document.getElementById('rmp-search').addEventListener('input', e => this.renderCat(e.target.value));
+    document.getElementById('rmp-search').addEventListener('keydown', e => { if(e.key==='Enter'){ e.preventDefault(); this.addFirst(); } });
     var puiEl = document.getElementById('rmp-pui');
     if (puiEl) puiEl.addEventListener('change', () => this.loadPui());
     document.getElementById('rmp-form').addEventListener('submit', e => {
@@ -518,6 +591,12 @@ const RMP = {
         '<div style="font-weight:700;color:'+col+'">'+(n>0?(rnd(st)+' → '+reste):rnd(st))+'</div></div>';
     }).join('');
   },
+  updateRecap(){
+    var rc=document.getElementById('rmp-recap'); if(!rc) return;
+    if(!this.lignes.length){ rc.textContent=''; return; }
+    var u=this.lignes.reduce((s,l)=>s+(parseFloat(l.quantite)||0),0);
+    rc.textContent=this.lignes.length+' produit'+(this.lignes.length>1?'s':'')+' · '+(Math.round(u*100)/100)+' unité'+(u>1?'s':'')+' à remettre';
+  },
 
   // Badge « dispo PUI » pour une ligne (lecture seule, ne bloque rien)
   puiBadge(nom, qty){
@@ -541,6 +620,7 @@ const RMP = {
     try{ const r=await fetch('/rempotage.php?ajax=sac_produits&emplacement='+encodeURIComponent(id)); this.produits=await r.json(); }
     catch(e){ this.produits=[]; }
     search.disabled=false; this.renderCat('');
+    if(window.innerWidth>=900){ try{ search.focus(); }catch(e){} }   // clavier rapide (PC)
   },
 
   renderCat(q){
@@ -568,9 +648,41 @@ const RMP = {
     this.renderLines();
   },
   bumpQty(i,d){ var l=this.lignes[i]; if(!l) return; l.quantite=Math.max(0.01, Math.round(((parseFloat(l.quantite)||1)+d)*100)/100); this.renderLines(); },
+  // IA : « j'ai utilisé … » en langage naturel → remplit les lignes (matché au sac)
+  iaConso(){
+    var empl = document.getElementById('rmp-empl').value;
+    if(!empl){ alert('Choisis d\'abord un sac.'); return; }
+    var texte = prompt('Dis (ou écris) ce que tu as utilisé en intervention :\n\nEx. « 2 adrénaline 1mg/1ml, 1 midazolam, 3 compresses »');
+    if(!texte || !texte.trim()) return;
+    var btn = document.getElementById('rmp-ia-btn');
+    if(btn){ btn.disabled=true; btn.textContent='🤖 Analyse…'; }
+    var done = ()=>{ if(btn){ btn.disabled=false; btn.textContent='🤖 J\'ai utilisé…'; } };
+    fetch('/rempotage.php?ajax=ia_conso',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({texte:texte,emplacement:empl})})
+     .then(r=>r.json()).then(d=>{
+       done();
+       if(d.error){ alert('IA : '+d.error); return; }
+       var items = d.items||[];
+       if(!items.length){ alert('Je n\'ai rien reconnu parmi les produits de ce sac. Reformule, ou ajoute à la main.'); return; }
+       items.forEach(it=>{
+         var p = this.produits.find(x=>x.nom===it.nom);
+         if(!p) return;
+         this.add({nom:p.nom,unite:p.unite,emplacement_id:p.emplacement_id,emplacement:p.emplacement});
+         var last=this.lignes[this.lignes.length-1]; if(last) last.quantite=Math.max(0.01, parseFloat(it.quantite)||1);
+       });
+       this.renderLines();
+     }).catch(()=>{ done(); alert('Erreur réseau IA.'); });
+  },
+  // Entrée dans la recherche : ajoute le 1er produit filtré (clavier rapide PC)
+  addFirst(){
+    var q=(document.getElementById('rmp-search').value||'').toLowerCase(), seen={}, first=null;
+    for(var k=0;k<this.produits.length;k++){ var p=this.produits[k];
+      if(q && !(p.nom||'').toLowerCase().includes(q)) continue;
+      if(!seen[p.nom]){ first={nom:p.nom,unite:p.unite,emplacement_id:p.emplacement_id,emplacement:p.emplacement}; break; } }
+    if(first){ this.add(first); var s=document.getElementById('rmp-search'); s.value=''; this.renderCat(''); s.focus(); }
+  },
   setField(i,f,v){
     this.lignes[i][f] = (f==='quantite') ? Math.max(0.01,parseFloat(v)||1) : v;
-    if (f==='quantite') { const b=document.getElementById('pui-badge-'+i); if(b) b.innerHTML=this.puiBadge(this.lignes[i].nom,this.lignes[i].quantite); this.renderPuiLive(); }
+    if (f==='quantite') { const b=document.getElementById('pui-badge-'+i); if(b) b.innerHTML=this.puiBadge(this.lignes[i].nom,this.lignes[i].quantite); this.renderPuiLive(); this.updateRecap(); }
   },
   remove(i){ this.lignes.splice(i,1); this.renderLines(); },
 
@@ -685,15 +797,19 @@ const RMP = {
     fetch('/rempotage.php',{method:'POST',body:fd}).then(r=>r.json()).then(d=>{
       let exp=''; if(d && d.date_exp){ const q=String(d.date_exp).split('-'); if(q.length>=2) exp=q[0]+'-'+q[1]; }
       const nom=(d && d.nom) ? d.nom : ('Code '+code);
+      let lot=(d&&(d.lot||d.lot_scan))||'', fromPui=false;
+      // Si le scan ne donne pas le lot/date, on complète depuis la PUI (FEFO)
+      if(!lot || !exp){ var info=this.puiStock[nom]; if(info&&info.fefo){ if(!lot) lot=info.fefo.lot||''; if(!exp) exp=(info.fefo.exp||'').substring(0,7); fromPui=!!(lot||exp); } }
       this.lignes.push({ nom:nom, unite:(d&&d.unite)||'unité',
         emplacement_id:(d&&d.emplacement_id)||parseInt(document.getElementById('rmp-empl').value)||0,
-        numero_lot:(d&&(d.lot||d.lot_scan))||'', date_peremption:exp, quantite:1 });
+        numero_lot:lot, date_peremption:exp, quantite:1, fromPui:fromPui });
       this.renderLines(); this.closeScan();
     }).catch(()=>{ this.closeScan(); });
   },
 
   renderLines(){
     const box=document.getElementById('rmp-lines'), save=document.getElementById('rmp-save');
+    this.updateRecap();
     if(!this.lignes.length){ box.innerHTML='<div class="rmp-empty">Ajoute des produits depuis la liste de gauche.</div>'; save.disabled=true; this.renderPuiLive(); return; }
     box.innerHTML=this.lignes.map((l,i)=>'<div class="rmp-line">'+
       '<div class="top"><div class="nom">'+this.esc(l.nom)+' <span id="pui-badge-'+i+'">'+this.puiBadge(l.nom,l.quantite)+'</span></div><button type="button" class="rmp-del" onclick="RMP.remove('+i+')">🗑️</button></div>'+
