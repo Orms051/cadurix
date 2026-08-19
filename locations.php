@@ -180,8 +180,9 @@ if (isset($_GET['ajax'])) {
 
     // ── Dotation d'un emplacement (attendu vs réel) ────────────────────────
     if ($_GET['ajax'] === 'dotation' && isset($_GET['id'])) {
-        require_once __DIR__ . '/includes/dotation.php';
         header('Content-Type: application/json; charset=utf-8');
+        if (!action_permise('dotation_voir')) { echo 'null'; exit; }
+        require_once __DIR__ . '/includes/dotation.php';
         echo json_encode(dotation_ecarts($pdo, (int)$_GET['id'], $site_id), JSON_UNESCAPED_UNICODE);
         exit;
     }
@@ -1568,6 +1569,7 @@ function renderDetail({ node, breadcrumb, enfants, stats, last_remp }, products 
   // Boutons d'action (PHP injecte la condition gestionnaire)
   const canEdit = <?php echo peut_faire(ROLE_GESTIONNAIRE) ? 'true' : 'false'; ?>;
   const CAN_DOTATION = <?php echo action_permise('dotation') ? 'true' : 'false'; ?>;
+  const CAN_DOTATION_VOIR = <?php echo action_permise('dotation_voir') ? 'true' : 'false'; ?>;
   const canMod   = <?php echo action_permise('modifier')   ? 'true' : 'false'; ?>;
   const canRenew = <?php echo action_permise('renouveler') ? 'true' : 'false'; ?>;
   const canDel   = <?php echo action_permise('supprimer')  ? 'true' : 'false'; ?>;
@@ -1693,7 +1695,7 @@ function renderDetail({ node, breadcrumb, enfants, stats, last_remp }, products 
   // ── Dotation (attendu vs réel) : chip complétude + lignes « manquant » ──
   window._curDot = dot; window._curNodeId = node.id; window._curNodeNom = node.nom || ''; window._curProducts = products || [];
   let dotChip = '', dotStrip = '';
-  if (dot && dot.stats && dot.modele) {
+  if (CAN_DOTATION_VOIR && dot && dot.stats && dot.modele) {
     const cp = dot.stats.completude;
     const cc = cp >= 100 ? 'ok' : (cp >= 70 ? 'warn' : 'danger');
     dotChip = `<div class="loc-hchip"><div class="hn ${cc}">${cp}%</div><div class="hl">Complétude</div></div>`;
