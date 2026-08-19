@@ -297,7 +297,17 @@ require_once 'includes/header.php';
 .rmp-fields input{width:100%;padding:9px;border:1px solid var(--border);border-radius:8px;font-size:.9rem}
 .rmp-del{border:none;background:transparent;color:var(--red);font-size:1.15rem;cursor:pointer}
 .rmp-empty{text-align:center;color:var(--text3);padding:26px 10px;font-size:.9rem}
-@media(min-width:900px){ .rmp-grid{grid-template-columns:400px 1fr} .rmp-cat{max-height:520px} }
+@media(min-width:900px){
+  .rmp-wrap{max-width:1500px}
+  .rmp-grid{grid-template-columns:290px 400px minmax(0,1fr);align-items:start;gap:18px}
+  .rmp-card{padding:18px}
+  .rmp-cat{max-height:calc(100vh - 300px)}
+  #rmp-lines{max-height:calc(100vh - 250px);overflow:auto;padding-right:4px}
+  .rmp-ctx-row{flex-direction:column}
+  .rmp-ctx-row>div{min-width:0 !important}
+  #rmp-save{max-width:520px;margin:0 auto;display:block}
+}
+@media(min-width:1300px){ .rmp-grid{grid-template-columns:300px 440px minmax(0,1fr)} }
 .rmp-confirm{position:fixed;inset:0;background:rgba(0,0,0,.55);display:none;align-items:center;justify-content:center;z-index:1100;padding:16px}
 .rmp-confirm.open{display:flex}
 .rmp-confirm-box{background:var(--bg2,#111827);border:1px solid var(--border);border-radius:14px;padding:16px;max-width:520px;width:100%;max-height:85vh;overflow:auto}
@@ -323,22 +333,22 @@ require_once 'includes/header.php';
     <a href="/rempotages.php" class="btn btn-ghost">📋 Historique</a>
   </div>
 
-  <!-- Sac + contexte -->
-  <div class="rmp-card">
-    <label class="form-label">Sac / véhicule</label>
-    <select id="rmp-empl" class="form-control" style="font-size:1rem;padding:11px">
-      <option value="">— Choisir —</option>
-      <?php foreach ($sacs as $s): ?><option value="<?= (int)$s['id'] ?>"><?= h($s['nom']) ?></option><?php endforeach; ?>
-    </select>
-    <div style="display:flex;gap:10px;margin-top:12px;flex-wrap:wrap">
-      <div style="flex:1;min-width:140px"><label class="form-label">N° intervention (optionnel)</label>
-        <input type="text" id="rmp-ref" class="form-control" placeholder="Ex : 2026-0142"></div>
-      <div style="flex:2;min-width:180px"><label class="form-label">Notes (optionnel)</label>
-        <input type="text" id="rmp-notes" class="form-control" placeholder="Précisions…"></div>
-    </div>
-  </div>
-
   <div class="rmp-grid">
+    <!-- Sac + contexte -->
+    <div class="rmp-card rmp-ctx">
+      <label class="form-label">Sac / véhicule</label>
+      <select id="rmp-empl" class="form-control" style="font-size:1rem;padding:11px">
+        <option value="">— Choisir —</option>
+        <?php foreach ($sacs as $s): ?><option value="<?= (int)$s['id'] ?>"><?= h($s['nom']) ?></option><?php endforeach; ?>
+      </select>
+      <div class="rmp-ctx-row" style="display:flex;gap:10px;margin-top:12px;flex-wrap:wrap">
+        <div style="flex:1;min-width:140px"><label class="form-label">N° intervention (optionnel)</label>
+          <input type="text" id="rmp-ref" class="form-control" placeholder="Ex : 2026-0142"></div>
+        <div style="flex:2;min-width:180px"><label class="form-label">Notes (optionnel)</label>
+          <input type="text" id="rmp-notes" class="form-control" placeholder="Précisions…"></div>
+      </div>
+    </div>
+
     <!-- Catalogue du sac -->
     <div class="rmp-card">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;gap:6px;flex-wrap:wrap">
