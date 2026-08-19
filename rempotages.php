@@ -46,10 +46,54 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'suppr
     header('Location: /rempotages.php'); exit;
 }
 
+// ── IA active ? (pour le bouton d'analyse) ──
+$ia_on = (!function_exists('module_actif') || module_actif('assistant_ia'))
+       && ($pdo->query("SELECT valeur FROM ai_settings WHERE cle='actif'")->fetchColumn() === '1');
+
+// ── AJAX : synthèse IA de la période (rempotages + conso) ──
+if (($_GET['ajax'] ?? '') === 'ia_periode' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    header('Content-Type: application/json; charset=utf-8');
+    if (function_exists('module_actif') && !module_actif('assistant_ia')) { echo json_encode(['error'=>"Assistant IA désactivé."]); exit; }
+    $ai_actif = $pdo->query("SELECT valeur FROM ai_settings WHERE cle='actif'")->fetchColumn();
+    $api_key  = $pdo->query("SELECT valeur FROM ai_settings WHERE cle='api_key'")->fetchColumn();
+    $model    = $pdo->query("SELECT valeur FROM ai_settings WHERE cle='model'")->fetchColumn() ?: 'claude-haiku-4-5-20251001';
+    if (!$ai_actif || $ai_actif !== '1' || !$api_key) { echo json_encode(['error'=>"IA non configurée."]); exit; }
+    $in   = json_decode(file_get_contents('php://input'), true) ?: [];
+    $mois = preg_match('/^\d{4}-\d{2}$/', $in['mois'] ?? '') ? $in['mois'] : date('Y-m');
+    $d = $mois.'-01'; $f = date('Y-m-t', strtotime($d)).' 23:59:59';
+    $w = "r.site_id=".(int)$site_id." AND r.debut_le>='$d' AND r.debut_le<='$f'" . (!isAdmin() ? " AND r.user_id=".(int)currentUserId() : '');
+    $nb = (int)$pdo->query("SELECT COUNT(*) FROM rempotages r WHERE $w")->fetchColumn();
+    if (!$nb) { echo json_encode(['ok'=>true, 'texte'=>"Aucun rempotage sur $mois — rien à analyser."]); exit; }
+    $conso = $pdo->query("SELECT ra.nom, SUM(ra.quantite) q FROM rempotage_articles ra JOIN rempotages r ON r.id=ra.rempotage_id
+                          WHERE $w AND ra.action<>'retire' GROUP BY ra.nom ORDER BY q DESC LIMIT 15")->fetchAll(PDO::FETCH_ASSOC);
+    $pd = date('Y-m-01', strtotime($d.' -1 month')); $pf = date('Y-m-t', strtotime($pd)).' 23:59:59';
+    $nb_prev = (int)$pdo->query("SELECT COUNT(*) FROM rempotages r WHERE r.site_id=".(int)$site_id." AND r.debut_le>='$pd' AND r.debut_le<='$pf'".(!isAdmin()?" AND r.user_id=".(int)currentUserId():''))->fetchColumn();
+    $consoTxt = implode(', ', array_map(fn($c)=>$c['nom'].' ('.rtrim(rtrim(number_format($c['q'],1,'.',''),'0'),'.').')', $conso)) ?: 'aucun';
+    $prompt = "Tu es l'assistant logistique d'un centre de secours (SDIS/SSSM). Analyse l'activité de rempotage du mois $mois.\n"
+            . "- Rempotages ce mois : $nb (mois précédent : $nb_prev).\n"
+            . "- Produits les plus remis (= consommés en intervention, du plus au moins) : $consoTxt.\n\n"
+            . "Rédige une SYNTHÈSE courte et concrète en français (4 à 6 phrases). Mets en **gras** les points clés. "
+            . "Couvre : la tendance d'activité (hausse/baisse vs mois précédent), les produits qui partent le plus, "
+            . "et termine par 2-3 RECOMMANDATIONS de réapprovisionnement prioritaire. Ton professionnel et direct. "
+            . "N'utilise PAS de titre ni d'en-tête (pas de #) : commence directement par l'analyse.";
+    $payload = ['model'=>$model, 'max_tokens'=>600, 'messages'=>[['role'=>'user','content'=>$prompt]]];
+    $is_prod = str_contains($_SERVER['HTTP_HOST'] ?? '', 'cadurix.fr');
+    $ch = curl_init('https://api.anthropic.com/v1/messages');
+    curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER=>true, CURLOPT_POST=>true, CURLOPT_POSTFIELDS=>json_encode($payload),
+        CURLOPT_HTTPHEADER=>['Content-Type: application/json','x-api-key: '.$api_key,'anthropic-version: 2023-06-01'],
+        CURLOPT_TIMEOUT=>40, CURLOPT_SSL_VERIFYPEER=>$is_prod, CURLOPT_SSL_VERIFYHOST=>$is_prod?2:0]);
+    $resp = curl_exec($ch); $http = curl_getinfo($ch, CURLINFO_HTTP_CODE); $cerr = curl_error($ch); curl_close($ch);
+    if ($resp === false || $cerr) { echo json_encode(['error'=>"Réseau IA : $cerr"]); exit; }
+    $j = json_decode($resp, true);
+    if ($http !== 200 || empty($j['content'][0]['text'])) { echo json_encode(['error'=>($j['error']['message'] ?? "Erreur IA HTTP $http")]); exit; }
+    echo json_encode(['ok'=>true, 'texte'=>$j['content'][0]['text']], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
 // Filtres
 $filtre_empl  = (int)($_GET['emplacement'] ?? 0);
 $filtre_user  = (int)($_GET['user'] ?? 0);
-$filtre_mois  = $_GET['mois'] ?? date('Y-m');
+$filtre_mois  = preg_match('/^\d{4}-\d{2}$/', $_GET['mois'] ?? '') ? $_GET['mois'] : date('Y-m');
 
 // Détail rempotage
 $detail_id = (int)($_GET['id'] ?? 0);
@@ -147,6 +191,24 @@ $statuts = [
     'annule'   => ['label'=>'Annulé',    'color'=>'#ef4444'],
 ];
 
+// ── Cockpit conso : agrégats de la période (même filtres que la liste) ──
+$c_debut = $filtre_mois . '-01';
+$c_fin   = date('Y-m-t', strtotime($c_debut)) . ' 23:59:59';
+$c_where = "r.site_id = " . (int)$site_id . " AND r.debut_le >= '$c_debut' AND r.debut_le <= '$c_fin'";
+if (!isAdmin())      $c_where .= " AND r.user_id = " . (int)currentUserId();
+if ($filtre_empl)    $c_where .= " AND r.emplacement_id = " . (int)$filtre_empl;
+if ($filtre_user && isAdmin()) $c_where .= " AND r.user_id = " . (int)$filtre_user;
+
+// Produits les plus REMIS (= consommés en intervention) sur la période
+$top_conso = $pdo->query("SELECT ra.nom, SUM(ra.quantite) q
+                          FROM rempotage_articles ra JOIN rempotages r ON r.id = ra.rempotage_id
+                          WHERE $c_where AND ra.action <> 'retire'
+                          GROUP BY ra.nom ORDER BY q DESC LIMIT 8")->fetchAll(PDO::FETCH_ASSOC);
+// Activité (rempotages par jour)
+$trend = $pdo->query("SELECT DATE(r.debut_le) j, COUNT(*) n
+                      FROM rempotages r WHERE $c_where GROUP BY DATE(r.debut_le) ORDER BY j")->fetchAll(PDO::FETCH_ASSOC);
+$conso_total = 0; foreach ($top_conso as $t) $conso_total += (float)$t['q'];
+
 require_once 'includes/header.php';
 ?>
 <style>
@@ -221,6 +283,45 @@ require_once 'includes/header.php';
     <a href="/rempotages.php" class="btn btn-ghost btn-sm">✕ Réinitialiser</a>
   </form>
 </div>
+
+<!-- ── Cockpit conso ── -->
+<div class="card" style="margin-bottom:1rem;padding:1rem 1.25rem">
+  <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:.85rem">
+    <div style="font-weight:800;font-size:.95rem">📊 Consommation de la période <span style="font-weight:400;color:var(--text3);font-size:.82em">(ce que tu as remis = utilisé)</span></div>
+    <?php if ($ia_on): ?><button type="button" class="btn btn-primary btn-sm" id="rmpia-btn" onclick="rmpAnalyse()">🤖 Analyser la période</button><?php endif; ?>
+  </div>
+  <div id="rmpia-out" style="display:none;background:rgba(59,130,246,.06);border:1px solid rgba(59,130,246,.2);border-radius:10px;padding:12px 14px;margin-bottom:14px;font-size:.88rem;line-height:1.55"></div>
+  <div class="conso-grid" style="display:grid;grid-template-columns:1fr;gap:18px">
+    <div>
+      <div style="font-size:.7rem;text-transform:uppercase;letter-spacing:1px;color:var(--text3);font-weight:700;margin-bottom:.6rem">Top produits remis</div>
+      <?php if (empty($top_conso)): ?>
+      <div style="color:var(--text3);font-size:.85rem;padding:10px 0">Aucune consommation sur cette période.</div>
+      <?php else: $maxc = max(array_map(fn($t)=>(float)$t['q'],$top_conso)); foreach ($top_conso as $t): $pct=$maxc>0?round($t['q']/$maxc*100):0; ?>
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:7px">
+        <div style="width:180px;font-size:.82rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="<?= h($t['nom']) ?>"><?= h($t['nom']) ?></div>
+        <div style="flex:1;height:16px;background:var(--bg3);border-radius:5px;overflow:hidden"><div style="width:<?= max($pct,4) ?>%;height:100%;background:linear-gradient(90deg,var(--primary),#10b981);border-radius:5px"></div></div>
+        <div style="width:42px;text-align:right;font-weight:700;font-size:.82rem;font-variant-numeric:tabular-nums"><?= rtrim(rtrim(number_format($t['q'],1,'.',''),'0'),'.') ?></div>
+      </div>
+      <?php endforeach; endif; ?>
+    </div>
+    <div>
+      <div style="font-size:.7rem;text-transform:uppercase;letter-spacing:1px;color:var(--text3);font-weight:700;margin-bottom:.6rem">Activité (rempotages / jour)</div>
+      <?php if (empty($trend)): ?>
+      <div style="color:var(--text3);font-size:.85rem;padding:10px 0">Aucune activité.</div>
+      <?php else: $maxt=max(array_map(fn($x)=>(int)$x['n'],$trend)); ?>
+      <div style="display:flex;align-items:flex-end;gap:3px;height:96px">
+        <?php foreach ($trend as $x): $hh=$maxt>0?round($x['n']/$maxt*100):0; ?>
+        <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;height:100%" title="<?= date('d/m',strtotime($x['j'])) ?> : <?= (int)$x['n'] ?> rempotage(s)">
+          <div style="flex:1;width:100%;display:flex;align-items:flex-end"><div style="width:100%;background:rgba(59,130,246,.65);border-radius:3px 3px 0 0;height:<?= max($hh,5) ?>%"></div></div>
+          <div style="font-size:.55rem;color:var(--text3)"><?= date('j',strtotime($x['j'])) ?></div>
+        </div>
+        <?php endforeach; ?>
+      </div>
+      <?php endif; ?>
+    </div>
+  </div>
+</div>
+<style>@media(min-width:900px){ .conso-grid{grid-template-columns:1.35fr 1fr !important} }</style>
 
 <div class="grid-2" style="align-items:start">
 
@@ -343,4 +444,19 @@ require_once 'includes/header.php';
 
 </div>
 
+<script>
+function rmpAnalyse(){
+  var btn=document.getElementById('rmpia-btn'), out=document.getElementById('rmpia-out');
+  var mois='<?= h($filtre_mois) ?>', old=btn?btn.textContent:'';
+  if(btn){ btn.disabled=true; btn.textContent='🤖 Analyse…'; }
+  out.style.display='block'; out.innerHTML='<span style="color:var(--text3)">🤖 Analyse de la période en cours…</span>';
+  fetch('/rempotages.php?ajax=ia_periode',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mois:mois})})
+   .then(r=>r.json()).then(function(d){
+     if(btn){ btn.disabled=false; btn.textContent=old; }
+     if(d.error){ out.innerHTML='<span style="color:#f87171">⚠️ '+d.error+'</span>'; return; }
+     var t=(d.texte||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\*\*(.+?)\*\*/g,'<b>$1</b>').replace(/\n/g,'<br>');
+     out.innerHTML='<div style="font-weight:800;margin-bottom:6px">🤖 Synthèse de la période</div>'+t;
+   }).catch(function(){ if(btn){ btn.disabled=false; btn.textContent=old; } out.innerHTML='<span style="color:#f87171">Erreur réseau IA.</span>'; });
+}
+</script>
 <?php require_once 'includes/footer.php'; ?>
