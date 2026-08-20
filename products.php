@@ -471,6 +471,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && canEdit()) {
         'ean'               => trim($_POST['ean']            ?? '') ?: null,
         'datamatrix'        => trim($_POST['datamatrix']     ?? '') ?: null,
         'dci'               => trim($_POST['dci']            ?? '') ?: null,
+        'type_produit'      => in_array($_POST['type_produit'] ?? '', ['medicament','materiel'], true) ? $_POST['type_produit'] : 'medicament',
         'dosage'            => trim($_POST['dosage']         ?? '') ?: null,
         'forme'             => trim($_POST['forme']          ?? '') ?: null,
         'quantite'          => max(0, (float)str_replace(',', '.', $_POST['quantite'] ?? '0')),
@@ -485,8 +486,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && canEdit()) {
     ];
 
     if (!$f['nom']) { $f['nom'] = $f['dci']; } // repli : le nom (regroupement/affichage) reprend la DCI si non renseigné
-    if (!$f['dci'] || !$f['date_peremption'] || !$f['emplacement_id']) {
-        flashError("DCI, emplacement et date de péremption sont obligatoires.");
+    if ($f['type_produit'] === 'materiel') {
+        $champ_manquant = (!$f['nom'] || !$f['date_peremption'] || !$f['emplacement_id']);
+        $msg_manquant   = "Nom du matériel, emplacement et date de péremption sont obligatoires.";
+    } else {
+        $champ_manquant = (!$f['dci'] || !$f['date_peremption'] || !$f['emplacement_id']);
+        $msg_manquant   = "DCI, emplacement et date de péremption sont obligatoires.";
+    }
+    if ($champ_manquant) {
+        flashError($msg_manquant);
     } elseif (currentRole() === 'saisie' && $id) {
         // Saisie : mise à jour date uniquement
         $stmt = $pdo->prepare("SELECT p.* FROM produits p JOIN emplacements e ON e.id=p.emplacement_id WHERE p.id=? AND e.site_id=?");
@@ -505,13 +513,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && canEdit()) {
             $old = $stmt->fetch(PDO::FETCH_ASSOC);
 
             $pdo->prepare("UPDATE produits SET
-                emplacement_id=?, nom=?, dci=?, dosage=?, forme=?, reference=?, numero_lot=?, gtin=?, ean=?, datamatrix=?,
+                emplacement_id=?, nom=?, dci=?, type_produit=?, dosage=?, forme=?, reference=?, numero_lot=?, gtin=?, ean=?, datamatrix=?,
                 quantite=?, quantite_min=?, unite=?, date_peremption=?,
                 alerte_jours=?, chaine_froid=?, temp_stockage_min=?,
                 temp_stockage_max=?, notes=?, modifie_par=?, modifie_le=NOW()
                 WHERE id=?")
                 ->execute([
-                    $f['emplacement_id'], $f['nom'], $f['dci'], $f['dosage'], $f['forme'], $f['reference'], $f['numero_lot'], $f['gtin'], $f['ean'], $f['datamatrix'],
+                    $f['emplacement_id'], $f['nom'], $f['dci'], $f['type_produit'], $f['dosage'], $f['forme'], $f['reference'], $f['numero_lot'], $f['gtin'], $f['ean'], $f['datamatrix'],
                     $f['quantite'], $f['quantite_min'], $f['unite'], $f['date_peremption'],
                     $f['alerte_jours'], $f['chaine_froid'], $f['temp_stockage_min'],
                     $f['temp_stockage_max'], $f['notes'], currentUserId(), $id
@@ -527,9 +535,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && canEdit()) {
             audit_log($pdo, 'MODIF_PRODUIT', 'produits', $id, $old, $f);
             flashSuccess("Produit « {$f['nom']} » mis à jour.");
         } else {
-            $pdo->prepare("INSERT INTO produits (emplacement_id, nom, dci, dosage, forme, reference, numero_lot, gtin, ean, datamatrix, quantite, quantite_min, unite, date_peremption, alerte_jours, chaine_froid, temp_stockage_min, temp_stockage_max, notes, cree_par) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
+            $pdo->prepare("INSERT INTO produits (emplacement_id, nom, dci, type_produit, dosage, forme, reference, numero_lot, gtin, ean, datamatrix, quantite, quantite_min, unite, date_peremption, alerte_jours, chaine_froid, temp_stockage_min, temp_stockage_max, notes, cree_par) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
                 ->execute([
-                    $f['emplacement_id'], $f['nom'], $f['dci'], $f['dosage'], $f['forme'], $f['reference'], $f['numero_lot'], $f['gtin'], $f['ean'], $f['datamatrix'],
+                    $f['emplacement_id'], $f['nom'], $f['dci'], $f['type_produit'], $f['dosage'], $f['forme'], $f['reference'], $f['numero_lot'], $f['gtin'], $f['ean'], $f['datamatrix'],
                     $f['quantite'], $f['quantite_min'], $f['unite'], $f['date_peremption'],
                     $f['alerte_jours'], $f['chaine_froid'], $f['temp_stockage_min'],
                     $f['temp_stockage_max'], $f['notes'], currentUserId()
@@ -1220,7 +1228,7 @@ foreach ($allEmpls as $e) {
   </div>
   <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
     <?php if (canEdit()): ?>
-    <?php if($canCreer): ?><button class="btn btn-primary" id="btn-ajouter" style="display:inline-flex;align-items:center;gap:6px"><i class="ti ti-plus"></i> Ajouter</button><?php endif; ?>
+    <?php if($canCreer): ?><button class="btn btn-primary" id="btn-ajouter-med" style="display:inline-flex;align-items:center;gap:6px">💊 Médicament</button><button class="btn btn-primary" id="btn-ajouter-mat" style="display:inline-flex;align-items:center;gap:6px;background:#7c3aed;border-color:#7c3aed">🧰 Matériel</button><?php endif; ?>
     <?php if($canCreer): ?><button type="button" class="btn btn-ghost" id="btn-rafale" title="Scanner plusieurs boîtes à la suite" style="display:inline-flex;align-items:center;gap:6px">📷 Scanner en rafale</button><?php endif; ?>
     <?php endif; ?>
     <?php if (peut_faire(ROLE_GESTIONNAIRE)): ?>
@@ -1312,7 +1320,7 @@ const SR_EMPLS = <?= json_encode($empl_for_js) ?>;
 <div class="px-form-scrim <?= ($editing || $openNew) ? 'open' : '' ?>" id="form-scrim" onclick="closeForm()"></div>
 <div id="form-panel" class="px-drawer <?= ($editing || $openNew) ? 'open' : '' ?>">
   <div class="px-drawer-head">
-    <span><?= $editing ? '✏️ Modifier le produit' : '➕ Nouveau produit' ?></span>
+    <span id="drawer-title"><?= $editing ? '✏️ Modifier le produit' : '➕ Nouveau produit' ?></span>
     <button type="button" class="px-drawer-x" onclick="closeForm()" aria-label="Fermer">✕</button>
   </div>
   <div class="form-panel-card">
@@ -1321,6 +1329,7 @@ const SR_EMPLS = <?= json_encode($empl_for_js) ?>;
       <?= csrfField() ?>
       <?php if ($editing): ?><input type="hidden" name="id" value="<?= $editing['id'] ?>"><?php endif; ?>
       <input type="hidden" name="ret" value="<?= (int)($_GET['ret'] ?? 0) ?>">
+      <input type="hidden" name="type_produit" id="type_produit" value="<?= h($editing['type_produit'] ?? 'medicament') ?>">
 
       <?php
       $scan_photo_ok = false;
@@ -1344,8 +1353,8 @@ const SR_EMPLS = <?= json_encode($empl_for_js) ?>;
         <?php endif; ?>
       </div>
 
-      <div class="px-fsect"><div class="px-fsect-h">💊 Identification</div>
-        <div class="form-group" style="position:relative">
+      <div class="px-fsect"><div class="px-fsect-h" id="ident-head">💊 Identification</div>
+        <div class="form-group" id="grp-dci" style="position:relative">
           <label class="form-label">DCI (molécule) * <span style="font-weight:400;color:var(--text3);font-size:11px">— affichée en premier</span></label>
           <input type="text" name="dci" id="dci-input" class="form-control" required
                  value="<?= h($editing['dci'] ?? '') ?>"
@@ -1354,7 +1363,7 @@ const SR_EMPLS = <?= json_encode($empl_for_js) ?>;
           <div id="ac-list"></div>
         </div>
         <div class="form-group">
-          <label class="form-label">Nom commercial (princeps / générique) <span style="font-weight:400;color:var(--text3);font-size:11px">— optionnel</span></label>
+          <label class="form-label" id="lbl-nom">Nom commercial (princeps / générique) <span style="font-weight:400;color:var(--text3);font-size:11px">— optionnel</span></label>
           <input type="text" name="nom" id="nom-input" class="form-control"
                  value="<?= h($editing['nom'] ?? '') ?>"
                  placeholder="Ex: Doliprane, Rivotril…" autocomplete="off">
@@ -2091,8 +2100,12 @@ document.addEventListener('DOMContentLoaded', function() {
   window.srEmpls = <?= json_encode($empl_for_js) ?>;
 
   // Boutons header — branchés ici car le HTML est rendu avant ce script
-  var btnAjouter = document.getElementById('btn-ajouter');
-  if (btnAjouter) btnAjouter.addEventListener('click', toggleForm);
+  var btnMed = document.getElementById('btn-ajouter-med');
+  if (btnMed) btnMed.addEventListener('click', function(){ pxSetType('medicament'); openForm(); });
+  var btnMat = document.getElementById('btn-ajouter-mat');
+  if (btnMat) btnMat.addEventListener('click', function(){ pxSetType('materiel'); openForm(); });
+  // En édition : refléter le type existant
+  if (PX_EDIT_OPEN) { var t=document.getElementById('type_produit'); pxSetType(t ? t.value : 'medicament'); }
 
   var btnSR = document.getElementById('btn-saisie-rapide');
   if (btnSR) btnSR.addEventListener('click', toggleSaisieRapide);
@@ -2125,6 +2138,32 @@ function closeForm() {
 function toggleForm() {
   var p = document.getElementById('form-panel');
   if (p && p.classList.contains('open')) closeForm(); else openForm();
+}
+// Bascule Médicament / Matériel : adapte le champ obligatoire et les libellés
+function pxSetType(t) {
+  t = (t === 'materiel') ? 'materiel' : 'medicament';
+  var hid = document.getElementById('type_produit'); if (hid) hid.value = t;
+  var grpDci = document.getElementById('grp-dci');
+  var dci    = document.getElementById('dci-input');
+  var nom    = document.getElementById('nom-input');
+  var lblNom = document.getElementById('lbl-nom');
+  var head   = document.getElementById('ident-head');
+  var title  = document.getElementById('drawer-title');
+  if (t === 'materiel') {
+    if (grpDci) grpDci.style.display = 'none';
+    if (dci) dci.required = false;
+    if (nom) nom.required = true;
+    if (lblNom) lblNom.innerHTML = 'Nom du matériel *';
+    if (head) head.textContent = '🧰 Matériel';
+    if (title && !PX_EDIT_OPEN) title.textContent = '🧰 Nouveau matériel';
+  } else {
+    if (grpDci) grpDci.style.display = '';
+    if (dci) dci.required = true;
+    if (nom) nom.required = false;
+    if (lblNom) lblNom.innerHTML = 'Nom commercial (princeps / générique) <span style="font-weight:400;color:var(--text3);font-size:11px">— optionnel</span>';
+    if (head) head.textContent = '💊 Médicament';
+    if (title && !PX_EDIT_OPEN) title.textContent = '💊 Nouveau médicament';
+  }
 }
 document.addEventListener('keydown', function(e){ if (e.key === 'Escape') { var p=document.getElementById('form-panel'); if (p && p.classList.contains('open')) closeForm(); } });
 document.addEventListener('DOMContentLoaded', function(){ var fp=document.getElementById('form-panel'); if (fp && fp.classList.contains('open')) document.body.style.overflow = 'hidden'; });
@@ -2352,6 +2391,7 @@ async function dupliquer(id) {
 
   // Ouvrir le tiroir
   openForm();
+  pxSetType(data.type_produit || 'medicament');
 
   // Vider l'ID pour forcer une création
   const idField = document.querySelector('input[name="id"]');
@@ -2360,6 +2400,7 @@ async function dupliquer(id) {
   // Remplir les champs (sauf lot et date de péremption)
   const map = {
     'nom':               data.nom,
+    'dci':               data.dci          || '',
     'reference':         data.reference   || '',
     'emplacement_id':    data.emplacement_id,
     'quantite':          data.quantite,
