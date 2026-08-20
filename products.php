@@ -1373,6 +1373,7 @@ const SR_EMPLS = <?= json_encode($empl_for_js) ?>;
                  value="<?= h($editing['nom'] ?? '') ?>"
                  placeholder="Ex: Doliprane, Rivotril…" autocomplete="off">
         </div>
+        <div id="ref-slot"></div>
         <div class="form-row" id="grp-dosform">
           <div class="form-group">
             <label class="form-label">Dosage</label>
@@ -1451,7 +1452,7 @@ const SR_EMPLS = <?= json_encode($empl_for_js) ?>;
           <label class="form-label">DataMatrix (GS1)</label>
           <input type="text" name="datamatrix" class="form-control" value="<?= h($editing['datamatrix'] ?? '') ?>" placeholder="rempli par le scan">
         </div>
-        <div class="form-group">
+        <div class="form-group" id="grp-ref">
           <label class="form-label" id="lbl-ref">Référence</label>
           <input type="text" name="reference" id="ref-input" class="form-control" value="<?= h($editing['reference'] ?? '') ?>" placeholder="Code produit…">
         </div>
@@ -2163,6 +2164,10 @@ function pxSetType(t) {
   var grpDF   = document.getElementById('grp-dosform');
   var lblRef  = document.getElementById('lbl-ref');
   var ref     = document.getElementById('ref-input');
+  // Deplacement du bloc Reference : sous le nom en mode Materiel, a sa place d'origine sinon
+  var grpRef  = document.getElementById('grp-ref');
+  var refSlot = document.getElementById('ref-slot');
+  if (grpRef && !grpRef._home) { grpRef._home = { parent: grpRef.parentNode, next: grpRef.nextSibling }; }
   if (t === 'materiel') {
     if (grpDci) grpDci.style.display = 'none';
     if (dci) dci.required = false;
@@ -2173,6 +2178,7 @@ function pxSetType(t) {
     if (grpDF) grpDF.style.display = 'none';           // pas de dosage/forme pour du matériel
     if (lblRef) lblRef.textContent = 'Référence / taille / modèle';
     if (ref) ref.placeholder = 'Ex : 18G, T3, adulte…';
+    if (grpRef && refSlot && grpRef.parentNode !== refSlot) refSlot.appendChild(grpRef); // sous le nom
   } else {
     if (grpDci) grpDci.style.display = '';
     if (dci) dci.required = true;
@@ -2183,6 +2189,7 @@ function pxSetType(t) {
     if (grpDF) grpDF.style.display = '';
     if (lblRef) lblRef.textContent = 'Référence';
     if (ref) ref.placeholder = 'Code produit…';
+    if (grpRef && grpRef._home && grpRef.parentNode !== grpRef._home.parent) grpRef._home.parent.insertBefore(grpRef, grpRef._home.next); // retour a sa place
   }
 }
 document.addEventListener('keydown', function(e){ if (e.key === 'Escape') { var p=document.getElementById('form-panel'); if (p && p.classList.contains('open')) closeForm(); } });
