@@ -280,6 +280,8 @@ $viewMode = $_GET['view'] ?? 'list';
 $site_id     = site_actif();
 $filterEmpl  = (int)($_GET['emplacement'] ?? $_GET['location'] ?? 0);
 $filterStatus= $_GET['status'] ?? '';
+$filterType  = $_GET['type'] ?? '';
+if (!in_array($filterType, ['medicament','materiel'], true)) $filterType = '';
 $horizon     = $_GET['horizon'] ?? 'all';
 if (!in_array($horizon, ['1','2','3','6','12','all'], true)) $horizon = 'all';
 $statutLot   = $_GET['statut_lot'] ?? 'actif';
@@ -305,6 +307,7 @@ if (!function_exists('pf_url')) {
     $base = [
       'emplacement' => $GLOBALS['filterEmpl']  ?? 0 ?: null,
       'status'      => $GLOBALS['filterStatus'] ?? '' ?: null,
+      'type'        => $GLOBALS['filterType']   ?? '' ?: null,
       'statut_lot'  => (($GLOBALS['statutLot'] ?? 'actif') !== 'actif') ? ($GLOBALS['statutLot'] ?? null) : null,
       'q'           => ($GLOBALS['qSearch'] ?? '') !== '' ? ($GLOBALS['qSearch'] ?? null) : null,
       'horizon'     => $GLOBALS['horizon']      ?? '2',
@@ -656,6 +659,7 @@ if ($filterStatus === 'cold')     { $where .= ' AND p.chaine_froid=1'; }
 if ($filterStatus === 'lowstock') { $where .= ' AND p.quantite_min > 0 AND p.quantite <= p.quantite_min'; }
 if ($horizon !== 'all')           { $where .= ' AND p.date_peremption <= (CURDATE() + INTERVAL '.(int)$horizon.' MONTH)'; }
 if ($filterStatus === 'nocode')   { $where .= " AND COALESCE(NULLIF(p.gtin,''),NULLIF(p.ean,''),NULLIF(p.datamatrix,'')) IS NULL"; }
+if ($filterType !== '')           { $where .= ' AND p.type_produit = ?'; $params[] = $filterType; }
 
 $orderSql = "ORDER BY {$sortMap[$sort]} $dir, p.date_peremption ASC";
 $stmt = $pdo->prepare("
@@ -1580,6 +1584,11 @@ $advActive = (in_array($filterStatus,$advStatuses,true)?1:0) + ($horizon!=='1'?1
     <a href="<?= h(pf_url(['view'=>null])) ?>"     class="<?= $viewMode!=='grouped'?'on':'' ?>">☰ Liste</a>
     <a href="<?= h(pf_url(['view'=>'grouped'])) ?>" class="<?= $viewMode==='grouped'?'on':'' ?>">🗂️ Par produit</a>
   </div>
+  <div class="px-viewtog">
+    <a href="<?= h(pf_url(['type'=>null])) ?>"          class="<?= $filterType===''?'on':'' ?>">Tous</a>
+    <a href="<?= h(pf_url(['type'=>'medicament'])) ?>"  class="<?= $filterType==='medicament'?'on':'' ?>">💊 Médoc</a>
+    <a href="<?= h(pf_url(['type'=>'materiel'])) ?>"    class="<?= $filterType==='materiel'?'on':'' ?>">🧰 Matériel</a>
+  </div>
   <div class="px-tabs">
     <a href="<?= h(pf_url(['statut_lot'=>'actif'])) ?>"   class="px-tab <?= $statutLot==='actif'?'on':'' ?>">Actifs <span class="c"><?= $cntStatut['actif'] ?></span></a>
     <a href="<?= h(pf_url(['statut_lot'=>'archive'])) ?>" class="px-tab <?= $statutLot==='archive'?'on':'' ?>">Archivés <span class="c"><?= $cntStatut['archive'] ?></span></a>
@@ -1592,6 +1601,7 @@ $advActive = (in_array($filterStatus,$advStatuses,true)?1:0) + ($horizon!=='1'?1
     <?php if ($filterEmpl): ?><input type="hidden" name="emplacement" value="<?= (int)$filterEmpl ?>"><?php endif; ?>
     <?php if ($viewMode==='grouped'): ?><input type="hidden" name="view" value="grouped"><?php endif; ?>
     <?php if ($horizon!=='1'): ?><input type="hidden" name="horizon" value="<?= h($horizon) ?>"><?php endif; ?>
+    <?php if ($filterType!==''): ?><input type="hidden" name="type" value="<?= h($filterType) ?>"><?php endif; ?>
   </form>
   <div class="px-selbox">↕
     <select onchange="if(this.value)location.href=this.value">
@@ -1808,7 +1818,7 @@ if (empty($grouped)): ?>
             <div class="px-prod">
               <span class="px-pico" style="background:color-mix(in srgb, <?= $col ?> 16%, transparent)">💊</span>
               <div>
-                <div class="px-pname"><?= h($p['dci'] ?: $p['nom']) ?><?php if(!empty($p['dci']) && !empty($p['nom']) && mb_strtolower($p['dci'])!==mb_strtolower($p['nom'])):?> <span class="px-nom2">(<?= h($p['nom']) ?>)</span><?php endif;?><?php if($p['chaine_froid']):?><span class="px-cold" title="Chaîne du froid">❄️</span><?php endif;?><?php if($noCode):?><span class="px-nocode" title="Sans code-barres">📷</span><?php endif;?></div>
+                <div class="px-pname"><?= h($p['dci'] ?: $p['nom']) ?><?php if(!empty($p['dci']) && !empty($p['nom']) && mb_strtolower($p['dci'])!==mb_strtolower($p['nom'])):?> <span class="px-nom2">(<?= h($p['nom']) ?>)</span><?php endif;?><?php if($p['chaine_froid']):?><span class="px-cold" title="Chaîne du froid">❄️</span><?php endif;?><?php if($noCode):?><span class="px-nocode" title="Sans code-barres">📷</span><?php endif;?><?php if(($p['type_produit']??'')==='materiel'):?><span class="px-nocode" title="Matériel" style="color:#7c3aed">🧰</span><?php endif;?></div>
                 <?php
                   $doseHtml = !empty($p['dosage']) ? '<span class="px-dose">'.h($p['dosage']).'</span>' : '';
                   $extra = [];
