@@ -287,7 +287,7 @@ if (!in_array($horizon, ['1','2','3','6','12','all'], true)) $horizon = 'all';
 $statutLot   = $_GET['statut_lot'] ?? 'actif';
 if (!in_array($statutLot, ['actif','archive','retire'], true)) $statutLot = 'actif';
 $qSearch     = trim((string)($_GET['q'] ?? ''));
-$sortMap = ['dci'=>"COALESCE(NULLIF(p.dci,''),p.nom)",'nom'=>'p.nom','lot'=>'p.numero_lot','emplacement'=>'e.nom','qte'=>'p.quantite','peremption'=>'p.date_peremption','statut'=>'p.date_peremption'];
+$sortMap = ['dci'=>"COALESCE(NULLIF(p.dci,''),p.nom)",'type'=>"p.type_produit, COALESCE(NULLIF(p.dci,''),p.nom)",'nom'=>'p.nom','lot'=>'p.numero_lot','emplacement'=>'e.nom','qte'=>'p.quantite','peremption'=>'p.date_peremption','statut'=>'p.date_peremption'];
 $sort = $_GET['sort'] ?? 'dci';
 if (!isset($sortMap[$sort])) $sort = 'dci';
 $dir  = (strtolower($_GET['dir'] ?? 'asc') === 'desc') ? 'desc' : 'asc';
@@ -1134,6 +1134,7 @@ require_once 'includes/header.php';
 .px-prod { display:flex; align-items:center; gap:11px; }
 .px-pico { width:36px; height:36px; border-radius:10px; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
 .px-pname { font-weight:700; color:var(--text); }
+.px-mat { display:inline-block; margin-left:7px; font-size:10px; font-weight:800; letter-spacing:.02em; color:#fff; background:#7c3aed; padding:1px 7px; border-radius:999px; vertical-align:middle; }
 .px-nom2 { font-weight:500; font-size:12px; color:var(--text3); }
 .px-pdose { font-size:12px; color:var(--text3); margin-top:1px; }
 .px-dose { font-weight:800; color:var(--primary); font-variant-numeric:tabular-nums; }
@@ -1372,7 +1373,7 @@ const SR_EMPLS = <?= json_encode($empl_for_js) ?>;
                  value="<?= h($editing['nom'] ?? '') ?>"
                  placeholder="Ex: Doliprane, Rivotril…" autocomplete="off">
         </div>
-        <div class="form-row">
+        <div class="form-row" id="grp-dosform">
           <div class="form-group">
             <label class="form-label">Dosage</label>
             <input type="text" name="dosage" class="form-control" value="<?= h($editing['dosage'] ?? '') ?>" placeholder="1 mg / 1 mL">
@@ -1451,8 +1452,8 @@ const SR_EMPLS = <?= json_encode($empl_for_js) ?>;
           <input type="text" name="datamatrix" class="form-control" value="<?= h($editing['datamatrix'] ?? '') ?>" placeholder="rempli par le scan">
         </div>
         <div class="form-group">
-          <label class="form-label">Référence</label>
-          <input type="text" name="reference" class="form-control" value="<?= h($editing['reference'] ?? '') ?>" placeholder="Code produit…">
+          <label class="form-label" id="lbl-ref">Référence</label>
+          <input type="text" name="reference" id="ref-input" class="form-control" value="<?= h($editing['reference'] ?? '') ?>" placeholder="Code produit…">
         </div>
       </div><!-- /sect lot -->
 
@@ -1605,7 +1606,7 @@ $advActive = (in_array($filterStatus,$advStatuses,true)?1:0) + ($horizon!=='1'?1
   </form>
   <div class="px-selbox">↕
     <select onchange="if(this.value)location.href=this.value">
-      <?php foreach (['dci'=>'DCI (A→Z)','peremption'=>'Péremption','nom'=>'Nom commercial','qte'=>'Quantité','emplacement'=>'Emplacement','lot'=>'Lot'] as $sk=>$sl): ?>
+      <?php foreach (['dci'=>'DCI (A→Z)','type'=>'Par type','peremption'=>'Péremption','nom'=>'Nom commercial','qte'=>'Quantité','emplacement'=>'Emplacement','lot'=>'Lot'] as $sk=>$sl): ?>
       <option value="<?= h(pf_url(['sort'=>$sk])) ?>" <?= $sort===$sk?'selected':'' ?>><?= $sl ?></option>
       <?php endforeach; ?>
     </select>
@@ -1818,7 +1819,7 @@ if (empty($grouped)): ?>
             <div class="px-prod">
               <span class="px-pico" style="background:color-mix(in srgb, <?= $col ?> 16%, transparent)">💊</span>
               <div>
-                <div class="px-pname"><?= h($p['dci'] ?: $p['nom']) ?><?php if(!empty($p['dci']) && !empty($p['nom']) && mb_strtolower($p['dci'])!==mb_strtolower($p['nom'])):?> <span class="px-nom2">(<?= h($p['nom']) ?>)</span><?php endif;?><?php if($p['chaine_froid']):?><span class="px-cold" title="Chaîne du froid">❄️</span><?php endif;?><?php if($noCode):?><span class="px-nocode" title="Sans code-barres">📷</span><?php endif;?><?php if(($p['type_produit']??'')==='materiel'):?><span class="px-nocode" title="Matériel" style="color:#7c3aed">🧰</span><?php endif;?></div>
+                <div class="px-pname"><?= h($p['dci'] ?: $p['nom']) ?><?php if(!empty($p['dci']) && !empty($p['nom']) && mb_strtolower($p['dci'])!==mb_strtolower($p['nom'])):?> <span class="px-nom2">(<?= h($p['nom']) ?>)</span><?php endif;?><?php if($p['chaine_froid']):?><span class="px-cold" title="Chaîne du froid">❄️</span><?php endif;?><?php if($noCode):?><span class="px-nocode" title="Sans code-barres">📷</span><?php endif;?><?php if(($p['type_produit']??'')==='materiel'):?><span class="px-mat" title="Matériel">🧰 Matériel</span><?php endif;?></div>
                 <?php
                   $doseHtml = !empty($p['dosage']) ? '<span class="px-dose">'.h($p['dosage']).'</span>' : '';
                   $extra = [];
@@ -2153,12 +2154,15 @@ function toggleForm() {
 function pxSetType(t) {
   t = (t === 'materiel') ? 'materiel' : 'medicament';
   var hid = document.getElementById('type_produit'); if (hid) hid.value = t;
-  var grpDci = document.getElementById('grp-dci');
-  var dci    = document.getElementById('dci-input');
-  var nom    = document.getElementById('nom-input');
-  var lblNom = document.getElementById('lbl-nom');
-  var head   = document.getElementById('ident-head');
-  var title  = document.getElementById('drawer-title');
+  var grpDci  = document.getElementById('grp-dci');
+  var dci     = document.getElementById('dci-input');
+  var nom     = document.getElementById('nom-input');
+  var lblNom  = document.getElementById('lbl-nom');
+  var head    = document.getElementById('ident-head');
+  var title   = document.getElementById('drawer-title');
+  var grpDF   = document.getElementById('grp-dosform');
+  var lblRef  = document.getElementById('lbl-ref');
+  var ref     = document.getElementById('ref-input');
   if (t === 'materiel') {
     if (grpDci) grpDci.style.display = 'none';
     if (dci) dci.required = false;
@@ -2166,6 +2170,9 @@ function pxSetType(t) {
     if (lblNom) lblNom.innerHTML = 'Nom du matériel *';
     if (head) head.textContent = '🧰 Matériel';
     if (title && !PX_EDIT_OPEN) title.textContent = '🧰 Nouveau matériel';
+    if (grpDF) grpDF.style.display = 'none';           // pas de dosage/forme pour du matériel
+    if (lblRef) lblRef.textContent = 'Référence / taille / modèle';
+    if (ref) ref.placeholder = 'Ex : 18G, T3, adulte…';
   } else {
     if (grpDci) grpDci.style.display = '';
     if (dci) dci.required = true;
@@ -2173,6 +2180,9 @@ function pxSetType(t) {
     if (lblNom) lblNom.innerHTML = 'Nom commercial (princeps / générique) <span style="font-weight:400;color:var(--text3);font-size:11px">— optionnel</span>';
     if (head) head.textContent = '💊 Médicament';
     if (title && !PX_EDIT_OPEN) title.textContent = '💊 Nouveau médicament';
+    if (grpDF) grpDF.style.display = '';
+    if (lblRef) lblRef.textContent = 'Référence';
+    if (ref) ref.placeholder = 'Code produit…';
   }
 }
 document.addEventListener('keydown', function(e){ if (e.key === 'Escape') { var p=document.getElementById('form-panel'); if (p && p.classList.contains('open')) closeForm(); } });
