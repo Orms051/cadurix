@@ -199,6 +199,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'scan_photo') {
     $prompt = 'Analyse cette photo de médicament ou matériel médical et extrait les informations suivantes en JSON UNIQUEMENT (sans texte avant ou après) :
 {
   "nom": "Nom complet du medicament/produit",
+  "type": "medicament ou materiel (materiel = dispositif/consommable non medicamenteux : seringue, catheter, masque, pansement, attelle, garrot...)",
   "dci": "DCI ou principe actif si visible",
   "dosage": "Dosage/concentration si visible",
   "forme": "Forme pharmaceutique (ampoule, comprime, flacon...)",
@@ -480,7 +481,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && canEdit()) {
         'quantite'          => max(0, (float)str_replace(',', '.', $_POST['quantite'] ?? '0')),
         'quantite_min'      => $_POST['quantite_min'] !== '' ? max(0, (float)$_POST['quantite_min']) : 0,
         'unite'             => trim($_POST['unite']          ?? 'unité'),
-        'date_peremption'   => $_POST['date_peremption']     ?? '',
+        'date_peremption'   => (trim($_POST['date_peremption'] ?? '') !== '') ? $_POST['date_peremption'] : null,
         'alerte_jours'      => max(1, (int)($_POST['alerte_jours'] ?? 30)),
         'chaine_froid'      => isset($_POST['chaine_froid']) ? 1 : 0,
         'temp_stockage_min' => $_POST['temp_stockage_min'] !== '' ? (float)$_POST['temp_stockage_min'] : null,
@@ -490,8 +491,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && canEdit()) {
 
     if (!$f['nom']) { $f['nom'] = $f['dci']; } // repli : le nom (regroupement/affichage) reprend la DCI si non renseigné
     if ($f['type_produit'] === 'materiel') {
-        $champ_manquant = (!$f['nom'] || !$f['date_peremption'] || !$f['emplacement_id']);
-        $msg_manquant   = "Nom du matériel, emplacement et date de péremption sont obligatoires.";
+        $champ_manquant = (!$f['nom'] || !$f['emplacement_id']);   // peremption facultative pour le materiel
+        $msg_manquant   = "Nom du matériel et emplacement sont obligatoires.";
     } else {
         $champ_manquant = (!$f['dci'] || !$f['date_peremption'] || !$f['emplacement_id']);
         $msg_manquant   = "DCI, emplacement et date de péremption sont obligatoires.";
@@ -1381,7 +1382,7 @@ const SR_EMPLS = <?= json_encode($empl_for_js) ?>;
           </div>
           <div class="form-group">
             <label class="form-label">Forme</label>
-            <select name="forme" class="form-control">
+            <select name="forme" id="forme-input" class="form-control" onchange="pxFormeUnite()">
               <option value="">—</option>
               <?php foreach ($formeOpts as $fo): ?><option <?= ($editing['forme'] ?? '')===$fo ? 'selected' : '' ?>><?= $fo ?></option><?php endforeach; ?>
             </select>
@@ -1492,8 +1493,8 @@ const SR_EMPLS = <?= json_encode($empl_for_js) ?>;
       <div class="px-fsect"><div class="px-fsect-h">⏱️ Péremption &amp; conservation</div>
       <div class="form-row">
         <div class="form-group">
-          <label class="form-label">Date de péremption *</label>
-          <input type="date" name="date_peremption" class="form-control"
+          <label class="form-label" id="lbl-date">Date de péremption *</label>
+          <input type="date" name="date_peremption" id="date-input" class="form-control"
                  value="<?= $editing['date_peremption'] ?? '' ?>" required>
         </div>
         <?php if (currentRole() !== 'saisie'): ?>
@@ -1803,10 +1804,11 @@ if (empty($grouped)): ?>
       $pxPalette = ['#E24B4A','#F97316','#F59E0B','#10B981','#14B8A6','#3B82F6','#8B5CF6','#EC4899','#64748B','#1D4ED8'];
       $pxQ = fn($v) => rtrim(rtrim(number_format((float)$v,2,'.',''),'0'),'.');
       foreach ($products as $p):
+        $noExp  = empty($p['date_peremption']);
         $days   = (int)$p['days_left'];
-        $status = expiryStatus($p['date_peremption']);
-        $bc     = match($status){'expired'=>'px-b-crit','critical'=>'px-b-crit','warning'=>'px-b-warn',default=>'px-b-ok'};
-        $label  = match(true){$days<0=>"Périmé J+".abs($days),$days===0=>"Auj. !",$days===1=>"Demain",default=>"J-$days"};
+        $status = $noExp ? 'none' : expiryStatus($p['date_peremption']);
+        $bc     = match($status){'expired'=>'px-b-crit','critical'=>'px-b-crit','warning'=>'px-b-warn','none'=>'px-b-mut',default=>'px-b-ok'};
+        $label  = $noExp ? '—' : match(true){$days<0=>"Périmé J+".abs($days),$days===0=>"Auj. !",$days===1=>"Demain",default=>"J-$days"};
         $dot    = (float)$p['quantite_min'];
         $qte    = (float)$p['quantite'];
         $qc     = $dot>0 ? ($qte<$dot?'px-q-under':($qte>$dot?'px-q-over':'px-q-ok')) : '';
@@ -1818,7 +1820,7 @@ if (empty($grouped)): ?>
           <?php if($pxBulk): ?><td class="px-selcol" onclick="event.stopPropagation()"><input type="checkbox" class="px-rowchk" name="bulk_ids[]" value="<?= $p['id'] ?>" data-perime="<?= $days<0?'1':'0' ?>" onclick="pxSelChanged()"></td><?php endif; ?>
           <td>
             <div class="px-prod">
-              <span class="px-pico" style="background:color-mix(in srgb, <?= $col ?> 16%, transparent)">💊</span>
+              <span class="px-pico" style="background:color-mix(in srgb, <?= $col ?> 16%, transparent)"><?= ($p['type_produit']??'')==='materiel' ? '🧰' : '💊' ?></span>
               <div>
                 <div class="px-pname"><?= h($p['dci'] ?: $p['nom']) ?><?php if(!empty($p['dci']) && !empty($p['nom']) && mb_strtolower($p['dci'])!==mb_strtolower($p['nom'])):?> <span class="px-nom2">(<?= h($p['nom']) ?>)</span><?php endif;?><?php if($p['chaine_froid']):?><span class="px-cold" title="Chaîne du froid">❄️</span><?php endif;?><?php if($noCode):?><span class="px-nocode" title="Sans code-barres">📷</span><?php endif;?><?php if(($p['type_produit']??'')==='materiel'):?><span class="px-mat" title="Matériel">🧰 Matériel</span><?php endif;?></div>
                 <?php
@@ -2179,6 +2181,11 @@ function pxSetType(t) {
     if (lblRef) lblRef.textContent = 'Référence / taille / modèle';
     if (ref) ref.placeholder = 'Ex : 18G, T3, adulte…';
     if (grpRef && refSlot && grpRef.parentNode !== refSlot) refSlot.appendChild(grpRef); // sous le nom
+    var dEl=document.getElementById('date-input'), dLbl=document.getElementById('lbl-date');
+    if (dEl) dEl.required = false;                     // peremption facultative pour le materiel
+    if (dLbl) dLbl.innerHTML = 'Date de péremption <span style="font-weight:400;color:var(--text3);font-size:11px">— si applicable</span>';
+    var uEl=document.querySelector('[name="unite"]');  // unite par defaut "unité"
+    if (uEl && !PX_EDIT_OPEN && (!uEl.value || uEl.value==='')) uEl.value='unité';
   } else {
     if (grpDci) grpDci.style.display = '';
     if (dci) dci.required = true;
@@ -2190,7 +2197,19 @@ function pxSetType(t) {
     if (lblRef) lblRef.textContent = 'Référence';
     if (ref) ref.placeholder = 'Code produit…';
     if (grpRef && grpRef._home && grpRef.parentNode !== grpRef._home.parent) grpRef._home.parent.insertBefore(grpRef, grpRef._home.next); // retour a sa place
+    var dEl=document.getElementById('date-input'), dLbl=document.getElementById('lbl-date');
+    if (dEl) dEl.required = true;                      // peremption obligatoire pour un medicament
+    if (dLbl) dLbl.textContent = 'Date de péremption *';
   }
+}
+// Forme -> propose l'unite correspondante (sans ecraser un choix manuel)
+function pxFormeUnite() {
+  var f=document.getElementById('forme-input'), u=document.querySelector('[name="unite"]');
+  if(!f||!u) return;
+  if(u.value && u.value!=='unité') return;
+  var map={'Ampoule':'ampoule','Comprimé':'comprimé','Gélule':'gélule','Flacon':'flacon','Poche':'poche','Seringue préremplie':'seringue','Sachet':'sachet','Pommade':'tube'};
+  var v=map[f.value]; if(!v) return;
+  for(var i=0;i<u.options.length;i++){ if(u.options[i].value===v||u.options[i].text===v){ u.selectedIndex=i; break; } }
 }
 document.addEventListener('keydown', function(e){ if (e.key === 'Escape') { var p=document.getElementById('form-panel'); if (p && p.classList.contains('open')) closeForm(); } });
 document.addEventListener('DOMContentLoaded', function(){ var fp=document.getElementById('form-panel'); if (fp && fp.classList.contains('open')) document.body.style.overflow = 'hidden'; });
@@ -2554,6 +2573,7 @@ function analyzePhoto(dataUrl, mimeType) {
 }
 
 function applyPhotoData(d) {
+  if (typeof pxSetType === 'function') pxSetType(d.type === 'materiel' ? 'materiel' : 'medicament'); // pre-selectionne le type detecte
   var fields = { 'nom': d.nom, 'dci': d.dci, 'dosage': d.dosage, 'forme': d.forme, 'numero_lot': d.numero_lot, 'date_peremption': d.date_peremption, 'unite': d.unite, 'ean': d.ean, 'gtin': d.gtin, 'datamatrix': d.datamatrix };
   Object.keys(fields).forEach(function(k) {
     var el = document.querySelector('[name="' + k + '"]');
