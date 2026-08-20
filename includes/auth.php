@@ -277,7 +277,8 @@ function roleBadgeClass(string $role = ''): string {
     };
 }
 
-function expiryStatus(string $date): string {
+function expiryStatus(?string $date): string {
+    if ($date === null || $date === '' || $date === '0000-00-00') return 'none'; // pas d'echeance (materiel durable)
     $expiry = new DateTime($date);
     $now    = new DateTime();
     if ($expiry < $now) return 'expired';
@@ -287,7 +288,8 @@ function expiryStatus(string $date): string {
     return 'ok';
 }
 
-function daysLeft(string $date): int {
+function daysLeft(?string $date): int {
+    if ($date === null || $date === '' || $date === '0000-00-00') return 99999; // pas d'echeance
     $expiry = new DateTime($date);
     $now    = new DateTime();
     $diff   = $now->diff($expiry);
