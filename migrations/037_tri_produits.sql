@@ -98,3 +98,21 @@ UPDATE produits SET dci='Ipratropium' WHERE nom IN ('Ipratropium adulte','Ipratr
 
 -- Sulfadiazine argentique (Flammazine)
 UPDATE produits SET dci='Sulfadiazine argentique' WHERE nom='Sulfadiazine argentique (tube)' AND (dci IS NULL OR dci='');
+
+-- ================= PARTIE 3 : arbitrages Yoann =================
+
+-- Betadine = Povidone iodee
+UPDATE produits SET nom='Bétadine', dci='Povidone iodée'
+  WHERE nom IN ('Bétadine alcoolique','Bétadine alcoolique 10ml');
+
+-- NaCl / serum physiologique = Chlorure de sodium 0,9% (on garde le volume dans le nom)
+UPDATE produits SET nom='NaCl',       dci='Chlorure de sodium', dosage='0,9%' WHERE nom IN ('NaCl 0,9 %','Nacl 0,9%');
+UPDATE produits SET nom='NaCl 10ml',  dci='Chlorure de sodium', dosage='0,9%' WHERE nom='NaCl 0,9% 10ml';
+UPDATE produits SET nom='NaCl 100ml', dci='Chlorure de sodium', dosage='0,9%' WHERE nom='Sérum physiologique 100ml';
+UPDATE produits SET nom='NaCl 500ml', dci='Chlorure de sodium', dosage='0,9%' WHERE nom='Sérum physiologique 500ml';
+
+-- Suppressions (entrees de test / doublons d'emplacement) — uniquement si aucun mouvement rattache
+DELETE FROM produits WHERE nom='STREPSILS LIDOCAINE, pastille'
+  AND id NOT IN (SELECT produit_id FROM mouvements_stock);
+DELETE FROM produits WHERE nom IN ('Sacoche de perfusion n°1','Sacoche de perfusion n°2')
+  AND id NOT IN (SELECT produit_id FROM mouvements_stock);
