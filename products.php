@@ -476,6 +476,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && canEdit()) {
         'datamatrix'        => trim($_POST['datamatrix']     ?? '') ?: null,
         'dci'               => trim($_POST['dci']            ?? '') ?: null,
         'type_produit'      => in_array($_POST['type_produit'] ?? '', ['medicament','materiel'], true) ? $_POST['type_produit'] : 'medicament',
+        'stupefiant'        => isset($_POST['stupefiant']) ? 1 : 0,
+        'dose_mg'           => ($_POST['dose_mg'] ?? '')   !== '' ? (float)str_replace(',', '.', $_POST['dose_mg'])   : null,
+        'volume_ml'         => ($_POST['volume_ml'] ?? '') !== '' ? (float)str_replace(',', '.', $_POST['volume_ml']) : null,
         'dosage'            => trim($_POST['dosage']         ?? '') ?: null,
         'forme'             => trim($_POST['forme']          ?? '') ?: null,
         'quantite'          => max(0, (float)str_replace(',', '.', $_POST['quantite'] ?? '0')),
@@ -517,13 +520,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && canEdit()) {
             $old = $stmt->fetch(PDO::FETCH_ASSOC);
 
             $pdo->prepare("UPDATE produits SET
-                emplacement_id=?, nom=?, dci=?, type_produit=?, dosage=?, forme=?, reference=?, numero_lot=?, gtin=?, ean=?, datamatrix=?,
+                emplacement_id=?, nom=?, dci=?, type_produit=?, stupefiant=?, dose_mg=?, volume_ml=?, dosage=?, forme=?, reference=?, numero_lot=?, gtin=?, ean=?, datamatrix=?,
                 quantite=?, quantite_min=?, unite=?, date_peremption=?,
                 alerte_jours=?, chaine_froid=?, temp_stockage_min=?,
                 temp_stockage_max=?, notes=?, modifie_par=?, modifie_le=NOW()
                 WHERE id=?")
                 ->execute([
-                    $f['emplacement_id'], $f['nom'], $f['dci'], $f['type_produit'], $f['dosage'], $f['forme'], $f['reference'], $f['numero_lot'], $f['gtin'], $f['ean'], $f['datamatrix'],
+                    $f['emplacement_id'], $f['nom'], $f['dci'], $f['type_produit'], $f['stupefiant'], $f['dose_mg'], $f['volume_ml'], $f['dosage'], $f['forme'], $f['reference'], $f['numero_lot'], $f['gtin'], $f['ean'], $f['datamatrix'],
                     $f['quantite'], $f['quantite_min'], $f['unite'], $f['date_peremption'],
                     $f['alerte_jours'], $f['chaine_froid'], $f['temp_stockage_min'],
                     $f['temp_stockage_max'], $f['notes'], currentUserId(), $id
@@ -539,9 +542,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && canEdit()) {
             audit_log($pdo, 'MODIF_PRODUIT', 'produits', $id, $old, $f);
             flashSuccess("Produit « {$f['nom']} » mis à jour.");
         } else {
-            $pdo->prepare("INSERT INTO produits (emplacement_id, nom, dci, type_produit, dosage, forme, reference, numero_lot, gtin, ean, datamatrix, quantite, quantite_min, unite, date_peremption, alerte_jours, chaine_froid, temp_stockage_min, temp_stockage_max, notes, cree_par) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
+            $pdo->prepare("INSERT INTO produits (emplacement_id, nom, dci, type_produit, stupefiant, dose_mg, volume_ml, dosage, forme, reference, numero_lot, gtin, ean, datamatrix, quantite, quantite_min, unite, date_peremption, alerte_jours, chaine_froid, temp_stockage_min, temp_stockage_max, notes, cree_par) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
                 ->execute([
-                    $f['emplacement_id'], $f['nom'], $f['dci'], $f['type_produit'], $f['dosage'], $f['forme'], $f['reference'], $f['numero_lot'], $f['gtin'], $f['ean'], $f['datamatrix'],
+                    $f['emplacement_id'], $f['nom'], $f['dci'], $f['type_produit'], $f['stupefiant'], $f['dose_mg'], $f['volume_ml'], $f['dosage'], $f['forme'], $f['reference'], $f['numero_lot'], $f['gtin'], $f['ean'], $f['datamatrix'],
                     $f['quantite'], $f['quantite_min'], $f['unite'], $f['date_peremption'],
                     $f['alerte_jours'], $f['chaine_froid'], $f['temp_stockage_min'],
                     $f['temp_stockage_max'], $f['notes'], currentUserId()
@@ -1389,6 +1392,16 @@ const SR_EMPLS = <?= json_encode($empl_for_js) ?>;
           </div>
         </div>
 
+        <div class="form-group" id="grp-stup" style="margin-top:2px">
+          <label style="display:inline-flex;align-items:center;gap:8px;font-weight:600;cursor:pointer">
+            <input type="checkbox" name="stupefiant" id="stup-cb" value="1" <?= ($editing['stupefiant'] ?? 0) ? 'checked' : '' ?> onchange="pxStupToggle()"> 🔒 Stupéfiant (suivi au coffre)
+          </label>
+          <div class="form-row" id="grp-stup-cfg" style="margin-top:10px;<?= ($editing['stupefiant'] ?? 0) ? '' : 'display:none' ?>">
+            <div class="form-group"><label class="form-label">Dose par ampoule (mg)</label><input type="number" name="dose_mg" class="form-control" value="<?= h($editing['dose_mg'] ?? '') ?>" step="0.5" min="0" placeholder="10"></div>
+            <div class="form-group"><label class="form-label">Volume par ampoule (mL)</label><input type="number" name="volume_ml" class="form-control" value="<?= h($editing['volume_ml'] ?? '') ?>" step="0.5" min="0" placeholder="10"></div>
+          </div>
+        </div>
+
         <!-- Zone scan photo -->
         <div id="scan-photo-zone" style="display:none;margin-top:6px;margin-bottom:6px">
           <div style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:14px">
@@ -1822,7 +1835,7 @@ if (empty($grouped)): ?>
             <div class="px-prod">
               <span class="px-pico" style="background:color-mix(in srgb, <?= $col ?> 16%, transparent)"><?= ($p['type_produit']??'')==='materiel' ? '🧰' : '💊' ?></span>
               <div>
-                <div class="px-pname"><?= h($p['dci'] ?: $p['nom']) ?><?php if(!empty($p['dci']) && !empty($p['nom']) && mb_strtolower($p['dci'])!==mb_strtolower($p['nom'])):?> <span class="px-nom2">(<?= h($p['nom']) ?>)</span><?php endif;?><?php if($p['chaine_froid']):?><span class="px-cold" title="Chaîne du froid">❄️</span><?php endif;?><?php if($noCode):?><span class="px-nocode" title="Sans code-barres">📷</span><?php endif;?><?php if(($p['type_produit']??'')==='materiel'):?><span class="px-mat" title="Matériel">🧰 Matériel</span><?php endif;?></div>
+                <div class="px-pname"><?= h($p['dci'] ?: $p['nom']) ?><?php if(!empty($p['dci']) && !empty($p['nom']) && mb_strtolower($p['dci'])!==mb_strtolower($p['nom'])):?> <span class="px-nom2">(<?= h($p['nom']) ?>)</span><?php endif;?><?php if($p['chaine_froid']):?><span class="px-cold" title="Chaîne du froid">❄️</span><?php endif;?><?php if($noCode):?><span class="px-nocode" title="Sans code-barres">📷</span><?php endif;?><?php if(($p['type_produit']??'')==='materiel'):?><span class="px-mat" title="Matériel">🧰 Matériel</span><?php endif;?><?php if(!empty($p['stupefiant'])):?><span class="px-mat" title="Stupéfiant — coffre" style="background:#1E2A4A">🔒 Stup</span><?php endif;?></div>
                 <?php
                   $doseHtml = !empty($p['dosage']) ? '<span class="px-dose">'.h($p['dosage']).'</span>' : '';
                   $extra = [];
@@ -2181,6 +2194,7 @@ function pxSetType(t) {
     if (lblRef) lblRef.textContent = 'Référence / taille / modèle';
     if (ref) ref.placeholder = 'Ex : 18G, T3, adulte…';
     if (grpRef && refSlot && grpRef.parentNode !== refSlot) refSlot.appendChild(grpRef); // sous le nom
+    var gs0=document.getElementById('grp-stup'); if(gs0) gs0.style.display='none'; // pas de stup pour du matériel
     var dEl=document.getElementById('date-input'), dLbl=document.getElementById('lbl-date');
     if (dEl) dEl.required = false;                     // peremption facultative pour le materiel
     if (dLbl) dLbl.innerHTML = 'Date de péremption <span style="font-weight:400;color:var(--text3);font-size:11px">— si applicable</span>';
@@ -2197,6 +2211,7 @@ function pxSetType(t) {
     if (lblRef) lblRef.textContent = 'Référence';
     if (ref) ref.placeholder = 'Code produit…';
     if (grpRef && grpRef._home && grpRef.parentNode !== grpRef._home.parent) grpRef._home.parent.insertBefore(grpRef, grpRef._home.next); // retour a sa place
+    var gs1=document.getElementById('grp-stup'); if(gs1) gs1.style.display=''; // stup possible pour un médicament
     var dEl=document.getElementById('date-input'), dLbl=document.getElementById('lbl-date');
     if (dEl) dEl.required = true;                      // peremption obligatoire pour un medicament
     if (dLbl) dLbl.textContent = 'Date de péremption *';
@@ -2210,6 +2225,11 @@ function pxFormeUnite() {
   var map={'Ampoule':'ampoule','Comprimé':'comprimé','Gélule':'gélule','Flacon':'flacon','Poche':'poche','Seringue préremplie':'seringue','Sachet':'sachet','Pommade':'tube'};
   var v=map[f.value]; if(!v) return;
   for(var i=0;i<u.options.length;i++){ if(u.options[i].value===v||u.options[i].text===v){ u.selectedIndex=i; break; } }
+}
+// Stupéfiant : affiche la config d'ampoule (mg/mL) quand coché
+function pxStupToggle(){
+  var cb=document.getElementById('stup-cb'), cfg=document.getElementById('grp-stup-cfg');
+  if(cb&&cfg) cfg.style.display = cb.checked ? '' : 'none';
 }
 document.addEventListener('keydown', function(e){ if (e.key === 'Escape') { var p=document.getElementById('form-panel'); if (p && p.classList.contains('open')) closeForm(); } });
 document.addEventListener('DOMContentLoaded', function(){ var fp=document.getElementById('form-panel'); if (fp && fp.classList.contains('open')) document.body.style.overflow = 'hidden'; });
