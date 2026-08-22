@@ -134,6 +134,7 @@ try {
         // Super admin : tout à 2
         foreach (['dashboard','medicaments','emplacements','alertes','rapports','import_export',
                   'scanner','qrcodes','fiches','rempotages','terrain','sse',
+                  'stupefiants','stupefiants_registre','stupefiants_valider',
                   'equipements','biomed','biomed_admin',
                   'ia','ia_config','messagerie',
                   'admin','admin_users','admin_audit','admin_alerts','admin_system'] as $m) {
@@ -791,6 +792,11 @@ window.VAPID_PUBLIC_KEY = <?php
     <?php if (nav_peut($nav_perms,'medicaments')): ?>
     <a href="/products.php"   class="nav-link <?= $currentPage==='products'  ?'active':'' ?>" onclick="closeSidebar()">
       <span class="nav-icon">💊</span> Médicaments
+    </a>
+    <?php endif; ?>
+    <?php if (nav_peut($nav_perms,'stupefiants')): ?>
+    <a href="/stupefiants.php" class="nav-link <?= $currentPage==='stupefiants' ?'active':'' ?>" onclick="closeSidebar()">
+      <span class="nav-icon">🔒</span> Stupéfiants
     </a>
     <?php endif; ?>
 
