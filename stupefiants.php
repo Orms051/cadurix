@@ -203,7 +203,7 @@ $mvClass = ['entree'=>'t-entree','administration'=>'t-admin','destruction'=>'t-d
 require_once 'includes/header.php';
 ?>
 <style>
-#stx{max-width:1140px;margin:0 auto;padding:6px 4px 40px;font-family:"Plus Jakarta Sans",system-ui,sans-serif}
+#stx{padding:0 0 30px;font-family:"Plus Jakarta Sans",system-ui,sans-serif}
 #stx .num{font-variant-numeric:tabular-nums}
 #stx .top{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;flex-wrap:wrap;margin-bottom:6px}
 #stx .brand{display:flex;align-items:center;gap:13px}
@@ -212,32 +212,31 @@ require_once 'includes/header.php';
 #stx h1{font-size:26px;font-weight:800;margin:0;letter-spacing:-.02em;color:var(--text)}
 #stx .sub{color:var(--text2);font-size:13.5px;margin:3px 0 0}
 #stx .selbox{display:flex;align-items:center;gap:8px;background:var(--bg2);border:1px solid var(--border);border-radius:11px;padding:7px 11px;font-size:13.5px;font-weight:600}
-#stx select.psel{border:none;background:transparent;font-family:inherit;font-weight:700;color:var(--text);font-size:13.5px;cursor:pointer}
+#stx select.psel{border:1px solid var(--border);background:var(--bg2);border-radius:9px;padding:8px 12px;font-family:inherit;font-weight:600;color:var(--text);font-size:13.5px;cursor:pointer}
 #stx .pill{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:700;padding:3px 10px;border-radius:999px;line-height:1.6}
 #stx .pill.ok{color:#1D9E75;background:rgba(29,158,117,.14)} #stx .pill.warn{color:#C77C06;background:rgba(239,159,39,.16)} #stx .pill.crit{color:#E24B4A;background:rgba(226,75,74,.14)} #stx .pill.role{color:var(--primary);background:rgba(59,130,246,.12)} #stx .pill.mut{color:var(--text2);background:var(--bg3)}
 #stx .flash{padding:12px 15px;border-radius:12px;margin:10px 0;font-size:13.5px;font-weight:600;border:1px solid}
 #stx .flash.ok{background:rgba(29,158,117,.10);color:#1D9E75;border-color:rgba(29,158,117,.3)} #stx .flash.warn{background:rgba(239,159,39,.12);color:#C77C06;border-color:rgba(239,159,39,.3)} #stx .flash.crit{background:rgba(226,75,74,.10);color:#E24B4A;border-color:rgba(226,75,74,.3)}
-#stx .actions{display:grid;grid-template-columns:repeat(auto-fit,minmax(168px,1fr));gap:12px;margin:18px 0 6px}
-#stx .action{display:flex;gap:11px;align-items:center;text-align:left;background:var(--bg3);border:1px solid var(--border);border-radius:14px;padding:13px 14px;cursor:pointer;font-family:inherit;transition:transform .12s,box-shadow .12s}
-#stx .action:hover{transform:translateY(-2px);box-shadow:0 8px 20px -12px rgba(30,42,74,.3)}
-#stx .action .ai{width:36px;height:36px;border-radius:10px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:17px;background:var(--bg3);color:var(--primary)}
-#stx .action.on{background:linear-gradient(150deg,#5b9bff,var(--primary));border-color:transparent;box-shadow:0 8px 18px -8px var(--primary)}
-#stx .action.on .ai{background:rgba(255,255,255,.22);color:#fff} #stx .action.on .t,#stx .action.on .s{color:#fff}
-#stx .action .t{font-weight:800;font-size:14px} #stx .action .s{font-size:11px;color:var(--text3);margin-top:2px}
+#stx .actions{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 4px}
+#stx .action{display:inline-flex;gap:7px;align-items:center;background:var(--glass);border:1px solid var(--border);border-radius:9px;padding:8px 14px;cursor:pointer;font-family:inherit;font-weight:700;color:var(--text2);font-size:13.5px;transition:.15s}
+#stx .action:hover{border-color:var(--primary);color:var(--primary)}
+#stx .action .ai{font-size:15px}
+#stx .action.on{background:var(--primary);border-color:var(--primary);color:#fff}
+#stx .action .t{font-weight:700}
 #stx .view{display:none} #stx .view.show{display:block}
-#stx .pub{display:flex;align-items:center;gap:16px;flex-wrap:wrap;background:linear-gradient(120deg,var(--bg2),var(--bg3));border:1px solid var(--border);border-radius:16px;padding:15px 18px;margin:14px 0 4px}
+#stx .pub{display:flex;align-items:center;gap:16px;flex-wrap:wrap;background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);padding:15px 18px;margin:0 0 4px;box-shadow:var(--shadow)}
 #stx .pub .eye{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--text3);font-weight:700}
 #stx .pub .big{font-size:28px;font-weight:800;letter-spacing:-.02em} #stx .pub .big small{font-size:14px;font-weight:600;color:var(--text2)}
 #stx .pub .rt{margin-left:auto;font-size:12.5px;color:var(--text2);max-width:38ch;border-left:1px solid var(--border);padding-left:16px}
 #stx .section-h{display:flex;align-items:center;gap:11px;margin:26px 0 12px;flex-wrap:wrap}
 #stx .section-h h2{font-size:18px;font-weight:800;margin:0} #stx .section-h .line{flex:1;height:1px;background:var(--border);min-width:20px} #stx .hint{font-size:12.5px;color:var(--text2)}
 #stx .panel{background:var(--bg3);border:1px solid var(--border);border-radius:16px;overflow:hidden}
-#stx .panel-h{padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;background:var(--bg2)}
+#stx .panel-h{padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;background:transparent}
 #stx .panel-h .ic{width:30px;height:30px;border-radius:9px;display:flex;align-items:center;justify-content:center;background:rgba(59,130,246,.14);color:var(--primary);font-size:16px}
 #stx .panel-h h3{margin:0;font-size:15px;font-weight:800} #stx .panel-b{padding:18px}
 #stx .ledger-scroll{overflow-x:auto}
 #stx table{border-collapse:collapse;width:100%;min-width:820px;font-size:13.5px}
-#stx thead th{text-align:left;font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--text3);font-weight:700;padding:12px 14px;background:var(--bg2);border-bottom:1px solid var(--border);white-space:nowrap}
+#stx thead th{text-align:left;font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--text3);font-weight:700;padding:12px 14px;background:transparent;border-bottom:1px solid var(--border);white-space:nowrap}
 #stx thead th.r,#stx tbody td.r{text-align:right}
 #stx tbody td{padding:12px 14px;border-bottom:1px solid var(--border);vertical-align:top}
 #stx tbody tr td:first-child{border-left:3px solid transparent}
