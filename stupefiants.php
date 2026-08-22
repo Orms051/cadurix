@@ -218,20 +218,20 @@ require_once 'includes/header.php';
 #stx .flash{padding:12px 15px;border-radius:12px;margin:10px 0;font-size:13.5px;font-weight:600;border:1px solid}
 #stx .flash.ok{background:rgba(29,158,117,.10);color:#1D9E75;border-color:rgba(29,158,117,.3)} #stx .flash.warn{background:rgba(239,159,39,.12);color:#C77C06;border-color:rgba(239,159,39,.3)} #stx .flash.crit{background:rgba(226,75,74,.10);color:#E24B4A;border-color:rgba(226,75,74,.3)}
 #stx .actions{display:grid;grid-template-columns:repeat(auto-fit,minmax(168px,1fr));gap:12px;margin:18px 0 6px}
-#stx .action{display:flex;gap:11px;align-items:center;text-align:left;background:var(--bg-elev,#fff);border:1px solid var(--border);border-radius:14px;padding:13px 14px;cursor:pointer;font-family:inherit;transition:transform .12s,box-shadow .12s}
+#stx .action{display:flex;gap:11px;align-items:center;text-align:left;background:var(--bg3);border:1px solid var(--border);border-radius:14px;padding:13px 14px;cursor:pointer;font-family:inherit;transition:transform .12s,box-shadow .12s}
 #stx .action:hover{transform:translateY(-2px);box-shadow:0 8px 20px -12px rgba(30,42,74,.3)}
 #stx .action .ai{width:36px;height:36px;border-radius:10px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:17px;background:var(--bg3);color:var(--primary)}
 #stx .action.on{background:linear-gradient(150deg,#5b9bff,var(--primary));border-color:transparent;box-shadow:0 8px 18px -8px var(--primary)}
 #stx .action.on .ai{background:rgba(255,255,255,.22);color:#fff} #stx .action.on .t,#stx .action.on .s{color:#fff}
 #stx .action .t{font-weight:800;font-size:14px} #stx .action .s{font-size:11px;color:var(--text3);margin-top:2px}
 #stx .view{display:none} #stx .view.show{display:block}
-#stx .pub{display:flex;align-items:center;gap:16px;flex-wrap:wrap;background:linear-gradient(120deg,var(--bg2),var(--bg-elev,#fff));border:1px solid var(--border);border-radius:16px;padding:15px 18px;margin:14px 0 4px}
+#stx .pub{display:flex;align-items:center;gap:16px;flex-wrap:wrap;background:linear-gradient(120deg,var(--bg2),var(--bg3));border:1px solid var(--border);border-radius:16px;padding:15px 18px;margin:14px 0 4px}
 #stx .pub .eye{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--text3);font-weight:700}
 #stx .pub .big{font-size:28px;font-weight:800;letter-spacing:-.02em} #stx .pub .big small{font-size:14px;font-weight:600;color:var(--text2)}
 #stx .pub .rt{margin-left:auto;font-size:12.5px;color:var(--text2);max-width:38ch;border-left:1px solid var(--border);padding-left:16px}
 #stx .section-h{display:flex;align-items:center;gap:11px;margin:26px 0 12px;flex-wrap:wrap}
 #stx .section-h h2{font-size:18px;font-weight:800;margin:0} #stx .section-h .line{flex:1;height:1px;background:var(--border);min-width:20px} #stx .hint{font-size:12.5px;color:var(--text2)}
-#stx .panel{background:var(--bg-elev,#fff);border:1px solid var(--border);border-radius:16px;overflow:hidden}
+#stx .panel{background:var(--bg3);border:1px solid var(--border);border-radius:16px;overflow:hidden}
 #stx .panel-h{padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;background:var(--bg2)}
 #stx .panel-h .ic{width:30px;height:30px;border-radius:9px;display:flex;align-items:center;justify-content:center;background:rgba(59,130,246,.14);color:var(--primary);font-size:16px}
 #stx .panel-h h3{margin:0;font-size:15px;font-weight:800} #stx .panel-b{padding:18px}
@@ -253,7 +253,7 @@ require_once 'includes/header.php';
 #stx .empty{padding:40px 20px;text-align:center;color:var(--text3);font-size:14px}
 #stx .locked-note{padding:26px 20px;text-align:center;color:var(--text2)}
 #stx .shifts{display:grid;grid-template-columns:1fr 1fr;gap:14px} @media(max-width:560px){#stx .shifts{grid-template-columns:1fr}}
-#stx .shift{border:1px solid var(--border);border-radius:13px;padding:14px 15px;background:var(--bg2)} #stx .shift.todo{border-style:dashed;background:var(--bg-elev,#fff)}
+#stx .shift{border:1px solid var(--border);border-radius:13px;padding:14px 15px;background:var(--bg2)} #stx .shift.todo{border-style:dashed;background:var(--bg3)}
 #stx .shift .shd{display:flex;align-items:center;gap:8px;font-weight:800;font-size:14px;margin-bottom:11px} #stx .shift .shd .hh{margin-left:auto;font-size:12px;color:var(--text3);font-weight:600}
 #stx .cmp{display:flex;align-items:center;justify-content:space-between;font-size:13px;padding:5px 0;color:var(--text2)} #stx .cmp .n{color:var(--text);font-weight:800;font-size:15px;font-variant-numeric:tabular-nums}
 #stx .shift .st{margin-top:11px;display:flex;align-items:center;gap:9px;flex-wrap:wrap}
@@ -271,34 +271,30 @@ require_once 'includes/header.php';
 #stx .relflow{display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap} #stx .relflow .seg{display:flex;flex-direction:column;gap:2px} #stx .relflow .seg .t{font-size:10.5px;text-transform:uppercase;color:var(--text2);font-weight:700} #stx .relflow .seg .n{font-weight:800;font-size:19px;font-variant-numeric:tabular-nums} #stx .relflow .op{color:var(--text3);font-size:18px;padding-bottom:3px} #stx .relflow .seg.out .n{color:#C77C06} #stx .relflow .u{font-size:12px;color:var(--text2);font-weight:600}
 #stx .rel-sub{margin-top:10px;font-size:12px;color:var(--text2);border-top:1px dashed rgba(239,159,39,.3);padding-top:9px} #stx .rel-sub b{color:var(--text)}
 #stx .stx-btn{display:inline-flex;align-items:center;gap:7px;padding:11px 18px;border-radius:10px;border:none;cursor:pointer;font-family:inherit;font-size:14px;font-weight:700;background:var(--primary);color:#fff;box-shadow:0 4px 14px -5px var(--primary)}
-#stx .stx-btn:hover{background:#2563EB} #stx .stx-btn.ghost{background:var(--bg-elev,#fff);color:var(--text);border:1px solid var(--border);box-shadow:none} #stx .stx-btn.lg{padding:13px 22px;font-size:15px}
+#stx .stx-btn:hover{background:#2563EB} #stx .stx-btn.ghost{background:var(--bg3);color:var(--text);border:1px solid var(--border);box-shadow:none} #stx .stx-btn.lg{padding:13px 22px;font-size:15px}
 #stx .form-foot{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-top:4px} #stx .form-foot .note{font-size:11.5px;color:var(--text3)}
-#stx .seg-choice{display:inline-flex;border:1px solid var(--border);border-radius:10px;overflow:hidden} #stx .seg-choice button{padding:9px 18px;border:none;background:var(--bg-elev,#fff);color:var(--text2);font-family:inherit;font-size:13.5px;font-weight:700;cursor:pointer} #stx .seg-choice button+button{border-left:1px solid var(--border)} #stx .seg-choice button.on{background:var(--primary);color:#fff}
+#stx .seg-choice{display:inline-flex;border:1px solid var(--border);border-radius:10px;overflow:hidden} #stx .seg-choice button{padding:9px 18px;border:none;background:var(--bg3);color:var(--text2);font-family:inherit;font-size:13.5px;font-weight:700;cursor:pointer} #stx .seg-choice button+button{border-left:1px solid var(--border)} #stx .seg-choice button.on{background:var(--primary);color:#fff}
 #stx .warn-note{display:flex;gap:10px;align-items:flex-start;background:rgba(239,159,39,.12);border:1px solid rgba(239,159,39,.3);border-radius:11px;padding:12px 14px;font-size:12.5px;color:var(--text2);margin:4px 0 16px} #stx .warn-note b{color:var(--text)}
 #stx .val-grid{display:grid;grid-template-columns:1fr 1fr;gap:22px} @media(max-width:720px){#stx .val-grid{grid-template-columns:1fr}}
 #stx .tiles{display:grid;grid-template-columns:repeat(3,1fr);gap:10px} @media(max-width:420px){#stx .tiles{grid-template-columns:repeat(2,1fr)}}
 #stx .tile{background:var(--bg2);border:1px solid var(--border);border-radius:11px;padding:11px 12px} #stx .tile .t{font-size:10px;text-transform:uppercase;color:var(--text3);font-weight:700} #stx .tile .n{font-weight:800;font-size:19px;margin-top:3px;font-variant-numeric:tabular-nums} #stx .tile.hl{border-color:rgba(59,130,246,.35);background:rgba(59,130,246,.08)} #stx .tile.hl .n{color:var(--primary)}
 #stx .mini-ttl{font-size:11px;text-transform:uppercase;color:var(--text3);font-weight:800;margin:0 0 10px}
 #stx .val-foot{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-top:20px;padding-top:16px;border-top:1px solid var(--border)} #stx .val-foot .note{font-size:12px;color:var(--text2);max-width:360px} #stx .val-foot .note b{color:var(--text)}
-#stx .note-banner{margin-top:26px;background:var(--bg-elev,#fff);border:1px solid var(--border);border-left:3px solid var(--primary);border-radius:13px;padding:16px 18px} #stx .note-banner h4{margin:0 0 9px;font-size:13.5px;font-weight:800} #stx .note-banner ul{margin:0;padding-left:20px;color:var(--text2);font-size:13px} #stx .note-banner li{margin:5px 0} #stx .note-banner b{color:var(--text)}
+#stx .note-banner{margin-top:26px;background:var(--bg3);border:1px solid var(--border);border-left:3px solid var(--primary);border-radius:13px;padding:16px 18px} #stx .note-banner h4{margin:0 0 9px;font-size:13.5px;font-weight:800} #stx .note-banner ul{margin:0;padding-left:20px;color:var(--text2);font-size:13px} #stx .note-banner li{margin:5px 0} #stx .note-banner b{color:var(--text)}
 </style>
 
 <div id="stx">
 
-  <div class="top">
-    <div class="brand">
-      <div class="ic-tile">🔒</div>
-      <div>
-        <p class="eyebrow">Module réglementé</p>
-        <h1>Stupéfiants</h1>
-        <p class="sub">Coffre sécurisé, registre comptable et contrôles de garde.</p>
-      </div>
+  <div class="page-header">
+    <div class="page-title-group">
+      <div class="page-title">🔒 Stupéfiants</div>
+      <div class="page-sub">Coffre sécurisé, registre comptable et contrôles de garde</div>
     </div>
     <?php if ($stups): ?>
-    <div class="selbox">💊
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
       <select class="psel" onchange="if(this.value)location.href='stupefiants.php?p='+this.value">
         <?php foreach ($stups as $s): ?>
-          <option value="<?= $s['id'] ?>" <?= $s['id']==$pid?'selected':'' ?>><?= h($s['dci'] ?: $s['nom']) ?><?= $s['dose_mg']!==null ? ' — '.$pxQ($s['dose_mg']).' mg' : '' ?> · <?= h($s['emp_nom']) ?></option>
+          <option value="<?= $s['id'] ?>" <?= $s['id']==$pid?'selected':'' ?>>💊 <?= h($s['dci'] ?: $s['nom']) ?><?= $s['dose_mg']!==null ? ' — '.$pxQ($s['dose_mg']).' mg' : '' ?> · <?= h($s['emp_nom']) ?></option>
         <?php endforeach; ?>
       </select>
     </div>
@@ -313,11 +309,11 @@ require_once 'includes/header.php';
 
   <!-- Boutons -->
   <div class="actions">
-    <button class="action" data-view="registre"><span class="ai">🔒</span><span><span class="t">Registre</span><span class="s">Confidentiel</span></span></button>
-    <button class="action" data-view="garde"><span class="ai">🕓</span><span><span class="t">Prise de garde</span><span class="s">Matin &amp; soir</span></span></button>
-    <button class="action" data-view="admin"><span class="ai">💉</span><span><span class="t">J'ai administré</span><span class="s">Déclarer</span></span></button>
-    <button class="action" data-view="casse"><span class="ai">💥</span><span><span class="t">Casse / perte</span><span class="s">Déclarer</span></span></button>
-    <?php if ($canValider): ?><button class="action" data-view="valider"><span class="ai">🛡️</span><span><span class="t">Valider la période</span><span class="s">Administrateur</span></span></button><?php endif; ?>
+    <button class="action" data-view="registre"><span class="ai">🔒</span><span class="t">Registre</span></button>
+    <button class="action" data-view="garde"><span class="ai">🕓</span><span class="t">Prise de garde</span></button>
+    <button class="action" data-view="admin"><span class="ai">💉</span><span class="t">J'ai administré</span></button>
+    <button class="action" data-view="casse"><span class="ai">💥</span><span class="t">Casse / perte</span></button>
+    <?php if ($canValider): ?><button class="action" data-view="valider"><span class="ai">🛡️</span><span class="t">Valider la période</span></button><?php endif; ?>
   </div>
 
   <!-- Référence publique -->
@@ -331,7 +327,7 @@ require_once 'includes/header.php';
 
   <!-- REGISTRE -->
   <section class="view show" id="view-registre">
-    <div class="section-h"><h2>Registre chronologique</h2><span class="pill role">🔒 Confidentiel</span><div class="line"></div><span class="hint">Solde du coffre : <b><?= $pxQ($prod['quantite']) ?></b> ampoule(s)</span></div>
+    <div class="section-h"><h2>Registre chronologique</h2><div class="line"></div><span class="hint">Solde du coffre : <b><?= $pxQ($prod['quantite']) ?></b> ampoule(s)</span></div>
     <?php if (!$canRegistre): ?>
       <div class="panel"><div class="locked-note">🔒 <b>Registre réservé.</b><br>Seul le dernier solde validé ci-dessus t'est visible. Le détail est accessible aux rôles autorisés par l'administrateur.</div></div>
     <?php else: ?>
@@ -342,7 +338,7 @@ require_once 'includes/header.php';
           <div class="field" style="margin:0"><label>➕ Entrée / réappro (ampoules)</label><input class="num" type="number" name="ampoules" value="1" min="1" step="1" style="width:120px"></div>
           <div class="field" style="margin:0"><label>N° de lot</label><input class="num" name="lot" placeholder="M4482"></div>
           <div class="field" style="margin:0"><label>Péremption</label><input type="date" name="date_exp"></div>
-          <button class="stx-btn ghost" type="submit">Ajouter au coffre</button>
+          <button class="btn btn-ghost" type="submit">Ajouter au coffre</button>
         </form>
       </div></div>
       <?php endif; ?>
@@ -382,7 +378,7 @@ require_once 'includes/header.php';
 
   <!-- PRISE DE GARDE -->
   <section class="view" id="view-garde">
-    <div class="section-h"><h2>Contrôle de prise de garde</h2><span class="pill role">Infirmier de garde</span><div class="line"></div><span class="hint">Comptage physique · écart ⇒ alerte admin</span></div>
+    <div class="section-h"><h2>Contrôle de prise de garde</h2><div class="line"></div><span class="hint">Comptage physique · écart ⇒ alerte admin</span></div>
     <div class="panel"><div class="panel-h"><span class="ic">🕓</span><h3>Comptage — <?= date('d/m/Y') ?></h3></div><div class="panel-b">
       <div class="shifts">
         <?php foreach (['matin'=>'🌅 Prise de garde · matin','soir'=>'🌙 Relève · soir'] as $mk=>$ml): $ct=$ctrlToday[$mk]??null; ?>
@@ -398,7 +394,7 @@ require_once 'includes/header.php';
             <form method="post" style="margin-top:8px;display:flex;gap:8px;align-items:flex-end">
               <?= csrfField() ?><input type="hidden" name="action" value="garde"><input type="hidden" name="produit_id" value="<?= $pid ?>"><input type="hidden" name="moment" value="<?= $mk ?>">
               <div class="field" style="margin:0;flex:1"><label>Compté physiquement</label><input class="num" type="number" name="compte" step="0.5" min="0" required placeholder="<?= $pxQ($prod['quantite']) ?>"></div>
-              <button class="stx-btn" type="submit">Valider</button>
+              <button class="btn btn-primary" type="submit">Valider</button>
             </form>
           <?php endif; ?>
         </div>
@@ -413,7 +409,7 @@ require_once 'includes/header.php';
 
   <!-- ADMINISTRATION -->
   <section class="view" id="view-admin">
-    <div class="section-h"><h2>Parcours « J'ai administré »</h2><span class="pill role">Infirmier</span><div class="line"></div><span class="hint">Le reliquat se calcule tout seul</span></div>
+    <div class="section-h"><h2>Parcours « J'ai administré »</h2><div class="line"></div><span class="hint">Le reliquat se calcule tout seul</span></div>
     <div class="panel"><div class="panel-h"><span class="ic">💉</span><h3>Déclarer une administration</h3></div><div class="panel-b">
       <form method="post" id="admform">
         <?= csrfField() ?><input type="hidden" name="action" value="administer"><input type="hidden" name="produit_id" value="<?= $pid ?>">
@@ -436,14 +432,14 @@ require_once 'includes/header.php';
           </div>
           <div class="rel-sub" id="r-sub">Renseigne les ampoules et la dose administrée.</div>
         </div>
-        <div class="form-foot"><button class="stx-btn" type="submit" data-confirm>🔒 Enregistrer au registre</button><span class="note">Écriture définitive · −1 ampoule</span></div>
+        <div class="form-foot"><button class="btn btn-primary" type="submit" data-confirm>🔒 Enregistrer au registre</button><span class="note">Écriture définitive · −1 ampoule</span></div>
       </form>
     </div></div>
   </section>
 
   <!-- CASSE / PERTE -->
   <section class="view" id="view-casse">
-    <div class="section-h"><h2>Déclarer une casse / perte</h2><span class="pill role">Infirmier</span><div class="line"></div><span class="hint">Ampoule cassée, souillée ou perdue</span></div>
+    <div class="section-h"><h2>Déclarer une casse / perte</h2><div class="line"></div><span class="hint">Ampoule cassée, souillée ou perdue</span></div>
     <div class="panel"><div class="panel-h"><span class="ic">💥</span><h3>Casse / perte d'ampoule</h3></div><div class="panel-b">
       <form method="post" id="casseform">
         <?= csrfField() ?><input type="hidden" name="action" value="casse"><input type="hidden" name="produit_id" value="<?= $pid ?>"><input type="hidden" name="motif_type" id="motif_type" value="casse">
@@ -455,7 +451,7 @@ require_once 'includes/header.php';
         <div class="field"><label>Nombre d'ampoules</label><input class="num" type="number" name="ampoules" value="1" min="1" step="1" style="max-width:160px"></div>
         <div class="field"><label>Circonstances <span class="opt">— obligatoire</span></label><input name="circonstances" required placeholder="Ex : ampoule tombée à l'ouverture"></div>
         <div class="warn-note">⚠️ <div>L'ampoule est <b>détruite</b> (casse) ou déclarée <b>perdue</b>, le coffre est <b>débité</b> et l'<b>administrateur notifié</b>.</div></div>
-        <div class="form-foot"><button class="stx-btn" type="submit" data-confirm>🔒 Déclarer et débiter</button><span class="note">−1 ampoule · tracé au registre</span></div>
+        <div class="form-foot"><button class="btn btn-primary" type="submit" data-confirm>🔒 Déclarer et débiter</button><span class="note">−1 ampoule · tracé au registre</span></div>
       </form>
     </div></div>
   </section>
@@ -463,7 +459,7 @@ require_once 'includes/header.php';
   <!-- VALIDATION -->
   <?php if ($canValider): ?>
   <section class="view" id="view-valider">
-    <div class="section-h"><h2>Validation périodique</h2><span class="pill role">Administrateur</span><div class="line"></div><span class="hint">Devient la référence visible par tous</span></div>
+    <div class="section-h"><h2>Validation périodique</h2><div class="line"></div><span class="hint">Devient la référence visible par tous</span></div>
     <div class="panel"><div class="panel-h"><span class="ic">🛡️</span><h3>Clôturer &amp; valider — <?= h($moisFr(date('Y-m'))) ?></h3></div><div class="panel-b">
       <div class="val-grid">
         <div><p class="mini-ttl">Récapitulatif de la période</p><div class="tiles">
@@ -480,7 +476,7 @@ require_once 'includes/header.php';
       </div>
       <form method="post" class="val-foot">
         <?= csrfField() ?><input type="hidden" name="action" value="valider"><input type="hidden" name="produit_id" value="<?= $pid ?>"><input type="hidden" name="periode" value="<?= date('Y-m') ?>">
-        <button class="stx-btn lg" type="submit" data-confirm>🔒 Valider et verrouiller <?= h($moisFr(date('Y-m'))) ?></button>
+        <button class="btn btn-primary" type="submit" data-confirm>🔒 Valider et verrouiller <?= h($moisFr(date('Y-m'))) ?></button>
         <span class="note">Publie le <b>solde de référence (<?= $pxQ($prod['quantite']) ?>)</b> visible par tous. Signé <b><?= h(trim(($_SESSION['prenom']??'').' '.($_SESSION['nom']??'')) ?: 'admin') ?></b>.</span>
       </form>
     </div></div>
