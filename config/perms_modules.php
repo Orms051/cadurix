@@ -25,6 +25,10 @@ function modules_permissions(): array {
         'rempotages'    => ['label'=>'Rempotages',               'icon'=>'🔄', 'section'=>'Terrain'],
         'terrain'       => ['label'=>'Terrain (interventions)',  'icon'=>'🚑', 'section'=>'Terrain'],
         'sse'           => ['label'=>'SSE / NRBC',               'icon'=>'🧪', 'section'=>'Terrain'],
+        // ── Stupéfiants ──
+        'stupefiants'          => ['label'=>'Stupéfiants — accès module', 'icon'=>'🔒', 'section'=>'Stupéfiants'],
+        'stupefiants_registre' => ['label'=>'Voir le registre',          'icon'=>'📖', 'section'=>'Stupéfiants'],
+        'stupefiants_valider'  => ['label'=>'Valider les périodes',      'icon'=>'🛡️', 'section'=>'Stupéfiants'],
         // ── Biomédical ──
         'equipements'   => ['label'=>'Équipements biomédical',   'icon'=>'🔬', 'section'=>'Biomédical'],
         'biomed'        => ['label'=>'Portail biomédical',       'icon'=>'🩺', 'section'=>'Biomédical'],
