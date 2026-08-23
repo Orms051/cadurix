@@ -304,6 +304,19 @@ if (isset($_GET['ajax'])) {
         $nom         = trim($data['nom']         ?? '');
         $type        = in_array($data['type'] ?? 'standard', ['standard','pui','sac','vehicule','coffre'], true)
                        ? $data['type'] : 'standard';
+        // Créer / gérer un coffre à stupéfiants : permission dédiée (Admin → Accès)
+        if ($type === 'coffre') {
+            $okCoffre = ($_SESSION['super_admin'] ?? false);
+            if (!$okCoffre) {
+                $rr = role_sur_site() ?? '';
+                if ($rr) {
+                    $qc = $pdo->prepare("SELECT niveau FROM role_permissions WHERE role=? AND module='stupefiants_coffre'");
+                    $qc->execute([$rr]); $okCoffre = ((int)$qc->fetchColumn()) >= 1;
+                    try { $qs = $pdo->prepare("SELECT niveau FROM site_role_permissions WHERE site_id=? AND role=? AND module='stupefiants_coffre'"); $qs->execute([$site_id,$rr]); $ov=$qs->fetchColumn(); if($ov!==false) $okCoffre=((int)$ov)>=1; } catch(Exception $e){}
+                }
+            }
+            if (!$okCoffre) { echo json_encode(['error' => "Vous n'avez pas le droit de créer un coffre à stupéfiants (permission « Créer / gérer un coffre »)."]); exit; }
+        }
         $icone_val   = $data['icone'] ?? '';
         $icone       = (in_array($icone_val, $ICON_CHOICES, true)
                         || preg_match('/^(sac|dos|perf)-(red|org|amb|grn|teal|blue|vio|pink|grey|navy)$/', $icone_val))

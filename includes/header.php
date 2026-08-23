@@ -134,7 +134,7 @@ try {
         // Super admin : tout à 2
         foreach (['dashboard','medicaments','emplacements','alertes','rapports','import_export',
                   'scanner','qrcodes','fiches','rempotages','terrain','sse',
-                  'stupefiants','stupefiants_registre','stupefiants_valider',
+                  'stupefiants','stupefiants_registre','stupefiants_valider','stupefiants_coffre',
                   'equipements','biomed','biomed_admin',
                   'ia','ia_config','messagerie',
                   'admin','admin_users','admin_audit','admin_alerts','admin_system'] as $m) {
