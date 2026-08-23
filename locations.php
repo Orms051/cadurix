@@ -302,7 +302,7 @@ if (isset($_GET['ajax'])) {
 
         $data        = json_decode(file_get_contents('php://input'), true);
         $nom         = trim($data['nom']         ?? '');
-        $type        = in_array($data['type'] ?? 'standard', ['standard','pui','sac','vehicule'], true)
+        $type        = in_array($data['type'] ?? 'standard', ['standard','pui','sac','vehicule','coffre'], true)
                        ? $data['type'] : 'standard';
         $icone_val   = $data['icone'] ?? '';
         $icone       = (in_array($icone_val, $ICON_CHOICES, true)
@@ -496,6 +496,7 @@ require_once 'includes/header.php';
         <select id="editType">
           <option value="standard">Emplacement standard (sac, sacoche, véhicule…)</option>
           <option value="pui">PUI — Pharmacie à usage intérieur (stock central du site)</option>
+          <option value="coffre">🔒 Coffre à stupéfiants (stockage sécurisé)</option>
         </select>
       </div>
       <div class="form-group">
@@ -1777,11 +1778,13 @@ function renderDetail({ node, breadcrumb, enfants, stats, last_remp }, products 
       <div class="loc-header-top">
         <div>
           <div class="loc-title">
-            <span class="loc-emoji">${node.icone ? iconHtml(node.icone, 28) : (node.type==='pui'?'🏢':(node.chaine_froid==1?'❄️':'🚑'))}</span>
+            <span class="loc-emoji">${node.icone ? iconHtml(node.icone, 28) : (node.type==='pui'?'🏢':(node.type==='coffre'?'🔒':(node.chaine_froid==1?'❄️':'🚑')))}</span>
             ${escHtml(node.nom)}
             ${node.type==='pui' ? '<span class="pui-tag pui-tag-lg">PUI</span>' : ''}
+            ${node.type==='coffre' ? '<span class="pui-tag pui-tag-lg" style="background:#1E2A4A">🔒 COFFRE</span>' : ''}
           </div>
           ${node.type==='pui' ? `<div class="loc-subtitle" style="color:#8B5CF6">Pharmacie à usage intérieur — stock central du site</div>` : ''}
+          ${node.type==='coffre' ? `<div class="loc-subtitle" style="color:#1E2A4A">Coffre à stupéfiants — stockage sécurisé</div>` : ''}
           ${node.description ? `<div class="loc-subtitle">${escHtml(node.description)}</div>` : ''}
           ${coldBlock}
         </div>
