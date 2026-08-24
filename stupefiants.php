@@ -186,7 +186,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $prod) {
         }
 
         elseif ($action === 'garde') {
-            $moment = ($_POST['moment'] ?? 'matin') === 'soir' ? 'soir' : 'matin';
+            $moment = 'controle';
             $compte = (float)str_replace(',', '.', $_POST['compte'] ?? '0');
             $ecart  = $compte - $solde;
             $statut = abs($ecart) < 0.001 ? 'conforme' : 'anomalie';
@@ -239,8 +239,8 @@ $flashMap = [
   'admneg' => ['warn', 'Administration enregistrée — ⚠️ solde négatif, à régulariser.'],
   'casse'  => ['warn', 'Casse déclarée et débitée. Administrateur notifié.'],
   'perte'  => ['warn', 'Perte déclarée et débitée. Administrateur notifié.'],
-  'gok'    => ['ok',   'Contrôle de prise de garde conforme.'],
-  'gko'    => ['crit', '⚠️ Écart détecté au contrôle — administrateur notifié.'],
+  'gok'    => ['ok',   'Contrôle enregistré (conforme) — horodaté.'],
+  'gko'    => ['crit', '⚠️ Écart détecté au contrôle (horodaté) — administrateur notifié.'],
   'entree' => ['ok',   'Entrée enregistrée au coffre.'],
   'valide' => ['ok',   'Période validée et publiée (référence visible par tous).'],
   'coffre' => ['ok',   'Coffre créé.'],
@@ -252,7 +252,7 @@ $flashMap = [
 ];
 $stxFlash = $flashMap[$_GET['m'] ?? ''] ?? null;
 
-$registre = $ctrlToday = []; $lastVal = null; $valPeriods = [];
+$registre = $controles = []; $lastVal = null; $valPeriods = [];
 $stats = ['nb' => 0, 'entrees' => 0, 'sorties' => 0];
 if ($prod) {
     if ($canRegistre) {
@@ -265,10 +265,12 @@ if ($prod) {
         $vp->execute([$pid]);
         $valPeriods = $vp->fetchAll(PDO::FETCH_COLUMN);
     }
-    // contrôles du jour
-    $c = $pdo->prepare("SELECT * FROM stupefiants_controles WHERE produit_id=? AND jour=? ORDER BY id DESC");
-    $c->execute([$pid, date('Y-m-d')]);
-    foreach ($c->fetchAll(PDO::FETCH_ASSOC) as $row) { if (!isset($ctrlToday[$row['moment']])) $ctrlToday[$row['moment']] = $row; }
+    // contrôles récents (horodatés)
+    $c = $pdo->prepare("SELECT c.*, TRIM(CONCAT(COALESCE(u.prenom,''),' ',COALESCE(u.nom,''))) AS agent
+        FROM stupefiants_controles c LEFT JOIN utilisateurs u ON u.id=c.user_id
+        WHERE c.produit_id=? ORDER BY c.cree_le DESC, c.id DESC LIMIT 30");
+    $c->execute([$pid]);
+    $controles = $c->fetchAll(PDO::FETCH_ASSOC);
     // dernière validation (référence publique)
     $lv = $pdo->prepare("SELECT v.*, TRIM(CONCAT(COALESCE(u.prenom,''),' ',COALESCE(u.nom,''))) AS agent
         FROM stupefiants_validations v LEFT JOIN utilisateurs u ON u.id=v.user_id
@@ -411,7 +413,7 @@ require_once 'includes/header.php';
   <div class="actions">
     <?php if ($prod): ?>
     <button class="action" data-view="registre"><span class="ai">🔒</span><span class="t">Registre</span></button>
-    <button class="action" data-view="garde"><span class="ai">🕓</span><span class="t">Prise de garde</span></button>
+    <button class="action" data-view="garde"><span class="ai">🕓</span><span class="t">Contrôle</span></button>
     <button class="action" data-view="admin"><span class="ai">💉</span><span class="t">J'ai administré</span></button>
     <button class="action" data-view="casse"><span class="ai">💥</span><span class="t">Casse / perte</span></button>
     <?php if ($canValider): ?><button class="action" data-view="valider"><span class="ai">🛡️</span><span class="t">Valider la période</span></button><?php endif; ?>
@@ -485,35 +487,41 @@ require_once 'includes/header.php';
     <?php endif; ?>
   </section>
 
-  <!-- PRISE DE GARDE -->
+  <!-- CONTRÔLE DU COFFRE -->
   <section class="view" id="view-garde">
-    <div class="section-h"><h2>Contrôle de prise de garde</h2><div class="line"></div><span class="hint">Comptage physique · écart ⇒ alerte admin</span></div>
-    <div class="panel"><div class="panel-h"><span class="ic">🕓</span><h3>Comptage — <?= date('d/m/Y') ?></h3></div><div class="panel-b">
-      <div class="shifts">
-        <?php foreach (['matin'=>'🌅 Prise de garde · matin','soir'=>'🌙 Relève · soir'] as $mk=>$ml): $ct=$ctrlToday[$mk]??null; ?>
-        <div class="shift <?= $ct?'':'todo' ?>">
-          <div class="shd"><?= $ml ?> <span class="hh"><?= $mk==='matin'?'07:00':'19:00' ?></span></div>
-          <?php if ($ct): ?>
-            <div class="cmp"><span>Solde théorique</span><span class="n"><?= $pxQ($ct['theorique']) ?></span></div>
-            <div class="cmp"><span>Compté</span><span class="n" style="color:var(--primary)"><?= $pxQ($ct['compte']) ?></span></div>
-            <div class="cmp"><span>Écart</span><span class="n" style="color:<?= abs($ct['ecart'])<0.001?'#1D9E75':'#E24B4A' ?>"><?= $pxQ($ct['ecart']) ?></span></div>
-            <div class="st"><?php if($ct['statut']==='conforme'): ?><span class="pill ok">✓ Conforme</span><?php else: ?><span class="pill crit">⚠️ Anomalie</span><?php endif; ?></div>
-          <?php else: ?>
-            <div class="cmp"><span>Solde théorique</span><span class="n"><?= $pxQ($prod['quantite']) ?></span></div>
-            <form method="post" style="margin-top:8px;display:flex;gap:8px;align-items:flex-end">
-              <?= csrfField() ?><input type="hidden" name="action" value="garde"><input type="hidden" name="produit_id" value="<?= $pid ?>"><input type="hidden" name="moment" value="<?= $mk ?>">
-              <div class="field" style="margin:0;flex:1"><label>Compté physiquement</label><input class="num" type="number" name="compte" step="0.5" min="0" required placeholder="<?= $pxQ($prod['quantite']) ?>"></div>
-              <button class="btn btn-primary" type="submit">Valider</button>
-            </form>
-          <?php endif; ?>
-        </div>
-        <?php endforeach; ?>
-      </div>
-      <p class="mand">🔒 <b>Comptage physique obligatoire</b> à chaque relève.</p>
+    <div class="section-h"><h2>Contrôle du coffre</h2><div class="line"></div><span class="hint">Comptage physique · horodaté · écart ⇒ alerte admin</span></div>
+    <div class="panel"><div class="panel-h"><span class="ic">🕓</span><h3>Nouveau contrôle</h3></div><div class="panel-b">
+      <form method="post" style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap">
+        <?= csrfField() ?><input type="hidden" name="action" value="garde"><input type="hidden" name="produit_id" value="<?= $pid ?>">
+        <div class="field" style="margin:0"><label>Solde théorique</label><input class="num" value="<?= $pxQ($prod['quantite']) ?>" disabled style="max-width:120px;font-weight:800"></div>
+        <div class="field" style="margin:0;flex:1;min-width:160px"><label>Compté physiquement (ampoules)</label><input class="num" type="number" name="compte" step="0.5" min="0" required placeholder="<?= $pxQ($prod['quantite']) ?>"></div>
+        <button class="btn btn-primary" type="submit">✔️ Valider le contrôle</button>
+      </form>
+      <p class="mand">🔒 <b>Comptage physique obligatoire.</b> La validation enregistre la date et l'heure exactes.</p>
       <?php if ($lastAnomalie): ?>
-      <div class="alert"><span style="font-size:19px">⚠️</span><div class="body"><b>Écart signalé — <?= date('d/m H:i', strtotime($lastAnomalie['cree_le'])) ?> (<?= h($lastAnomalie['moment']) ?>)</b> : théorique <span class="num"><?= $pxQ($lastAnomalie['theorique']) ?></span>, compté <span class="num"><?= $pxQ($lastAnomalie['compte']) ?></span> → <b><?= $pxQ($lastAnomalie['ecart']) ?></b>.<br><span class="mut">Administrateur notifié — à régulariser.</span></div></div>
+      <div class="alert"><span style="font-size:19px">⚠️</span><div class="body"><b>Dernier écart — <?= date('d/m/Y à H:i', strtotime($lastAnomalie['cree_le'])) ?></b> : théorique <span class="num"><?= $pxQ($lastAnomalie['theorique']) ?></span>, compté <span class="num"><?= $pxQ($lastAnomalie['compte']) ?></span> → <b><?= $pxQ($lastAnomalie['ecart']) ?></b>.<br><span class="mut">Administrateur notifié — à régulariser.</span></div></div>
       <?php endif; ?>
     </div></div>
+
+    <div class="panel" style="margin-top:14px"><div class="panel-h"><span class="ic">🕓</span><h3>Historique des contrôles</h3></div>
+      <div class="ledger-scroll"><table>
+        <thead><tr><th>Date &amp; heure</th><th class="r">Théorique</th><th class="r">Compté</th><th class="r">Écart</th><th>Résultat</th><th>Agent</th></tr></thead>
+        <tbody>
+        <?php if (!$controles): ?>
+          <tr><td colspan="6" class="empty" style="border-left:none">Aucun contrôle enregistré.</td></tr>
+        <?php else: foreach ($controles as $ct): ?>
+          <tr>
+            <td class="date"><b><?= date('d/m/Y', strtotime($ct['cree_le'])) ?></b><?= date('H:i', strtotime($ct['cree_le'])) ?></td>
+            <td class="r num"><?= $pxQ($ct['theorique']) ?></td>
+            <td class="r num"><?= $pxQ($ct['compte']) ?></td>
+            <td class="r num" style="color:<?= abs($ct['ecart'])<0.001?'#1D9E75':'#E24B4A' ?>;font-weight:700"><?= ($ct['ecart']>0?'+':'').$pxQ($ct['ecart']) ?></td>
+            <td><?php if($ct['statut']==='conforme'): ?><span class="pill ok">✓ Conforme</span><?php else: ?><span class="pill crit">⚠️ Anomalie</span><?php endif; ?></td>
+            <td><?= h($ct['agent'] ?: '—') ?></td>
+          </tr>
+        <?php endforeach; endif; ?>
+        </tbody>
+      </table></div>
+    </div>
   </section>
 
   <!-- ADMINISTRATION -->
@@ -579,7 +587,7 @@ require_once 'includes/header.php';
         </div></div>
         <div><p class="mini-ttl">Points de contrôle</p><ul class="note-banner" style="list-style:none;margin:0;padding:0;border:none;box-shadow:none">
           <li style="padding:6px 0">✅ Reliquats tracés au registre</li>
-          <li style="padding:6px 0">✅ Contrôles de prise de garde enregistrés</li>
+          <li style="padding:6px 0">✅ Contrôles du coffre enregistrés</li>
           <li style="padding:6px 0">✅ Vérifie qu'aucun écart n'est en anomalie</li>
         </ul></div>
       </div>
@@ -673,7 +681,7 @@ require_once 'includes/header.php';
     <h4>⚖️ Ce que ce module garantit</h4>
     <ul>
       <li><b>Registre confidentiel</b> — visible seulement par les rôles autorisés ; les autres ne voient que le dernier solde validé.</li>
-      <li><b>Reliquat tracé</b> · <b>casse/perte déclarée à part</b> · <b>prise de garde</b> matin/soir avec alerte admin sur écart.</li>
+      <li><b>Reliquat tracé</b> · <b>casse/perte déclarée à part</b> · <b>contrôle du coffre</b> horodaté avec alerte admin sur écart.</li>
       <li><b>Solde recalculé</b> à chaque écriture · registre <b>append-only</b> (correction = écriture inverse).</li>
     </ul>
   </div>
