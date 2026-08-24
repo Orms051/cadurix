@@ -493,9 +493,9 @@ require_once 'includes/header.php';
     <div class="panel"><div class="panel-h"><span class="ic">🕓</span><h3>Nouveau contrôle</h3></div><div class="panel-b">
       <form method="post" style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap">
         <?= csrfField() ?><input type="hidden" name="action" value="garde"><input type="hidden" name="produit_id" value="<?= $pid ?>">
-        <div class="field" style="margin:0"><label>Solde théorique</label><input class="num" value="<?= $pxQ($prod['quantite']) ?>" disabled style="max-width:120px;font-weight:800"></div>
-        <div class="field" style="margin:0;flex:1;min-width:160px"><label>Compté physiquement (ampoules)</label><input class="num" type="number" name="compte" step="0.5" min="0" required placeholder="<?= $pxQ($prod['quantite']) ?>"></div>
-        <button class="btn btn-primary" type="submit">✔️ Valider le contrôle</button>
+        <div class="field" style="margin:0;width:120px"><label>Solde théorique</label><input class="num" value="<?= $pxQ($prod['quantite']) ?>" disabled style="font-weight:800"></div>
+        <div class="field" style="margin:0;width:170px"><label>Compté (ampoules)</label><input class="num" type="number" name="compte" step="0.5" min="0" required placeholder="<?= $pxQ($prod['quantite']) ?>"></div>
+        <button class="btn btn-primary" type="submit">✔️ Valider</button>
       </form>
       <p class="mand">🔒 <b>Comptage physique obligatoire.</b> La validation enregistre la date et l'heure exactes.</p>
       <?php if ($lastAnomalie): ?>
