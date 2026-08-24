@@ -18,6 +18,22 @@ if (!$site_id) {
 
 $csrf = $_SESSION['csrf_token'] ?? '';
 
+// ── Confidentialité : qui voit les coffres à stupéfiants dans Emplacements ──
+// Visible si super_admin OU l'un des droits stupéfiants (accès / registre / coffre).
+$canSeeCoffre = ($_SESSION['super_admin'] ?? false);
+if (!$canSeeCoffre) {
+    $rr = function_exists('role_sur_site') ? (role_sur_site() ?? '') : '';
+    if ($rr) {
+        try {
+            $qv = $pdo->prepare("SELECT MAX(niveau) FROM role_permissions WHERE role=? AND module IN ('stupefiants','stupefiants_registre','stupefiants_coffre')");
+            $qv->execute([$rr]); $canSeeCoffre = ((int)$qv->fetchColumn()) >= 1;
+            $qs = $pdo->prepare("SELECT MAX(niveau) FROM site_role_permissions WHERE site_id=? AND role=? AND module IN ('stupefiants','stupefiants_registre','stupefiants_coffre')");
+            $qs->execute([$site_id, $rr]); $ov = $qs->fetchColumn(); if ($ov !== null && $ov !== false) $canSeeCoffre = ((int)$ov) >= 1;
+        } catch (Exception $e) {}
+    }
+}
+$GLOBALS['canSeeCoffre'] = $canSeeCoffre;
+
 // Palette d'icônes proposées pour un emplacement (source unique : validation
 // serveur + sélecteur côté formulaire). Toute valeur hors liste est ignorée.
 $ICON_CHOICES = [
@@ -75,6 +91,7 @@ if (isset($_GET['ajax'])) {
                 LEFT JOIN produits p ON p.emplacement_id = e.id AND p.statut='actif'
                 WHERE e.parent_id " . ($parent_id === null ? "IS NULL" : "= ?") . "
                   AND e.site_id = ? AND e.actif = 1
+                  " . (empty($GLOBALS['canSeeCoffre']) ? "AND e.type <> 'coffre'" : "") . "
                 GROUP BY e.id ORDER BY e.nom
             ");
             $parent_id === null ? $stmt->execute([$site_id]) : $stmt->execute([$parent_id, $site_id]);
@@ -172,6 +189,10 @@ if (isset($_GET['ajax'])) {
     // u2500u2500 Produits d'un emplacement u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500
     if ($_GET['ajax'] === 'products' && isset($_GET['id'])) {
         $id = (int)$_GET['id'];
+        if (empty($GLOBALS['canSeeCoffre'])) { // coffre confidentiel : contenu masqué aux non-autorisés
+            $tc = $pdo->prepare("SELECT type FROM emplacements WHERE id=? AND site_id=?"); $tc->execute([$id, $site_id]);
+            if ($tc->fetchColumn() === 'coffre') { echo json_encode([]); exit; }
+        }
         $stmt = $pdo->prepare("SELECT id, nom, dci, dosage, forme, numero_lot, quantite, quantite_min, unite, date_peremption, notes, DATEDIFF(date_peremption, CURDATE()) AS jours_restants FROM produits WHERE emplacement_id = ? AND statut = 'actif' ORDER BY nom, date_peremption ASC");
         $stmt->execute([$id]);
         echo json_encode($stmt->fetchAll(PDO::FETCH_ASSOC));
