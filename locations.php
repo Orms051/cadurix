@@ -17,22 +17,8 @@ if (!$site_id) {
 }
 
 $csrf = $_SESSION['csrf_token'] ?? '';
-
-// ── Confidentialité : qui voit les coffres à stupéfiants dans Emplacements ──
-// Visible si super_admin OU l'un des droits stupéfiants (accès / registre / coffre).
-$canSeeCoffre = ($_SESSION['super_admin'] ?? false);
-if (!$canSeeCoffre) {
-    $rr = function_exists('role_sur_site') ? (role_sur_site() ?? '') : '';
-    if ($rr) {
-        try {
-            $qv = $pdo->prepare("SELECT MAX(niveau) FROM role_permissions WHERE role=? AND module IN ('stupefiants','stupefiants_registre','stupefiants_coffre')");
-            $qv->execute([$rr]); $canSeeCoffre = ((int)$qv->fetchColumn()) >= 1;
-            $qs = $pdo->prepare("SELECT MAX(niveau) FROM site_role_permissions WHERE site_id=? AND role=? AND module IN ('stupefiants','stupefiants_registre','stupefiants_coffre')");
-            $qs->execute([$site_id, $rr]); $ov = $qs->fetchColumn(); if ($ov !== null && $ov !== false) $canSeeCoffre = ((int)$ov) >= 1;
-        } catch (Exception $e) {}
-    }
-}
-$GLOBALS['canSeeCoffre'] = $canSeeCoffre;
+// Les coffres à stupéfiants sont gérés uniquement dans le module Stupéfiants :
+// jamais affichés ni modifiables depuis Emplacements (masquage inconditionnel plus bas).
 
 // Palette d'icônes proposées pour un emplacement (source unique : validation
 // serveur + sélecteur côté formulaire). Toute valeur hors liste est ignorée.
@@ -91,7 +77,7 @@ if (isset($_GET['ajax'])) {
                 LEFT JOIN produits p ON p.emplacement_id = e.id AND p.statut='actif'
                 WHERE e.parent_id " . ($parent_id === null ? "IS NULL" : "= ?") . "
                   AND e.site_id = ? AND e.actif = 1
-                  " . (empty($GLOBALS['canSeeCoffre']) ? "AND e.type <> 'coffre'" : "") . "
+                  AND e.type <> 'coffre'
                 GROUP BY e.id ORDER BY e.nom
             ");
             $parent_id === null ? $stmt->execute([$site_id]) : $stmt->execute([$parent_id, $site_id]);
@@ -189,10 +175,9 @@ if (isset($_GET['ajax'])) {
     // u2500u2500 Produits d'un emplacement u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500u2500
     if ($_GET['ajax'] === 'products' && isset($_GET['id'])) {
         $id = (int)$_GET['id'];
-        if (empty($GLOBALS['canSeeCoffre'])) { // coffre confidentiel : contenu masqué aux non-autorisés
-            $tc = $pdo->prepare("SELECT type FROM emplacements WHERE id=? AND site_id=?"); $tc->execute([$id, $site_id]);
-            if ($tc->fetchColumn() === 'coffre') { echo json_encode([]); exit; }
-        }
+        // Coffre à stupéfiants : contenu jamais exposé depuis Emplacements (module dédié)
+        $tc = $pdo->prepare("SELECT type FROM emplacements WHERE id=? AND site_id=?"); $tc->execute([$id, $site_id]);
+        if ($tc->fetchColumn() === 'coffre') { echo json_encode([]); exit; }
         $stmt = $pdo->prepare("SELECT id, nom, dci, dosage, forme, numero_lot, quantite, quantite_min, unite, date_peremption, notes, DATEDIFF(date_peremption, CURDATE()) AS jours_restants FROM produits WHERE emplacement_id = ? AND statut = 'actif' ORDER BY nom, date_peremption ASC");
         $stmt->execute([$id]);
         echo json_encode($stmt->fetchAll(PDO::FETCH_ASSOC));
@@ -323,21 +308,9 @@ if (isset($_GET['ajax'])) {
 
         $data        = json_decode(file_get_contents('php://input'), true);
         $nom         = trim($data['nom']         ?? '');
-        $type        = in_array($data['type'] ?? 'standard', ['standard','pui','sac','vehicule','coffre'], true)
+        $type        = in_array($data['type'] ?? 'standard', ['standard','pui','sac','vehicule'], true)
                        ? $data['type'] : 'standard';
-        // Créer / gérer un coffre à stupéfiants : permission dédiée (Admin → Accès)
-        if ($type === 'coffre') {
-            $okCoffre = ($_SESSION['super_admin'] ?? false);
-            if (!$okCoffre) {
-                $rr = role_sur_site() ?? '';
-                if ($rr) {
-                    $qc = $pdo->prepare("SELECT niveau FROM role_permissions WHERE role=? AND module='stupefiants_coffre'");
-                    $qc->execute([$rr]); $okCoffre = ((int)$qc->fetchColumn()) >= 1;
-                    try { $qs = $pdo->prepare("SELECT niveau FROM site_role_permissions WHERE site_id=? AND role=? AND module='stupefiants_coffre'"); $qs->execute([$site_id,$rr]); $ov=$qs->fetchColumn(); if($ov!==false) $okCoffre=((int)$ov)>=1; } catch(Exception $e){}
-                }
-            }
-            if (!$okCoffre) { echo json_encode(['error' => "Vous n'avez pas le droit de créer un coffre à stupéfiants (permission « Créer / gérer un coffre »)."]); exit; }
-        }
+        // (les coffres à stupéfiants ne se créent pas ici — module Stupéfiants uniquement)
         $icone_val   = $data['icone'] ?? '';
         $icone       = (in_array($icone_val, $ICON_CHOICES, true)
                         || preg_match('/^(sac|dos|perf)-(red|org|amb|grn|teal|blue|vio|pink|grey|navy)$/', $icone_val))
@@ -530,7 +503,6 @@ require_once 'includes/header.php';
         <select id="editType">
           <option value="standard">Emplacement standard (sac, sacoche, véhicule…)</option>
           <option value="pui">PUI — Pharmacie à usage intérieur (stock central du site)</option>
-          <option value="coffre">🔒 Coffre à stupéfiants (stockage sécurisé)</option>
         </select>
       </div>
       <div class="form-group">

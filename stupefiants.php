@@ -23,6 +23,7 @@ $canRegistre = stx_niveau($pdo, 'stupefiants_registre') >= 1;
 $canValider  = stx_niveau($pdo, 'stupefiants_valider') >= 1;
 $canCoffre   = stx_niveau($pdo, 'stupefiants_coffre') >= 1;
 $canEntree   = $canValider || peut_faire(ROLE_GESTIONNAIRE);
+$canAddStup  = $canCoffre || peut_faire(ROLE_GESTIONNAIRE);
 if (!$canStup) { accessDenied(); exit; }
 
 // ── Création d'un coffre (n'exige pas de produit sélectionné) ──
@@ -32,6 +33,39 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'coffr
     if ($canCoffre && $nom !== '') {
         try { $pdo->prepare("INSERT INTO emplacements (site_id,parent_id,nom,type,actif) VALUES(?,?,?,?,1)")->execute([$site_id, null, $nom, 'coffre']); } catch (Exception $e) {}
         header('Location: stupefiants.php?v=coffre&m=coffre'); exit;
+    }
+    header('Location: stupefiants.php?v=coffre&m=err'); exit;
+}
+
+// ── Ajout d'un stupéfiant dans un coffre (le stup se gère ici, pas dans Médicaments) ──
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'stup_create') {
+    csrf_check();
+    $coffre_id = (int)($_POST['coffre_id'] ?? 0);
+    $nom = trim($_POST['nom'] ?? ''); $dci = trim($_POST['dci'] ?? '');
+    $okCoffre = false;
+    if ($coffre_id) { $q = $pdo->prepare("SELECT 1 FROM emplacements WHERE id=? AND site_id=? AND type='coffre'"); $q->execute([$coffre_id, $site_id]); $okCoffre = (bool)$q->fetchColumn(); }
+    if ($canAddStup && $okCoffre && ($dci !== '' || $nom !== '')) {
+        if ($nom === '') $nom = $dci;
+        $doseMg = ($_POST['dose_mg'] ?? '') !== '' ? (float)str_replace(',', '.', $_POST['dose_mg']) : null;
+        $volMl  = ($_POST['volume_ml'] ?? '') !== '' ? (float)str_replace(',', '.', $_POST['volume_ml']) : null;
+        $qte    = max(0, (float)str_replace(',', '.', $_POST['quantite'] ?? '0'));
+        $lot    = trim($_POST['lot'] ?? '') ?: null;
+        $exp    = ($_POST['date_exp'] ?? '') !== '' ? $_POST['date_exp'] : null;
+        $now    = date('Y-m-d H:i:s'); $uid = currentUserId();
+        try {
+            $pdo->beginTransaction();
+            $pdo->prepare("INSERT INTO produits (emplacement_id,nom,dci,type_produit,stupefiant,dose_mg,volume_ml,quantite,unite,numero_lot,date_peremption,alerte_jours,cree_par,statut) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
+                ->execute([$coffre_id, $nom, $dci ?: null, 'medicament', 1, $doseMg, $volMl, $qte, 'ampoule', $lot, $exp, 30, $uid, 'actif']);
+            $newId = (int)$pdo->lastInsertId();
+            if ($qte > 0) {
+                $pdo->prepare("INSERT INTO stupefiants_registre (produit_id,site_id,type,qte_ampoules,solde_apres,lot,date_exp,motif,periode,user_id,cree_le) VALUES(?,?,?,?,?,?,?,?,?,?,?)")
+                    ->execute([$newId, $site_id, 'entree', $qte, $qte, $lot, $exp, 'Stock initial', date('Y-m'), $uid, $now]);
+                $pdo->prepare("INSERT INTO mouvements_stock (produit_id,user_id,type,quantite_avant,quantite_delta,quantite_apres,motif) VALUES(?,?,?,?,?,?,?)")
+                    ->execute([$newId, $uid, 'entree', 0, $qte, $qte, 'Stupéfiant — stock initial']);
+            }
+            $pdo->commit();
+        } catch (Exception $e) { if ($pdo->inTransaction()) $pdo->rollBack(); header('Location: stupefiants.php?v=coffre&m=err'); exit; }
+        header('Location: stupefiants.php?p=' . $newId . '&v=coffre&m=stup'); exit;
     }
     header('Location: stupefiants.php?v=coffre&m=err'); exit;
 }
@@ -169,6 +203,7 @@ $flashMap = [
   'entree' => ['ok',   'Entrée enregistrée au coffre.'],
   'valide' => ['ok',   'Période validée et publiée (référence visible par tous).'],
   'coffre' => ['ok',   'Coffre créé.'],
+  'stup'   => ['ok',   'Stupéfiant ajouté au coffre.'],
   'err'    => ['crit', "Erreur lors de l'enregistrement."],
 ];
 $stxFlash = $flashMap[$_GET['m'] ?? ''] ?? null;
@@ -524,6 +559,31 @@ require_once 'includes/header.php';
         <?= csrfField() ?><input type="hidden" name="action" value="coffre_create">
         <div class="field" style="margin:0;flex:1;min-width:220px"><label>➕ Nouveau coffre — nom</label><input name="coffre_nom" required placeholder="Ex : Coffre — CSP Châlons"></div>
         <button class="btn btn-primary" type="submit">🏦 Créer le coffre</button>
+      </form>
+    </div></div>
+    <?php endif; ?>
+
+    <?php if ($canAddStup && $coffres): ?>
+    <div class="panel" style="margin-bottom:14px"><div class="panel-h"><span class="ic">💊</span><h3>Ajouter un stupéfiant dans un coffre</h3></div><div class="panel-b">
+      <form method="post">
+        <?= csrfField() ?><input type="hidden" name="action" value="stup_create">
+        <div class="row2">
+          <div class="field"><label>Coffre</label><select name="coffre_id" required><?php foreach($coffres as $c): ?><option value="<?= $c['id'] ?>"><?= h($c['nom']) ?></option><?php endforeach; ?></select></div>
+          <div class="field"><label>DCI (molécule)</label><input name="dci" placeholder="Ex : Morphine" required></div>
+        </div>
+        <div class="row2">
+          <div class="field"><label>Nom commercial <span class="opt">— optionnel</span></label><input name="nom" placeholder="Ex : Morphine Aguettant"></div>
+          <div class="field"><label>Quantité initiale (ampoules)</label><input class="num" type="number" name="quantite" value="0" min="0" step="1"></div>
+        </div>
+        <div class="row2">
+          <div class="field"><label>Dose par ampoule (mg)</label><input class="num" type="number" name="dose_mg" step="0.5" min="0" placeholder="10"></div>
+          <div class="field"><label>Volume par ampoule (mL)</label><input class="num" type="number" name="volume_ml" step="0.5" min="0" placeholder="10"></div>
+        </div>
+        <div class="row2">
+          <div class="field"><label>N° de lot</label><input class="num" name="lot" placeholder="M4482"></div>
+          <div class="field"><label>Péremption</label><input type="date" name="date_exp"></div>
+        </div>
+        <div class="form-foot"><button class="btn btn-primary" type="submit">💊 Ajouter au coffre</button><span class="note">Crée le stupéfiant dans le coffre choisi (stock initial tracé au registre).</span></div>
       </form>
     </div></div>
     <?php endif; ?>

@@ -332,6 +332,7 @@ if (!function_exists('psort_th')) {
 }
 $fs = "e.site_id = " . intval($site_id);
 $fe = sql_filtre_emplacements('e');
+$noStup = " AND (p.stupefiant = 0 OR p.stupefiant IS NULL)"; // les stupéfiants sont gérés uniquement dans le module Stupéfiants
 
 // ── Archivage (remplace suppression définitive) ───────────
 if (isset($_GET['archive']) && action_permise('archiver')) {
@@ -651,7 +652,7 @@ if ($filterEmpl) {
 }
 
 // ── Liste produits ────────────────────────────────────────
-$where  = "WHERE p.statut = '$statutLot' AND $fs AND $fe";
+$where  = "WHERE p.statut = '$statutLot' AND $fs AND $fe" . $noStup;
 $params = [];
 if ($qSearch !== '')              { $where .= ' AND (p.nom LIKE ? OR p.numero_lot LIKE ? OR p.reference LIKE ?)';        $like='%'.$qSearch.'%'; array_push($params,$like,$like,$like); }
 if ($filterEmpl)                  { $ph = implode(',', array_fill(0, count($emplFilterIds), '?')); $where .= " AND p.emplacement_id IN ($ph)"; foreach ($emplFilterIds as $eid) $params[] = $eid; }
@@ -681,7 +682,7 @@ $products = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
 $nbNocode = 0;
 try {
-    $nbNocode = (int)$pdo->query("SELECT COUNT(*) FROM produits p JOIN emplacements e ON e.id=p.emplacement_id WHERE p.statut='actif' AND $fs AND $fe AND COALESCE(NULLIF(p.gtin,''),NULLIF(p.ean,''),NULLIF(p.datamatrix,'')) IS NULL")->fetchColumn();
+    $nbNocode = (int)$pdo->query("SELECT COUNT(*) FROM produits p JOIN emplacements e ON e.id=p.emplacement_id WHERE p.statut='actif' AND $fs AND $fe$noStup AND COALESCE(NULLIF(p.gtin,''),NULLIF(p.ean,''),NULLIF(p.datamatrix,'')) IS NULL")->fetchColumn();
 } catch (Exception $e) {}
 
 // Emplacements pour le select — tous niveaux confondus
@@ -749,14 +750,14 @@ foreach ($allEmpls as $e) {
 $cntStatut = ['actif'=>0,'archive'=>0,'retire'=>0];
 try {
     $emplCond = $filterEmpl ? ' AND p.emplacement_id='.(int)$filterEmpl : '';
-    foreach ($pdo->query("SELECT p.statut, COUNT(*) c FROM produits p JOIN emplacements e ON e.id=p.emplacement_id WHERE $fs AND $fe$emplCond GROUP BY p.statut") as $r) {
+    foreach ($pdo->query("SELECT p.statut, COUNT(*) c FROM produits p JOIN emplacements e ON e.id=p.emplacement_id WHERE $fs AND $fe$noStup$emplCond GROUP BY p.statut") as $r) {
         if (isset($cntStatut[$r['statut']])) $cntStatut[$r['statut']] = (int)$r['c'];
     }
 } catch (Throwable $e) {}
 // Lots actifs existants (détection de doublon à la création)
 $existingLots = [];
 try {
-    $stEx = $pdo->prepare("SELECT p.nom, p.numero_lot, p.quantite, e.nom AS loc FROM produits p JOIN emplacements e ON e.id=p.emplacement_id WHERE p.statut='actif' AND $fs AND $fe");
+    $stEx = $pdo->prepare("SELECT p.nom, p.numero_lot, p.quantite, e.nom AS loc FROM produits p JOIN emplacements e ON e.id=p.emplacement_id WHERE p.statut='actif' AND $fs AND $fe$noStup");
     $stEx->execute();
     foreach ($stEx as $r) {
         if (!empty($r['numero_lot'])) $existingLots[] = ['nom'=>mb_strtolower($r['nom']),'lot'=>mb_strtolower($r['numero_lot']),'qte'=>$r['quantite'],'loc'=>$r['loc'],'nomAff'=>$r['nom']];
@@ -765,7 +766,7 @@ try {
 // Agrégat par nom (pour l'indice "existe déjà" à la saisie)
 $byName = [];
 try {
-    $stBn = $pdo->prepare("SELECT p.nom, COUNT(*) c, SUM(p.quantite) q, MAX(p.quantite_min) dot FROM produits p JOIN emplacements e ON e.id=p.emplacement_id WHERE p.statut='actif' AND $fs AND $fe GROUP BY p.nom");
+    $stBn = $pdo->prepare("SELECT p.nom, COUNT(*) c, SUM(p.quantite) q, MAX(p.quantite_min) dot FROM produits p JOIN emplacements e ON e.id=p.emplacement_id WHERE p.statut='actif' AND $fs AND $fe$noStup GROUP BY p.nom");
     $stBn->execute();
     foreach ($stBn as $r) $byName[mb_strtolower($r['nom'])] = ['nom'=>$r['nom'],'c'=>(int)$r['c'],'q'=>rtrim(rtrim(number_format((float)$r['q'],2,'.',''),'0'),'.'),'dot'=>rtrim(rtrim(number_format((float)$r['dot'],2,'.',''),'0'),'.')];
 } catch (Throwable $e) {}
@@ -1392,15 +1393,6 @@ const SR_EMPLS = <?= json_encode($empl_for_js) ?>;
           </div>
         </div>
 
-        <div class="form-group" id="grp-stup" style="margin-top:2px">
-          <label style="display:inline-flex;align-items:center;gap:8px;font-weight:600;cursor:pointer">
-            <input type="checkbox" name="stupefiant" id="stup-cb" value="1" <?= ($editing['stupefiant'] ?? 0) ? 'checked' : '' ?> onchange="pxStupToggle()"> 🔒 Stupéfiant (suivi au coffre)
-          </label>
-          <div class="form-row" id="grp-stup-cfg" style="margin-top:10px;<?= ($editing['stupefiant'] ?? 0) ? '' : 'display:none' ?>">
-            <div class="form-group"><label class="form-label">Dose par ampoule (mg)</label><input type="number" name="dose_mg" class="form-control" value="<?= h($editing['dose_mg'] ?? '') ?>" step="0.5" min="0" placeholder="10"></div>
-            <div class="form-group"><label class="form-label">Volume par ampoule (mL)</label><input type="number" name="volume_ml" class="form-control" value="<?= h($editing['volume_ml'] ?? '') ?>" step="0.5" min="0" placeholder="10"></div>
-          </div>
-        </div>
 
         <!-- Zone scan photo -->
         <div id="scan-photo-zone" style="display:none;margin-top:6px;margin-bottom:6px">
