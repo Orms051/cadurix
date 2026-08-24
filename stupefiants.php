@@ -70,6 +70,47 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'stup_
     header('Location: stupefiants.php?v=coffre&m=err'); exit;
 }
 
+// ── Suppression d'un coffre (uniquement s'il est vide) ──
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'coffre_delete') {
+    csrf_check();
+    $cid = (int)($_POST['coffre_id'] ?? 0);
+    if ($canCoffre && $cid) {
+        $q = $pdo->prepare("SELECT 1 FROM emplacements WHERE id=? AND site_id=? AND type='coffre'"); $q->execute([$cid, $site_id]);
+        if ($q->fetchColumn()) {
+            $n = $pdo->prepare("SELECT COUNT(*) FROM produits WHERE emplacement_id=? AND statut='actif'"); $n->execute([$cid]);
+            if ((int)$n->fetchColumn() === 0) {
+                try { $pdo->prepare("DELETE FROM emplacements WHERE id=? AND site_id=? AND type='coffre'")->execute([$cid, $site_id]); } catch (Exception $e) {}
+                header('Location: stupefiants.php?v=coffre&m=coffredel'); exit;
+            }
+            header('Location: stupefiants.php?v=coffre&m=coffrefull'); exit;
+        }
+    }
+    header('Location: stupefiants.php?v=coffre&m=err'); exit;
+}
+
+// ── Suppression d'un stupéfiant (produit + son historique registre) ──
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'stup_delete') {
+    csrf_check();
+    $prid = (int)($_POST['produit_id'] ?? 0);
+    if ($canCoffre && $prid) {
+        $q = $pdo->prepare("SELECT p.id FROM produits p JOIN emplacements e ON e.id=p.emplacement_id WHERE p.id=? AND p.stupefiant=1 AND e.site_id=? AND e.type='coffre'");
+        $q->execute([$prid, $site_id]);
+        if ($q->fetchColumn()) {
+            try {
+                $pdo->beginTransaction();
+                $pdo->prepare("DELETE FROM stupefiants_registre   WHERE produit_id=?")->execute([$prid]);
+                $pdo->prepare("DELETE FROM stupefiants_controles   WHERE produit_id=?")->execute([$prid]);
+                $pdo->prepare("DELETE FROM stupefiants_validations WHERE produit_id=?")->execute([$prid]);
+                $pdo->prepare("DELETE FROM mouvements_stock        WHERE produit_id=?")->execute([$prid]);
+                $pdo->prepare("DELETE FROM produits WHERE id=?")->execute([$prid]);
+                $pdo->commit();
+            } catch (Exception $e) { if ($pdo->inTransaction()) $pdo->rollBack(); header('Location: stupefiants.php?v=coffre&m=err'); exit; }
+            header('Location: stupefiants.php?v=coffre&m=stupdel'); exit;
+        }
+    }
+    header('Location: stupefiants.php?v=coffre&m=err'); exit;
+}
+
 $pxQ = fn($v) => rtrim(rtrim(number_format((float)$v, 2, '.', ''), '0'), '.');
 
 // ── Produits stupéfiants du site ──
@@ -204,6 +245,9 @@ $flashMap = [
   'valide' => ['ok',   'Période validée et publiée (référence visible par tous).'],
   'coffre' => ['ok',   'Coffre créé.'],
   'stup'   => ['ok',   'Stupéfiant ajouté au coffre.'],
+  'stupdel'=> ['ok',   'Stupéfiant supprimé du coffre.'],
+  'coffredel'  => ['ok',   'Coffre supprimé.'],
+  'coffrefull' => ['warn', 'Coffre non vide : retire d\'abord les stupéfiants qu\'il contient.'],
   'err'    => ['crit', "Erreur lors de l'enregistrement."],
 ];
 $stxFlash = $flashMap[$_GET['m'] ?? ''] ?? null;
@@ -250,7 +294,7 @@ try {
     $cf = $pdo->prepare("SELECT id, nom FROM emplacements WHERE site_id=? AND type='coffre' AND actif=1 ORDER BY nom");
     $cf->execute([$site_id]);
     foreach ($cf->fetchAll(PDO::FETCH_ASSOC) as $c) {
-        $pp = $pdo->prepare("SELECT nom, dci, dose_mg, volume_ml, quantite, date_peremption FROM produits WHERE emplacement_id=? AND stupefiant=1 AND statut='actif' ORDER BY COALESCE(NULLIF(dci,''),nom)");
+        $pp = $pdo->prepare("SELECT id, nom, dci, dose_mg, volume_ml, quantite, date_peremption FROM produits WHERE emplacement_id=? AND stupefiant=1 AND statut='actif' ORDER BY COALESCE(NULLIF(dci,''),nom)");
         $pp->execute([$c['id']]);
         $c['produits'] = $pp->fetchAll(PDO::FETCH_ASSOC);
         $coffres[] = $c;
@@ -592,18 +636,31 @@ require_once 'includes/header.php';
       <div class="panel"><div class="empty">Aucun coffre pour l'instant.<?php if($canCoffre): ?> Crée-en un ci-dessus.<?php else: ?> Demande à un administrateur d'en créer un.<?php endif; ?></div></div>
     <?php else: foreach ($coffres as $c): $tot=0; foreach($c['produits'] as $pp2){ $tot+=(float)$pp2['quantite']; } ?>
       <div class="panel" style="margin-bottom:14px">
-        <div class="panel-h"><span class="ic">🔒</span><h3><?= h($c['nom']) ?></h3><span class="pill mut" style="margin-left:auto"><?= $pxQ($tot) ?> ampoule(s)</span></div>
+        <div class="panel-h"><span class="ic">🔒</span><h3><?= h($c['nom']) ?></h3><span class="pill mut" style="margin-left:auto"><?= $pxQ($tot) ?> ampoule(s)</span>
+          <?php if ($canCoffre && !$c['produits']): ?>
+          <form method="post" onsubmit="return confirm('Supprimer ce coffre vide ?')" style="margin-left:10px">
+            <?= csrfField() ?><input type="hidden" name="action" value="coffre_delete"><input type="hidden" name="coffre_id" value="<?= $c['id'] ?>">
+            <button class="btn btn-ghost" type="submit" title="Supprimer le coffre">🗑️ Supprimer</button>
+          </form>
+          <?php endif; ?>
+        </div>
         <div class="ledger-scroll"><table>
-          <thead><tr><th>Produit</th><th>Dose / ampoule</th><th class="r">Quantité</th><th>Péremption</th></tr></thead>
+          <thead><tr><th>Produit</th><th>Dose / ampoule</th><th class="r">Quantité</th><th>Péremption</th><?php if($canCoffre): ?><th></th><?php endif; ?></tr></thead>
           <tbody>
           <?php if (!$c['produits']): ?>
-            <tr><td colspan="4" class="empty" style="border-left:none">Coffre vide — ajoute un médicament coché 🔒 Stupéfiant dans ce coffre (Médicaments).</td></tr>
+            <tr><td colspan="<?= $canCoffre?5:4 ?>" class="empty" style="border-left:none">Coffre vide — ajoute un stupéfiant ci-dessus.</td></tr>
           <?php else: foreach ($c['produits'] as $pp2): ?>
             <tr>
               <td class="mv"><?= h($pp2['dci'] ?: $pp2['nom']) ?></td>
               <td><?= $pp2['dose_mg']!==null ? $pxQ($pp2['dose_mg']).' mg'.($pp2['volume_ml']!==null?' / '.$pxQ($pp2['volume_ml']).' mL':'') : '—' ?></td>
               <td class="r num solde"><?= $pxQ($pp2['quantite']) ?></td>
               <td><?= $pp2['date_peremption'] ? date('m/Y', strtotime($pp2['date_peremption'])) : '—' ?></td>
+              <?php if($canCoffre): ?>
+              <td class="r"><form method="post" onsubmit="return confirm('Supprimer ce stupéfiant et tout son historique registre ?')" style="display:inline">
+                <?= csrfField() ?><input type="hidden" name="action" value="stup_delete"><input type="hidden" name="produit_id" value="<?= $pp2['id'] ?>">
+                <button class="btn btn-ghost" type="submit" title="Supprimer ce stupéfiant">🗑️</button>
+              </form></td>
+              <?php endif; ?>
             </tr>
           <?php endforeach; endif; ?>
           </tbody>
