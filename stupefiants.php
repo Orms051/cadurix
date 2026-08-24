@@ -425,6 +425,32 @@ require_once 'includes/header.php';
 #stx .mini-ttl{font-size:11px;text-transform:uppercase;color:var(--text3);font-weight:800;margin:0 0 10px}
 #stx .val-foot{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-top:20px;padding-top:16px;border-top:1px solid var(--border)} #stx .val-foot .note{font-size:12px;color:var(--text2);max-width:360px} #stx .val-foot .note b{color:var(--text)}
 #stx .note-banner{margin-top:26px;background:var(--bg3);border:1px solid var(--border);border-left:3px solid var(--primary);border-radius:13px;padding:16px 18px} #stx .note-banner h4{margin:0 0 9px;font-size:13.5px;font-weight:800} #stx .note-banner ul{margin:0;padding-left:20px;color:var(--text2);font-size:13px} #stx .note-banner li{margin:5px 0} #stx .note-banner b{color:var(--text)}
+
+/* ── Version mobile (n'affecte que le mobile, le rendu PC reste identique) ── */
+@media (max-width: 768px){
+  #stx .actions{flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:6px;margin:0 -2px 8px}
+  #stx .action{flex-shrink:0}
+  #stx .pub{flex-direction:column;align-items:flex-start;gap:10px;padding:14px}
+  #stx .pub .rt{margin-left:0;border-left:none;padding-left:0;border-top:1px solid var(--border);padding-top:10px;max-width:none;width:100%}
+  #stx .pub .big{font-size:24px}
+  #stx table{min-width:560px;font-size:12.5px}
+  #stx thead th,#stx tbody td{padding:9px 10px}
+  #stx .panel-b{padding:14px}
+  #stx .section-h{margin:20px 0 10px}
+  #stx .section-h h2{font-size:16px}
+  #stx .row2{grid-template-columns:1fr}
+  #stx .val-grid{grid-template-columns:1fr;gap:14px}
+  #stx .relflow{gap:8px}
+  #stx .relflow .seg .n{font-size:17px}
+}
+@media (max-width: 460px){
+  #stx table{min-width:480px}
+  #stx .tiles{grid-template-columns:repeat(2,1fr)}
+  #stx .action{padding:8px 12px;font-size:13px}
+  #stx .form-foot{flex-direction:column;align-items:stretch}
+  #stx .form-foot .btn{width:100%;justify-content:center}
+  #stx .form-foot .note{text-align:center}
+}
 </style>
 
 <div id="stx">
