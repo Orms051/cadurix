@@ -428,6 +428,8 @@ require_once 'includes/header.php';
 
 /* ── Version mobile (n'affecte que le mobile, le rendu PC reste identique) ── */
 @media (max-width: 768px){
+  #stx .page-header > div{width:100%;min-width:0}
+  #stx select.psel{max-width:100%;width:100%}
   #stx .actions{flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:6px;margin:0 -2px 8px}
   #stx .action{flex-shrink:0}
   #stx .pub{flex-direction:column;align-items:flex-start;gap:10px;padding:14px}
