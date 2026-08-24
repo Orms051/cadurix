@@ -29,18 +29,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $email   = trim($_POST['email'] ?? '');
         $tel     = trim($_POST['telephone'] ?? '');
         $org_id  = (int)($_POST['org_id'] ?? 0);
+        // Logo (data URI base64) : validation format + taille
+        $logo = trim($_POST['logo'] ?? '');
+        if ($logo !== '' && (!preg_match('#^data:image/(png|jpe?g|gif|webp|svg\+xml);base64,#', $logo) || strlen($logo) > 1400000)) $logo = '';
+        $logoRemove = isset($_POST['logo_remove']);
 
         if (empty($nom)) {
             $erreur = 'Le nom de l\'organisation est obligatoire.';
         } else {
             if ($org_id > 0) {
-                $stmt = $pdo->prepare("UPDATE organisations SET nom=?, type=?, adresse=?, email=?, telephone=? WHERE id=?");
-                $stmt->execute([$nom, $type, $adresse, $email, $tel, $org_id]);
+                if ($logoRemove) { $logoVal = null; }
+                elseif ($logo !== '') { $logoVal = $logo; }
+                else { $cur = $pdo->prepare("SELECT logo FROM organisations WHERE id=?"); $cur->execute([$org_id]); $logoVal = $cur->fetchColumn() ?: null; }
+                $stmt = $pdo->prepare("UPDATE organisations SET nom=?, type=?, adresse=?, email=?, telephone=?, logo=? WHERE id=?");
+                $stmt->execute([$nom, $type, $adresse, $email, $tel, $logoVal, $org_id]);
                 audit_log($pdo, 'MODIF_ORGANISATION', 'organisations', $org_id, null, compact('nom','type'));
                 $message = "Organisation mise à jour.";
             } else {
-                $stmt = $pdo->prepare("INSERT INTO organisations (nom, type, adresse, email, telephone) VALUES (?,?,?,?,?)");
-                $stmt->execute([$nom, $type, $adresse, $email, $tel]);
+                $stmt = $pdo->prepare("INSERT INTO organisations (nom, type, adresse, email, telephone, logo) VALUES (?,?,?,?,?,?)");
+                $stmt->execute([$nom, $type, $adresse, $email, $tel, $logo !== '' ? $logo : null]);
                 $new_id = $pdo->lastInsertId();
                 audit_log($pdo, 'CREATION_ORGANISATION', 'organisations', $new_id, null, compact('nom','type'));
                 $message = "Organisation créée.";
@@ -272,6 +279,26 @@ tr:hover td { background:var(--glass); }
             <input type="text" name="telephone" class="form-control" value="<?= htmlspecialchars($org_edit['telephone'] ?? '') ?>">
           </div>
         </div>
+        <div class="form-group">
+          <label class="form-label">🖼️ Logo de l'organisation (impressions : registre stupéfiants, déclarations)</label>
+          <?php if (!empty($org_edit['logo'])): ?>
+          <div style="margin-bottom:8px"><img src="<?= htmlspecialchars($org_edit['logo']) ?>" alt="logo" style="max-height:70px;border:1px solid var(--border);border-radius:8px;padding:4px;background:#fff"></div>
+          <label style="display:inline-flex;align-items:center;gap:6px;font-size:13px;margin-bottom:8px"><input type="checkbox" name="logo_remove" value="1"> Supprimer le logo actuel</label>
+          <?php endif; ?>
+          <input type="file" accept="image/*" class="form-control" onchange="orgLogoPick(this)">
+          <input type="hidden" name="logo" id="org-logo-data">
+          <div id="org-logo-preview" style="margin-top:8px"></div>
+          <div style="font-size:11.5px;color:var(--text3);margin-top:4px">PNG/JPG, petit fichier (max ~1 Mo). Apparaîtra en tête des documents imprimés.</div>
+        </div>
+        <script>
+        function orgLogoPick(inp){
+          var f=inp.files&&inp.files[0]; if(!f) return;
+          if(f.size>1000000){ alert('Image trop lourde (max ~1 Mo).'); inp.value=''; return; }
+          var rd=new FileReader();
+          rd.onload=function(){ document.getElementById('org-logo-data').value=rd.result; document.getElementById('org-logo-preview').innerHTML='<img src="'+rd.result+'" style="max-height:70px;border:1px solid #ccc;border-radius:8px;padding:4px;background:#fff">'; };
+          rd.readAsDataURL(f);
+        }
+        </script>
         <button type="submit" class="btn btn-primary"><?= $org_edit ? '💾 Enregistrer' : '➕ Créer' ?></button>
         <?php if ($org_edit): ?>
         <a href="sites.php" class="btn btn-ghost">Annuler</a>
