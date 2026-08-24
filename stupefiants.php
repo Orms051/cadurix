@@ -21,8 +21,20 @@ function stx_niveau($pdo, string $key): int {
 $canStup     = stx_niveau($pdo, 'stupefiants') >= 1;
 $canRegistre = stx_niveau($pdo, 'stupefiants_registre') >= 1;
 $canValider  = stx_niveau($pdo, 'stupefiants_valider') >= 1;
+$canCoffre   = stx_niveau($pdo, 'stupefiants_coffre') >= 1;
 $canEntree   = $canValider || peut_faire(ROLE_GESTIONNAIRE);
 if (!$canStup) { accessDenied(); exit; }
+
+// ── Création d'un coffre (n'exige pas de produit sélectionné) ──
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'coffre_create') {
+    csrf_check();
+    $nom = trim($_POST['coffre_nom'] ?? '');
+    if ($canCoffre && $nom !== '') {
+        try { $pdo->prepare("INSERT INTO emplacements (site_id,parent_id,nom,type,actif) VALUES(?,?,?,?,1)")->execute([$site_id, null, $nom, 'coffre']); } catch (Exception $e) {}
+        header('Location: stupefiants.php?v=coffre&m=coffre'); exit;
+    }
+    header('Location: stupefiants.php?v=coffre&m=err'); exit;
+}
 
 $pxQ = fn($v) => rtrim(rtrim(number_format((float)$v, 2, '.', ''), '0'), '.');
 
@@ -156,6 +168,7 @@ $flashMap = [
   'gko'    => ['crit', '⚠️ Écart détecté au contrôle — administrateur notifié.'],
   'entree' => ['ok',   'Entrée enregistrée au coffre.'],
   'valide' => ['ok',   'Période validée et publiée (référence visible par tous).'],
+  'coffre' => ['ok',   'Coffre créé.'],
   'err'    => ['crit', "Erreur lors de l'enregistrement."],
 ];
 $stxFlash = $flashMap[$_GET['m'] ?? ''] ?? null;
@@ -195,6 +208,19 @@ if ($prod) {
     $an->execute([$pid]);
     $lastAnomalie = $an->fetch(PDO::FETCH_ASSOC) ?: null;
 } else { $lastAnomalie = null; }
+
+// Coffres du site + leur contenu (ampoules)
+$coffres = [];
+try {
+    $cf = $pdo->prepare("SELECT id, nom FROM emplacements WHERE site_id=? AND type='coffre' AND actif=1 ORDER BY nom");
+    $cf->execute([$site_id]);
+    foreach ($cf->fetchAll(PDO::FETCH_ASSOC) as $c) {
+        $pp = $pdo->prepare("SELECT nom, dci, dose_mg, volume_ml, quantite, date_peremption FROM produits WHERE emplacement_id=? AND stupefiant=1 AND statut='actif' ORDER BY COALESCE(NULLIF(dci,''),nom)");
+        $pp->execute([$c['id']]);
+        $c['produits'] = $pp->fetchAll(PDO::FETCH_ASSOC);
+        $coffres[] = $c;
+    }
+} catch (Exception $e) {}
 
 $moisFr = function($p){ if(!$p) return ''; $m=['01'=>'Janvier','02'=>'Février','03'=>'Mars','04'=>'Avril','05'=>'Mai','06'=>'Juin','07'=>'Juillet','08'=>'Août','09'=>'Septembre','10'=>'Octobre','11'=>'Novembre','12'=>'Décembre']; [$y,$mo]=explode('-',$p); return ($m[$mo]??$mo).' '.$y; };
 $mvLabel = ['entree'=>'Entrée · réappro','administration'=>'Administration','destruction'=>'Destruction','casse'=>'💥 Casse / bris','perte'=>'📉 Perte'];
@@ -302,18 +328,23 @@ require_once 'includes/header.php';
 
   <?php if ($stxFlash && is_array($stxFlash)): ?><div class="flash <?= h((string)($stxFlash[0] ?? 'ok')) ?>"><?= h((string)($stxFlash[1] ?? '')) ?></div><?php endif; ?>
 
-  <?php if (!$stups): ?>
-    <div class="panel"><div class="empty">Aucun stupéfiant enregistré sur ce site.<br><br>Crée un médicament dans <b>Médicaments</b>, coche <b>🔒 Stupéfiant</b> et place-le dans un emplacement <b>coffre</b>.</div></div>
-  <?php else: ?>
-
   <!-- Boutons -->
   <div class="actions">
+    <?php if ($prod): ?>
     <button class="action" data-view="registre"><span class="ai">🔒</span><span class="t">Registre</span></button>
     <button class="action" data-view="garde"><span class="ai">🕓</span><span class="t">Prise de garde</span></button>
     <button class="action" data-view="admin"><span class="ai">💉</span><span class="t">J'ai administré</span></button>
     <button class="action" data-view="casse"><span class="ai">💥</span><span class="t">Casse / perte</span></button>
     <?php if ($canValider): ?><button class="action" data-view="valider"><span class="ai">🛡️</span><span class="t">Valider la période</span></button><?php endif; ?>
+    <?php endif; ?>
+    <button class="action" data-view="coffre"><span class="ai">🏦</span><span class="t">Coffre</span></button>
   </div>
+
+  <?php if (!$prod): ?>
+    <div class="flash warn">Aucun stupéfiant dans un coffre pour l'instant. Ouvre l'onglet <b>🏦 Coffre</b> pour créer un coffre, puis ajoute un médicament coché <b>🔒 Stupéfiant</b> dans ce coffre depuis <b>Médicaments</b>.</div>
+  <?php endif; ?>
+
+  <?php if ($prod): ?>
 
   <!-- Référence publique -->
   <div class="pub">
@@ -482,6 +513,45 @@ require_once 'includes/header.php';
   </section>
   <?php endif; ?>
 
+  <?php endif; /* prod */ ?>
+
+  <!-- COFFRE -->
+  <section class="view" id="view-coffre">
+    <div class="section-h"><h2>Coffres à stupéfiants</h2><div class="line"></div><span class="hint">Créer un coffre et voir son contenu (ampoules)</span></div>
+    <?php if ($canCoffre): ?>
+    <div class="panel" style="margin-bottom:14px"><div class="panel-b" style="padding:14px 16px">
+      <form method="post" style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
+        <?= csrfField() ?><input type="hidden" name="action" value="coffre_create">
+        <div class="field" style="margin:0;flex:1;min-width:220px"><label>➕ Nouveau coffre — nom</label><input name="coffre_nom" required placeholder="Ex : Coffre — CSP Châlons"></div>
+        <button class="btn btn-primary" type="submit">🏦 Créer le coffre</button>
+      </form>
+    </div></div>
+    <?php endif; ?>
+
+    <?php if (!$coffres): ?>
+      <div class="panel"><div class="empty">Aucun coffre pour l'instant.<?php if($canCoffre): ?> Crée-en un ci-dessus.<?php else: ?> Demande à un administrateur d'en créer un.<?php endif; ?></div></div>
+    <?php else: foreach ($coffres as $c): $tot=0; foreach($c['produits'] as $pp2){ $tot+=(float)$pp2['quantite']; } ?>
+      <div class="panel" style="margin-bottom:14px">
+        <div class="panel-h"><span class="ic">🔒</span><h3><?= h($c['nom']) ?></h3><span class="pill mut" style="margin-left:auto"><?= $pxQ($tot) ?> ampoule(s)</span></div>
+        <div class="ledger-scroll"><table>
+          <thead><tr><th>Produit</th><th>Dose / ampoule</th><th class="r">Quantité</th><th>Péremption</th></tr></thead>
+          <tbody>
+          <?php if (!$c['produits']): ?>
+            <tr><td colspan="4" class="empty" style="border-left:none">Coffre vide — ajoute un médicament coché 🔒 Stupéfiant dans ce coffre (Médicaments).</td></tr>
+          <?php else: foreach ($c['produits'] as $pp2): ?>
+            <tr>
+              <td class="mv"><?= h($pp2['dci'] ?: $pp2['nom']) ?></td>
+              <td><?= $pp2['dose_mg']!==null ? $pxQ($pp2['dose_mg']).' mg'.($pp2['volume_ml']!==null?' / '.$pxQ($pp2['volume_ml']).' mL':'') : '—' ?></td>
+              <td class="r num solde"><?= $pxQ($pp2['quantite']) ?></td>
+              <td><?= $pp2['date_peremption'] ? date('m/Y', strtotime($pp2['date_peremption'])) : '—' ?></td>
+            </tr>
+          <?php endforeach; endif; ?>
+          </tbody>
+        </table></div>
+      </div>
+    <?php endforeach; endif; ?>
+  </section>
+
   <div class="note-banner">
     <h4>⚖️ Ce que ce module garantit</h4>
     <ul>
@@ -490,17 +560,17 @@ require_once 'includes/header.php';
       <li><b>Solde recalculé</b> à chaque écriture · registre <b>append-only</b> (correction = écriture inverse).</li>
     </ul>
   </div>
-
-  <?php endif; /* stups */ ?>
 </div>
 
 <script>
 (function(){
   var btns=[].slice.call(document.querySelectorAll('#stx .action[data-view]'));
-  var views={registre:'view-registre',garde:'view-garde',admin:'view-admin',casse:'view-casse',valider:'view-valider'};
+  var views={registre:'view-registre',garde:'view-garde',admin:'view-admin',casse:'view-casse',valider:'view-valider',coffre:'view-coffre'};
   function show(v){ btns.forEach(function(b){b.classList.toggle('on',b.dataset.view===v);}); Object.keys(views).forEach(function(k){var el=document.getElementById(views[k]); if(el) el.classList.toggle('show',k===v);}); }
   btns.forEach(function(b){ b.addEventListener('click',function(){ show(b.dataset.view); }); });
-  if(btns.length) show(btns[0].dataset.view);
+  var initial=(new URLSearchParams(location.search)).get('v');
+  var hasInitial=initial && [].some.call(btns,function(b){return b.dataset.view===initial;});
+  if(hasInitial) show(initial); else if(btns.length) show(btns[0].dataset.view);
 
   // reliquat live
   var box=document.querySelector('#stx .relbox');
