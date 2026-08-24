@@ -126,6 +126,41 @@ $prod = null;
 foreach ($stups as $s) { if ((int)$s['id'] === $pid) { $prod = $s; break; } }
 if (!$prod && $stups) { $prod = $stups[0]; $pid = (int)$prod['id']; }
 
+// ── IA : analyse du registre (confidentiel) ──
+if (($_GET['ajax'] ?? '') === 'ia_analyse' && $prod) {
+    header('Content-Type: application/json');
+    if (!$canRegistre) { echo json_encode(['error' => 'Accès refusé.']); exit; }
+    $ai_actif = $pdo->query("SELECT valeur FROM ai_settings WHERE cle='actif'")->fetchColumn();
+    $api_key  = $pdo->query("SELECT valeur FROM ai_settings WHERE cle='api_key'")->fetchColumn();
+    $model    = $pdo->query("SELECT valeur FROM ai_settings WHERE cle='model'")->fetchColumn() ?: 'claude-haiku-4-5-20251001';
+    if (!$ai_actif || $ai_actif !== '1' || !$api_key) { echo json_encode(['error' => "IA non configurée (Admin → IA)."]); exit; }
+    $reg = $pdo->prepare("SELECT type, qte_ampoules, solde_apres, detruit_mg, motif, cree_le FROM stupefiants_registre WHERE produit_id=? ORDER BY cree_le DESC LIMIT 40");
+    $reg->execute([$pid]); $rows = $reg->fetchAll(PDO::FETCH_ASSOC);
+    $ctl = $pdo->prepare("SELECT theorique, compte, ecart, statut, cree_le FROM stupefiants_controles WHERE produit_id=? ORDER BY cree_le DESC LIMIT 20");
+    $ctl->execute([$pid]); $ctls = $ctl->fetchAll(PDO::FETCH_ASSOC);
+    $lignes = []; foreach ($rows as $r) { $lignes[] = $r['cree_le'].' '.$r['type'].' Δ'.$r['qte_ampoules'].' → solde '.$r['solde_apres'].($r['detruit_mg']!==null && (float)$r['detruit_mg']>0?' · détruit '.$r['detruit_mg'].'mg':'').($r['motif']?' ('.$r['motif'].')':''); }
+    $lignesC = []; foreach ($ctls as $c) { $lignesC[] = $c['cree_le'].' : théo '.$c['theorique'].' / compté '.$c['compte'].' / écart '.$c['ecart'].' → '.$c['statut']; }
+    $nomProd = $prod['dci'] ?: $prod['nom'];
+    $prompt = "Tu es un assistant pharmacie pour un service de secours français (SDIS/SSSM). "
+        . "Analyse le registre du stupéfiant « $nomProd » (solde actuel " . $pxQ($prod['quantite']) . " ampoules).\n\n"
+        . "MOUVEMENTS RÉCENTS :\n" . (implode("\n", $lignes) ?: "(aucun)") . "\n\n"
+        . "CONTRÔLES DU COFFRE :\n" . (implode("\n", $lignesC) ?: "(aucun)") . "\n\n"
+        . "Fais une synthèse courte et professionnelle (5 à 8 lignes) : consommation, reliquats détruits, écarts de contrôle éventuels, et recommandations concrètes (réappro, points de vigilance). "
+        . "Uniquement à partir des données ci-dessus, sans rien inventer ni donner de conseil médical. Pas de titre markdown.";
+    $payload = ['model' => $model, 'max_tokens' => 600, 'messages' => [['role' => 'user', 'content' => $prompt]]];
+    $is_prod = str_contains($_SERVER['HTTP_HOST'] ?? '', 'cadurix.fr');
+    $ch = curl_init('https://api.anthropic.com/v1/messages');
+    curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_POST => true, CURLOPT_POSTFIELDS => json_encode($payload),
+        CURLOPT_HTTPHEADER => ['Content-Type: application/json', 'x-api-key: ' . $api_key, 'anthropic-version: 2023-06-01'],
+        CURLOPT_TIMEOUT => 40, CURLOPT_SSL_VERIFYPEER => $is_prod, CURLOPT_SSL_VERIFYHOST => $is_prod ? 2 : 0]);
+    $resp = curl_exec($ch); $http = curl_getinfo($ch, CURLINFO_HTTP_CODE); $cerr = curl_error($ch); curl_close($ch);
+    if ($resp === false || $cerr) { echo json_encode(['error' => "Réseau IA : $cerr"]); exit; }
+    $j = json_decode($resp, true);
+    if ($http !== 200 || empty($j['content'][0]['text'])) { echo json_encode(['error' => ($j['error']['message'] ?? "Erreur IA HTTP $http")]); exit; }
+    echo json_encode(['ok' => true, 'texte' => $j['content'][0]['text']], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
 // ── POST : actions (PRG) ──
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $prod) {
     csrf_check();
@@ -307,6 +342,9 @@ $moisFr = function($p){ if(!$p) return ''; $m=['01'=>'Janvier','02'=>'Février',
 $mvLabel = ['entree'=>'Entrée · réappro','administration'=>'Administration','destruction'=>'Destruction','casse'=>'💥 Casse / bris','perte'=>'📉 Perte'];
 $mvClass = ['entree'=>'t-entree','administration'=>'t-admin','destruction'=>'t-destr','casse'=>'t-casse','perte'=>'t-casse'];
 
+$ai_on = false;
+if ($canRegistre) { try { $ai_on = ($pdo->query("SELECT valeur FROM ai_settings WHERE cle='actif'")->fetchColumn() === '1'); } catch (Exception $e) {} }
+
 require_once 'includes/header.php';
 ?>
 <style>
@@ -442,6 +480,12 @@ require_once 'includes/header.php';
     <?php if (!$canRegistre): ?>
       <div class="panel"><div class="locked-note">🔒 <b>Registre réservé.</b><br>Seul le dernier solde validé ci-dessus t'est visible. Le détail est accessible aux rôles autorisés par l'administrateur.</div></div>
     <?php else: ?>
+      <?php if ($ai_on): ?>
+      <div style="margin-bottom:14px">
+        <button type="button" class="btn btn-ghost" id="stx-ia-btn" onclick="stxAnalyse()">🤖 Analyser le registre (IA)</button>
+        <div id="stx-ia-out" style="display:none;margin-top:10px" class="panel"><div class="panel-b" style="white-space:pre-wrap;font-size:13.5px;line-height:1.55;color:var(--text)"></div></div>
+      </div>
+      <?php endif; ?>
       <?php if ($canEntree): ?>
       <div class="panel" style="margin-bottom:14px"><div class="panel-b" style="padding:14px 16px">
         <form method="post" style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
@@ -498,12 +542,13 @@ require_once 'includes/header.php';
         <button class="btn btn-primary" type="submit">✔️ Valider</button>
       </form>
       <p class="mand">🔒 <b>Comptage physique obligatoire.</b> La validation enregistre la date et l'heure exactes.</p>
-      <?php if ($lastAnomalie): ?>
+      <?php if ($canRegistre && $lastAnomalie): ?>
       <div class="alert"><span style="font-size:19px">⚠️</span><div class="body"><b>Dernier écart — <?= date('d/m/Y à H:i', strtotime($lastAnomalie['cree_le'])) ?></b> : théorique <span class="num"><?= $pxQ($lastAnomalie['theorique']) ?></span>, compté <span class="num"><?= $pxQ($lastAnomalie['compte']) ?></span> → <b><?= $pxQ($lastAnomalie['ecart']) ?></b>.<br><span class="mut">Administrateur notifié — à régulariser.</span></div></div>
       <?php endif; ?>
     </div></div>
 
-    <div class="panel" style="margin-top:14px"><div class="panel-h"><span class="ic">🕓</span><h3>Historique des contrôles</h3></div>
+    <?php if ($canRegistre): ?>
+    <div class="panel" style="margin-top:14px"><div class="panel-h"><span class="ic">🕓</span><h3>Historique des contrôles</h3><span class="pill role" style="margin-left:auto">🔒 Confidentiel</span></div>
       <div class="ledger-scroll"><table>
         <thead><tr><th>Date &amp; heure</th><th class="r">Théorique</th><th class="r">Compté</th><th class="r">Écart</th><th>Résultat</th><th>Agent</th></tr></thead>
         <tbody>
@@ -522,6 +567,7 @@ require_once 'includes/header.php';
         </tbody>
       </table></div>
     </div>
+    <?php endif; ?>
   </section>
 
   <!-- ADMINISTRATION -->
@@ -677,17 +723,18 @@ require_once 'includes/header.php';
     <?php endforeach; endif; ?>
   </section>
 
-  <div class="note-banner">
-    <h4>⚖️ Ce que ce module garantit</h4>
-    <ul>
-      <li><b>Registre confidentiel</b> — visible seulement par les rôles autorisés ; les autres ne voient que le dernier solde validé.</li>
-      <li><b>Reliquat tracé</b> · <b>casse/perte déclarée à part</b> · <b>contrôle du coffre</b> horodaté avec alerte admin sur écart.</li>
-      <li><b>Solde recalculé</b> à chaque écriture · registre <b>append-only</b> (correction = écriture inverse).</li>
-    </ul>
-  </div>
 </div>
 
 <script>
+function stxAnalyse(){
+  var btn=document.getElementById('stx-ia-btn'), out=document.getElementById('stx-ia-out'), body=out.querySelector('.panel-b');
+  var old=btn.textContent; btn.disabled=true; btn.textContent='🤖 Analyse en cours…';
+  out.style.display='block'; body.textContent='…';
+  fetch('stupefiants.php?ajax=ia_analyse&p=<?= (int)$pid ?>')
+    .then(function(r){return r.json();})
+    .then(function(j){ btn.disabled=false; btn.textContent=old; body.textContent = j.ok ? j.texte : ('⚠️ '+(j.error||'Erreur IA')); })
+    .catch(function(){ btn.disabled=false; btn.textContent=old; body.textContent='⚠️ Erreur réseau.'; });
+}
 (function(){
   var btns=[].slice.call(document.querySelectorAll('#stx .action[data-view]'));
   var views={registre:'view-registre',garde:'view-garde',admin:'view-admin',casse:'view-casse',valider:'view-valider',coffre:'view-coffre'};
