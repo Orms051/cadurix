@@ -199,12 +199,12 @@ if (isset($_GET['print']) && $canStup && $prod) {
         $nomP = htmlspecialchars($prod['dci'] ?: $prod['nom']);
         $rr = $pdo->prepare("SELECT r.*, TRIM(CONCAT(COALESCE(u.prenom,''),' ',COALESCE(u.nom,''))) agent FROM stupefiants_registre r LEFT JOIN utilisateurs u ON u.id=r.user_id WHERE r.produit_id=? ORDER BY r.cree_le ASC, r.id ASC");
         $rr->execute([$pid]); $rows = $rr->fetchAll(PDO::FETCH_ASSOC);
-        $lbl = ['entree' => 'Entrée', 'administration' => 'Administration', 'destruction' => 'Destruction', 'casse' => 'Casse', 'perte' => 'Perte'];
-        $cls = ['entree' => 't-entree', 'administration' => 't-admin', 'destruction' => 't-destr', 'casse' => 't-casse', 'perte' => 't-casse'];
+        $lbl = ['entree' => 'Entrée', 'administration' => 'Administration', 'destruction' => 'Destruction', 'casse' => 'Casse', 'perte' => 'Perte', 'vol' => 'Vol'];
+        $cls = ['entree' => 't-entree', 'administration' => 't-admin', 'destruction' => 't-destr', 'casse' => 't-casse', 'perte' => 't-casse', 'vol' => 't-destr'];
         $tEnt = 0; $tSort = 0; $tDetr = 0;
         foreach ($rows as $r) { if ($r['qte_ampoules'] > 0) $tEnt += $r['qte_ampoules']; else $tSort += abs($r['qte_ampoules']); if ($r['detruit_mg'] !== null) $tDetr += (float)$r['detruit_mg']; }
         echo '<div class="dh">' . $logoHtml . '<div class="t"><h1>Registre des stupéfiants</h1><div class="site">' . $entete . '</div></div><div class="ref">Édité le<br><b>' . date('d/m/Y à H:i') . '</b></div></div>';
-        echo '<p class="prodline"><b>Produit suivi :</b> ' . $nomP . ($prod['dose_mg'] !== null ? ' — ' . $pxQ($prod['dose_mg']) . ' mg' : '') . ($prod['volume_ml'] !== null ? ' / ' . $pxQ($prod['volume_ml']) . ' mL' : '') . ' &nbsp;·&nbsp; unité : ampoule</p>';
+        echo '<p class="prodline"><b>Produit suivi :</b> ' . $nomP . ($prod['dose_mg'] !== null ? ' — ' . $pxQ($prod['dose_mg']) . ' mg' : '') . ($prod['volume_ml'] !== null ? ' / ' . $pxQ($prod['volume_ml']) . ' mL' : '') . ' &nbsp;·&nbsp; <b>Coffre :</b> ' . htmlspecialchars($prod['emp_nom'] ?? '') . ' &nbsp;·&nbsp; unité : ampoule</p>';
         echo '<div class="summary">'
             . '<div class="kpi"><div class="k">Solde actuel</div><div class="v">' . $pxQ($prod['quantite']) . '</div></div>'
             . '<div class="kpi"><div class="k">Mouvements</div><div class="v">' . count($rows) . '</div></div>'
@@ -212,21 +212,20 @@ if (isset($_GET['print']) && $canStup && $prod) {
             . '<div class="kpi"><div class="k">Sorties</div><div class="v" style="color:#E24B4A">−' . $pxQ($tSort) . '</div></div>'
             . '<div class="kpi"><div class="k">Détruit (mg)</div><div class="v">' . $pxQ($tDetr) . '</div></div>'
             . '</div>';
-        echo '<table><thead><tr><th>Date &amp; heure</th><th>Mouvement</th><th>Détail</th><th class="r">Qté</th><th class="r">Solde</th><th>Reliquat</th><th>Agent</th></tr></thead><tbody>';
+        echo '<table><thead><tr><th>Date &amp; heure</th><th>Mouvement</th><th>Détail</th><th>Lot / Exp.</th><th class="r">Qté</th><th class="r">Solde</th><th>Reliquat</th><th>Agent</th></tr></thead><tbody>';
         foreach ($rows as $r) {
             $det = [];
             if ($r['intervention_ref']) $det[] = 'Interv. ' . $r['intervention_ref'];
             if ($r['motif']) $det[] = $r['motif'];
-            if ($r['lot']) $det[] = 'Lot ' . $r['lot'];
-            if ($r['date_exp']) $det[] = 'exp ' . date('m/Y', strtotime($r['date_exp']));
+            $lotCell = htmlspecialchars($r['lot'] ?: '—') . ($r['date_exp'] ? '<span class="who"><br>exp ' . date('m/Y', strtotime($r['date_exp'])) . '</span>' : '');
             $rel = '';
             if ($r['type'] === 'administration' && $r['ouvert_mg'] !== null) $rel = $pxQ($r['ouvert_mg']) . ' → ' . $pxQ($r['admin_mg']) . ' → ' . $pxQ($r['detruit_mg']) . ' mg dét.';
             elseif ($r['detruit_mg'] !== null && (float)$r['detruit_mg'] > 0) $rel = $pxQ($r['detruit_mg']) . ' mg dét.';
             $q = ($r['qte_ampoules'] > 0 ? '+' : '') . $pxQ($r['qte_ampoules']);
-            echo '<tr class="' . ($cls[$r['type']] ?? '') . '"><td>' . date('d/m/Y H:i', strtotime($r['cree_le'])) . '</td><td class="type">' . ($lbl[$r['type']] ?? $r['type']) . '</td><td>' . htmlspecialchars(implode(' · ', $det)) . '</td><td class="r ' . ($r['qte_ampoules'] >= 0 ? 'pos' : 'neg') . '">' . $q . '</td><td class="r"><b>' . $pxQ($r['solde_apres']) . '</b></td><td>' . htmlspecialchars($rel) . '</td><td>' . htmlspecialchars($r['agent'] ?: '—') . '</td></tr>';
+            echo '<tr class="' . ($cls[$r['type']] ?? '') . '"><td>' . date('d/m/Y H:i', strtotime($r['cree_le'])) . '</td><td class="type">' . ($lbl[$r['type']] ?? $r['type']) . '</td><td>' . htmlspecialchars(implode(' · ', $det)) . '</td><td>' . $lotCell . '</td><td class="r ' . ($r['qte_ampoules'] >= 0 ? 'pos' : 'neg') . '">' . $q . '</td><td class="r"><b>' . $pxQ($r['solde_apres']) . '</b></td><td>' . htmlspecialchars($rel) . '</td><td>' . htmlspecialchars($r['agent'] ?: '—') . '</td></tr>';
         }
-        if (!$rows) echo '<tr><td colspan="7" style="text-align:center;color:#8a97b3;padding:18px">Aucun mouvement enregistré.</td></tr>';
-        echo '</tbody><tfoot><tr><td colspan="3">Totaux</td><td class="r"><span class="pos">+' . $pxQ($tEnt) . '</span> / <span class="neg">−' . $pxQ($tSort) . '</span></td><td class="r">' . $pxQ($prod['quantite']) . '</td><td colspan="2">Détruit : ' . $pxQ($tDetr) . ' mg</td></tr></tfoot></table>';
+        if (!$rows) echo '<tr><td colspan="8" style="text-align:center;color:#8a97b3;padding:18px">Aucun mouvement enregistré.</td></tr>';
+        echo '</tbody><tfoot><tr><td colspan="4">Totaux</td><td class="r"><span class="pos">+' . $pxQ($tEnt) . '</span> / <span class="neg">−' . $pxQ($tSort) . '</span></td><td class="r">' . $pxQ($prod['quantite']) . '</td><td colspan="2">Détruit : ' . $pxQ($tDetr) . ' mg</td></tr></tfoot></table>';
         echo '<div class="faitle">Fait à ……………………………………………, le ……… / ……… / …………</div>';
         echo '<div class="sign"><div class="b">Le responsable — nom &amp; signature</div><div class="b">Le pharmacien / cadre — nom &amp; signature</div></div>';
         echo '<div class="foot">Registre des stupéfiants — ' . $entete . ' · Document confidentiel, à conserver.</div>';
@@ -234,26 +233,27 @@ if (isset($_GET['print']) && $canStup && $prod) {
         $rid = (int)($_GET['id'] ?? 0);
         $dr = $pdo->prepare("SELECT r.*, TRIM(CONCAT(COALESCE(u.prenom,''),' ',COALESCE(u.nom,''))) agent, p.nom pnom, p.dci pdci
             FROM stupefiants_registre r JOIN produits p ON p.id=r.produit_id JOIN emplacements e ON e.id=p.emplacement_id LEFT JOIN utilisateurs u ON u.id=r.user_id
-            WHERE r.id=? AND e.site_id=? AND r.type IN ('casse','perte')");
+            WHERE r.id=? AND e.site_id=? AND r.type IN ('casse','perte','vol')" . ($canRegistre ? '' : ' AND r.user_id=' . (int)currentUserId()));
         $dr->execute([$rid, $site_id]); $d = $dr->fetch(PDO::FETCH_ASSOC);
         if ($d) {
-            $verbe = $d['type'] === 'perte' ? 'perdu' : 'cassé';
+            $verbe = $d['type'] === 'perte' ? 'perdu' : ($d['type'] === 'vol' ? 'subi le vol de' : 'cassé');
+            $titreType = $d['type'] === 'perte' ? 'perte' : ($d['type'] === 'vol' ? 'vol' : 'casse');
             $nb = $pxQ(abs($d['qte_ampoules']));
             $nomP = htmlspecialchars($d['pdci'] ?: $d['pnom']);
-            echo '<div class="dh">' . $logoHtml . '<div class="t"><h1>Déclaration de ' . ($d['type'] === 'perte' ? 'perte' : 'casse') . ' de stupéfiant</h1><div class="site">' . $entete . '</div></div><div class="ref">Réf. n° ' . (int)$d['id'] . '<br>' . date('d/m/Y', strtotime($d['cree_le'])) . '</div></div>';
+            echo '<div class="dh">' . $logoHtml . '<div class="t"><h1>Déclaration de ' . $titreType . ' de stupéfiant</h1><div class="site">' . $entete . '</div></div><div class="ref">Réf. n° ' . (int)$d['id'] . '<br>' . date('d/m/Y', strtotime($d['cree_le'])) . '</div></div>';
             echo '<div class="decl-box">'
                 . '<p class="lead" style="margin:0 0 10px">Je soussigné(e) <b>' . htmlspecialchars($d['agent'] ?: '……………………………') . '</b> déclare avoir <b>' . $verbe . '</b> <b>' . $nb . ' ampoule(s)</b> de <b>' . $nomP . '</b>'
                 . ($d['lot'] ? ' (lot ' . htmlspecialchars($d['lot']) . ($d['date_exp'] ? ', exp ' . date('m/Y', strtotime($d['date_exp'])) : '') . ')' : '')
                 . ', le <b>' . date('d/m/Y à H:i', strtotime($d['cree_le'])) . '</b>.</p>'
                 . '<p class="lead" style="margin:0"><b>Circonstances :</b><br>' . nl2br(htmlspecialchars($d['motif'] ?: '………………………………………………………………………………………………')) . '</p>'
                 . '</div>';
-            echo '<p class="meta">L\'ampoule ' . ($d['type'] === 'perte' ? 'a été déclarée perdue' : 'a été détruite') . ' et le solde du coffre débité en conséquence. Document à conserver au registre des stupéfiants.</p>';
+            echo '<p class="meta">L\'ampoule ' . ($d['type'] === 'perte' ? 'a été déclarée perdue' : ($d['type'] === 'vol' ? 'a été déclarée volée' : 'a été détruite')) . ' et le solde du coffre débité en conséquence. Document à conserver au registre des stupéfiants.</p>';
             echo '<div class="faitle">Fait à ……………………………………………, le ……… / ……… / …………</div>';
             echo '<div class="sign"><div class="b">Le déclarant — nom &amp; signature</div><div class="b">Le responsable — nom &amp; signature</div></div>';
-            echo '<div class="foot">Déclaration de ' . ($d['type'] === 'perte' ? 'perte' : 'casse') . ' — ' . $entete . ' · Document confidentiel, à conserver.</div>';
+            echo '<div class="foot">Déclaration de ' . $titreType . ' — ' . $entete . ' · Document confidentiel, à conserver.</div>';
         } else { echo '<p>Déclaration introuvable.</p>'; }
     } else { echo '<p>Accès refusé.</p>'; }
-    echo '</div><script>setTimeout(function(){try{window.print()}catch(e){}},350)</script></body></html>';
+    echo '</div></body></html>';
     exit;
 }
 
@@ -299,7 +299,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $prod) {
         }
 
         elseif ($action === 'casse') {
-            $motifType = ($_POST['motif_type'] ?? 'casse') === 'perte' ? 'perte' : 'casse';
+            $motifType = in_array($_POST['motif_type'] ?? 'casse', ['casse','perte','vol'], true) ? $_POST['motif_type'] : 'casse';
             $amp   = max(1, (int)($_POST['ampoules'] ?? 1));
             $detr  = ($motifType === 'casse' && $dose_mg !== null) ? $dose_mg * $amp : null; // casse = détruite
             $apres = $solde - $amp;
@@ -372,6 +372,7 @@ $flashMap = [
   'admneg' => ['warn', 'Administration enregistrée — ⚠️ solde négatif, à régulariser.'],
   'casse'  => ['warn', 'Casse déclarée et débitée. Administrateur notifié.'],
   'perte'  => ['warn', 'Perte déclarée et débitée. Administrateur notifié.'],
+  'vol'    => ['warn', 'Vol déclaré et débité. Administrateur notifié.'],
   'gok'    => ['ok',   'Contrôle enregistré (conforme) — horodaté.'],
   'gko'    => ['crit', '⚠️ Écart détecté au contrôle (horodaté) — administrateur notifié.'],
   'entree' => ['ok',   'Entrée enregistrée au coffre.'],
@@ -385,7 +386,7 @@ $flashMap = [
 ];
 $stxFlash = $flashMap[$_GET['m'] ?? ''] ?? null;
 
-$registre = $controles = []; $lastVal = null; $valPeriods = [];
+$registre = $controles = $monHisto = []; $lastVal = null; $valPeriods = [];
 $stats = ['nb' => 0, 'entrees' => 0, 'sorties' => 0];
 if ($prod) {
     if ($canRegistre) {
@@ -404,6 +405,10 @@ if ($prod) {
         WHERE c.produit_id=? ORDER BY c.cree_le DESC, c.id DESC LIMIT 30");
     $c->execute([$pid]);
     $controles = $c->fetchAll(PDO::FETCH_ASSOC);
+    // mon historique (mouvements de l'utilisateur courant)
+    $mh = $pdo->prepare("SELECT r.* FROM stupefiants_registre r WHERE r.produit_id=? AND r.user_id=? ORDER BY r.cree_le DESC, r.id DESC LIMIT 60");
+    $mh->execute([$pid, currentUserId()]);
+    $monHisto = $mh->fetchAll(PDO::FETCH_ASSOC);
     // dernière validation (référence publique)
     $lv = $pdo->prepare("SELECT v.*, TRIM(CONCAT(COALESCE(u.prenom,''),' ',COALESCE(u.nom,''))) AS agent
         FROM stupefiants_validations v LEFT JOIN utilisateurs u ON u.id=v.user_id
@@ -437,8 +442,8 @@ try {
 } catch (Exception $e) {}
 
 $moisFr = function($p){ if(!$p) return ''; $m=['01'=>'Janvier','02'=>'Février','03'=>'Mars','04'=>'Avril','05'=>'Mai','06'=>'Juin','07'=>'Juillet','08'=>'Août','09'=>'Septembre','10'=>'Octobre','11'=>'Novembre','12'=>'Décembre']; [$y,$mo]=explode('-',$p); return ($m[$mo]??$mo).' '.$y; };
-$mvLabel = ['entree'=>'Entrée · réappro','administration'=>'Administration','destruction'=>'Destruction','casse'=>'💥 Casse / bris','perte'=>'📉 Perte'];
-$mvClass = ['entree'=>'t-entree','administration'=>'t-admin','destruction'=>'t-destr','casse'=>'t-casse','perte'=>'t-casse'];
+$mvLabel = ['entree'=>'Entrée · réappro','administration'=>'Administration','destruction'=>'Destruction','casse'=>'💥 Casse / bris','perte'=>'📉 Perte','vol'=>'🚨 Vol'];
+$mvClass = ['entree'=>'t-entree','administration'=>'t-admin','destruction'=>'t-destr','casse'=>'t-casse','perte'=>'t-casse','vol'=>'t-destr'];
 
 $ai_on = false;
 if ($canRegistre) { try { $ai_on = ($pdo->query("SELECT valeur FROM ai_settings WHERE cle='actif'")->fetchColumn() === '1'); } catch (Exception $e) {} }
@@ -577,9 +582,10 @@ require_once 'includes/header.php';
   <div class="actions">
     <?php if ($prod): ?>
     <button class="action" data-view="registre"><span class="ai">🔒</span><span class="t">Registre</span></button>
+    <button class="action" data-view="mon"><span class="ai">📄</span><span class="t">Mon historique</span></button>
     <button class="action" data-view="garde"><span class="ai">🕓</span><span class="t">Contrôle</span></button>
     <button class="action" data-view="admin"><span class="ai">💉</span><span class="t">J'ai administré</span></button>
-    <button class="action" data-view="casse"><span class="ai">💥</span><span class="t">Casse / perte</span></button>
+    <button class="action" data-view="casse"><span class="ai">💥</span><span class="t">Casse / perte / vol</span></button>
     <?php if ($canValider): ?><button class="action" data-view="valider"><span class="ai">🛡️</span><span class="t">Valider la période</span></button><?php endif; ?>
     <?php endif; ?>
     <button class="action" data-view="coffre"><span class="ai">🏦</span><span class="t">Coffre</span></button>
@@ -607,7 +613,7 @@ require_once 'includes/header.php';
       <div class="panel"><div class="locked-note">🔒 <b>Registre réservé.</b><br>Seul le dernier solde validé ci-dessus t'est visible. Le détail est accessible aux rôles autorisés par l'administrateur.</div></div>
     <?php else: ?>
       <div style="margin-bottom:14px;display:flex;gap:8px;flex-wrap:wrap">
-        <a class="btn btn-ghost" href="stupefiants.php?print=registre&p=<?= $pid ?>" target="_blank">🖨️ Imprimer le registre</a>
+        <button type="button" class="btn btn-ghost" onclick="stxPrint('stupefiants.php?print=registre&p=<?= $pid ?>')">🖨️ Imprimer le registre</button>
         <?php if ($ai_on): ?><button type="button" class="btn btn-ghost" id="stx-ia-btn" onclick="stxAnalyse()">🤖 Analyser (IA)</button><?php endif; ?>
       </div>
       <?php if ($ai_on): ?><div id="stx-ia-out" style="display:none;margin-bottom:14px" class="panel"><div class="panel-b" style="white-space:pre-wrap;font-size:13.5px;line-height:1.55;color:var(--text)"></div></div><?php endif; ?>
@@ -632,7 +638,7 @@ require_once 'includes/header.php';
         <?php endif; ?>
           <tr class="<?= $mvClass[$row['type']] ?? '' ?>">
             <td class="date"><b><?= date('d/m', strtotime($row['cree_le'])) ?></b><?= date('H:i', strtotime($row['cree_le'])) ?></td>
-            <td class="mv"><?= h($mvLabel[$row['type']] ?? $row['type']) ?><?php if(in_array($row['type'],['casse','perte'],true)): ?> <a href="stupefiants.php?print=declaration&id=<?= (int)$row['id'] ?>" target="_blank" title="Imprimer la déclaration à signer" style="text-decoration:none">🖨️</a><?php endif; ?></td>
+            <td class="mv"><?= h($mvLabel[$row['type']] ?? $row['type']) ?><?php if(in_array($row['type'],['casse','perte','vol'],true)): ?> <a href="#" onclick="stxPrint('stupefiants.php?print=declaration&id=<?= (int)$row['id'] ?>');return false" title="Imprimer la déclaration à signer" style="text-decoration:none">🖨️</a><?php endif; ?></td>
             <td>
               <?php if ($row['intervention_ref']): ?>Interv. <span class="num"><?= h($row['intervention_ref']) ?></span><?php endif; ?>
               <?php if ($row['motif']): ?><?= h($row['motif']) ?><?php endif; ?>
@@ -654,6 +660,35 @@ require_once 'includes/header.php';
         </tbody>
       </table></div></div>
     <?php endif; ?>
+  </section>
+
+  <!-- MON HISTORIQUE (chaque utilisateur voit ses propres mouvements) -->
+  <section class="view" id="view-mon">
+    <div class="section-h"><h2>Mon historique</h2><div class="line"></div><span class="hint">Tes propres mouvements sur ce produit · réimprime tes déclarations</span></div>
+    <div class="panel"><div class="ledger-scroll"><table>
+      <thead><tr><th>Date &amp; heure</th><th>Mouvement</th><th>Détail</th><th class="r">Qté</th><th>Reliquat</th><th></th></tr></thead>
+      <tbody>
+      <?php if (!$monHisto): ?>
+        <tr><td colspan="6" class="empty" style="border-left:none">Tu n'as encore enregistré aucun mouvement sur ce produit.</td></tr>
+      <?php else: foreach ($monHisto as $row): ?>
+        <tr class="<?= $mvClass[$row['type']] ?? '' ?>">
+          <td class="date"><b><?= date('d/m', strtotime($row['cree_le'])) ?></b><?= date('H:i', strtotime($row['cree_le'])) ?></td>
+          <td class="mv"><?= h($mvLabel[$row['type']] ?? $row['type']) ?></td>
+          <td>
+            <?php if ($row['intervention_ref']): ?>Interv. <span class="num"><?= h($row['intervention_ref']) ?></span> <?php endif; ?><?php if ($row['motif']): ?><?= h($row['motif']) ?><?php endif; ?>
+            <?php $meta=array_filter([$row['lot']?'Lot '.$row['lot']:'', $row['date_exp']?'exp '.date('m/Y',strtotime($row['date_exp'])):'']); ?>
+            <?php if ($meta): ?><div class="who"><?= h(implode(' · ',$meta)) ?></div><?php endif; ?>
+          </td>
+          <td class="r num delta <?= $row['qte_ampoules']>=0?'pos':'neg' ?>"><?= ($row['qte_ampoules']>0?'+':'').$pxQ($row['qte_ampoules']) ?></td>
+          <td>
+            <?php if ($row['type']==='administration' && $row['ouvert_mg']!==null): ?><span class="rel"><span class="b"><?= $pxQ($row['ouvert_mg']) ?></span>→<span class="b"><?= $pxQ($row['admin_mg']) ?></span>→<span class="destr"><?= $pxQ($row['detruit_mg']) ?> mg dét.</span></span>
+            <?php elseif ($row['detruit_mg']!==null && (float)$row['detruit_mg']>0): ?><span class="destr"><?= $pxQ($row['detruit_mg']) ?> mg dét.</span><?php else: ?><span class="who">—</span><?php endif; ?>
+          </td>
+          <td class="r"><?php if(in_array($row['type'],['casse','perte','vol'],true)): ?><a href="#" onclick="stxPrint('stupefiants.php?print=declaration&id=<?= (int)$row['id'] ?>');return false" class="btn btn-ghost" style="padding:5px 10px" title="Réimprimer ma déclaration">🖨️</a><?php endif; ?></td>
+        </tr>
+      <?php endforeach; endif; ?>
+      </tbody>
+    </table></div></div>
   </section>
 
   <!-- CONTRÔLE DU COFFRE -->
@@ -727,11 +762,11 @@ require_once 'includes/header.php';
 
   <!-- CASSE / PERTE -->
   <section class="view" id="view-casse">
-    <div class="section-h"><h2>Déclarer une casse / perte</h2><div class="line"></div><span class="hint">Ampoule cassée, souillée ou perdue</span></div>
-    <div class="panel"><div class="panel-h"><span class="ic">💥</span><h3>Casse / perte d'ampoule</h3></div><div class="panel-b">
+    <div class="section-h"><h2>Déclarer une casse / perte / vol</h2><div class="line"></div><span class="hint">Ampoule cassée, souillée, perdue ou volée</span></div>
+    <div class="panel"><div class="panel-h"><span class="ic">💥</span><h3>Casse / perte / vol d'ampoule</h3></div><div class="panel-b">
       <form method="post" id="casseform">
         <?= csrfField() ?><input type="hidden" name="action" value="casse"><input type="hidden" name="produit_id" value="<?= $pid ?>"><input type="hidden" name="motif_type" id="motif_type" value="casse">
-        <div class="field"><label>Motif</label><div class="seg-choice" id="casse-motif"><button type="button" class="on" data-m="casse">💥 Casse / bris</button><button type="button" data-m="perte">📉 Perte</button></div></div>
+        <div class="field"><label>Motif</label><div class="seg-choice" id="casse-motif"><button type="button" class="on" data-m="casse">💥 Casse / bris</button><button type="button" data-m="perte">📉 Perte</button><button type="button" data-m="vol">🚨 Vol</button></div></div>
         <div class="row2">
           <div class="field"><label>N° de lot</label><input class="num" name="lot" placeholder="M4482"></div>
           <div class="field"><label>Péremption (exp.)</label><input type="date" name="date_exp"></div>
@@ -848,9 +883,24 @@ require_once 'includes/header.php';
     <?php endforeach; endif; ?>
   </section>
 
+  <!-- Fenêtre d'impression (overlay) -->
+  <div id="stx-print-modal" style="display:none;position:fixed;inset:0;background:rgba(20,28,48,.55);z-index:3000;align-items:center;justify-content:center;padding:18px" onclick="if(event.target===this)stxPrintClose()">
+    <div style="background:#fff;border-radius:14px;width:min(900px,96vw);height:92vh;display:flex;flex-direction:column;box-shadow:0 24px 70px rgba(0,0,0,.45);overflow:hidden">
+      <div style="display:flex;align-items:center;gap:10px;padding:11px 15px;border-bottom:1px solid var(--border);background:var(--bg2)">
+        <b style="flex:1;font-size:14px">Aperçu du document</b>
+        <button class="btn btn-primary" type="button" onclick="stxPrintNow()">🖨️ Imprimer</button>
+        <button class="btn btn-ghost" type="button" onclick="stxPrintClose()">✕ Fermer</button>
+      </div>
+      <iframe id="stx-print-frame" title="Aperçu impression" style="flex:1;border:none;width:100%;background:#eef1f7"></iframe>
+    </div>
+  </div>
+
 </div>
 
 <script>
+function stxPrint(url){ var m=document.getElementById('stx-print-modal'), f=document.getElementById('stx-print-frame'); f.src=url; m.style.display='flex'; document.body.style.overflow='hidden'; }
+function stxPrintClose(){ var m=document.getElementById('stx-print-modal'), f=document.getElementById('stx-print-frame'); m.style.display='none'; f.src='about:blank'; document.body.style.overflow=''; }
+function stxPrintNow(){ var f=document.getElementById('stx-print-frame'); try{ f.contentWindow.focus(); f.contentWindow.print(); }catch(e){ alert('Impression indisponible.'); } }
 function stxAnalyse(){
   var btn=document.getElementById('stx-ia-btn'), out=document.getElementById('stx-ia-out'), body=out.querySelector('.panel-b');
   var old=btn.textContent; btn.disabled=true; btn.textContent='🤖 Analyse en cours…';
@@ -862,14 +912,14 @@ function stxAnalyse(){
 }
 (function(){
   var btns=[].slice.call(document.querySelectorAll('#stx .action[data-view]'));
-  var views={registre:'view-registre',garde:'view-garde',admin:'view-admin',casse:'view-casse',valider:'view-valider',coffre:'view-coffre'};
+  var views={registre:'view-registre',mon:'view-mon',garde:'view-garde',admin:'view-admin',casse:'view-casse',valider:'view-valider',coffre:'view-coffre'};
   function show(v){ btns.forEach(function(b){b.classList.toggle('on',b.dataset.view===v);}); Object.keys(views).forEach(function(k){var el=document.getElementById(views[k]); if(el) el.classList.toggle('show',k===v);}); }
   btns.forEach(function(b){ b.addEventListener('click',function(){ show(b.dataset.view); }); });
   var initial=(new URLSearchParams(location.search)).get('v');
   var hasInitial=initial && [].some.call(btns,function(b){return b.dataset.view===initial;});
   if(hasInitial) show(initial); else if(btns.length) show(btns[0].dataset.view);
   var decl=(new URLSearchParams(location.search)).get('decl');
-  if(decl && /^\d+$/.test(decl)){ window.open('stupefiants.php?print=declaration&id='+decl,'_blank'); }
+  if(decl && /^\d+$/.test(decl)){ stxPrint('stupefiants.php?print=declaration&id='+decl); }
 
   // reliquat live
   var box=document.querySelector('#stx .relbox');
