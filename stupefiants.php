@@ -170,13 +170,28 @@ if (isset($_GET['print']) && $canStup && $prod) {
     $logoHtml = !empty($siteRow['logo']) ? '<img src="' . htmlspecialchars($siteRow['logo']) . '" alt="logo">' : '';
     $entete = htmlspecialchars(trim(($siteRow['org_nom'] ?? '') . ' — ' . ($siteRow['site_nom'] ?? ''), ' —'));
     echo '<!doctype html><html lang="fr"><head><meta charset="utf-8"><title>Impression — Stupéfiants</title><style>'
-        . '*{box-sizing:border-box}body{font-family:Arial,Helvetica,sans-serif;color:#1E2A4A;margin:0;padding:26px;background:#fff}'
-        . '.doc{max-width:820px;margin:0 auto}.dh{display:flex;align-items:center;gap:16px;border-bottom:2px solid #1E2A4A;padding-bottom:14px;margin-bottom:16px}'
-        . '.dh img{max-height:76px}.dh .t{flex:1}.dh h1{margin:0;font-size:21px}.dh .site{color:#555;font-size:14px;font-weight:700;margin-top:2px}'
-        . 'table{width:100%;border-collapse:collapse;font-size:12px;margin-top:8px}th,td{border:1px solid #c9d4ea;padding:6px 8px;text-align:left;vertical-align:top}'
-        . 'th{background:#eef3ff;text-transform:uppercase;font-size:10px;letter-spacing:.03em}.r{text-align:right}'
-        . '.meta{color:#444;font-size:12.5px}.lead{font-size:14.5px;line-height:1.8;margin:16px 0}'
-        . '.sign{margin-top:38px;display:flex;gap:44px}.sign .b{flex:1;border-top:1px solid #1E2A4A;padding-top:6px;font-size:12px;color:#555}'
+        . '*{box-sizing:border-box}body{font-family:"Segoe UI",Arial,Helvetica,sans-serif;color:#1f2a44;margin:0;padding:0;background:#eef1f7}'
+        . '.doc{max-width:820px;margin:22px auto;background:#fff;padding:30px 34px;box-shadow:0 4px 24px rgba(31,42,68,.12)}'
+        . '@media print{body{background:#fff}.doc{margin:0;box-shadow:none;padding:0;max-width:none}}'
+        . '.dh{display:flex;align-items:center;gap:18px;border-bottom:3px solid #1f2a44;padding-bottom:15px}'
+        . '.dh img{max-height:78px;max-width:160px;object-fit:contain}.dh .t{flex:1}.dh h1{margin:0;font-size:22px;letter-spacing:-.3px}'
+        . '.dh .site{color:#5a6b8c;font-size:12.5px;font-weight:700;margin-top:3px;text-transform:uppercase;letter-spacing:.05em}'
+        . '.dh .ref{text-align:right;font-size:10.5px;color:#8a97b3;line-height:1.5;white-space:nowrap}'
+        . '.prodline{font-size:13px;color:#3a465f;margin:14px 0 12px}.prodline b{color:#1f2a44}'
+        . '.summary{display:flex;gap:10px;margin:0 0 18px;flex-wrap:wrap}'
+        . '.kpi{flex:1;min-width:110px;border:1px solid #dbe3f2;border-radius:10px;padding:9px 12px;background:#f7f9ff}'
+        . '.kpi .k{font-size:9px;text-transform:uppercase;letter-spacing:.05em;color:#8a97b3;font-weight:700}.kpi .v{font-size:18px;font-weight:800;margin-top:2px}'
+        . 'table{width:100%;border-collapse:collapse;font-size:11.5px}'
+        . 'thead th{background:#1f2a44;color:#fff;text-transform:uppercase;font-size:9px;letter-spacing:.04em;padding:8px 9px;text-align:left}thead th.r{text-align:right}'
+        . 'tbody td{padding:7px 9px;border-bottom:1px solid #e6eaf3;vertical-align:top}tbody tr:nth-child(even) td{background:#f7f9ff}'
+        . 'td.r{text-align:right;font-variant-numeric:tabular-nums}tbody td:first-child{border-left:3px solid transparent;white-space:nowrap}'
+        . 'tr.t-entree td:first-child{border-left-color:#1D9E75}tr.t-admin td:first-child{border-left-color:#3B82F6}tr.t-destr td:first-child{border-left-color:#E24B4A}tr.t-casse td:first-child{border-left-color:#C77C06}'
+        . '.type{font-weight:700}.who{color:#7a86a3;font-size:10px}.pos{color:#1D9E75;font-weight:700}.neg{color:#E24B4A;font-weight:700}'
+        . 'tfoot td{padding:8px 9px;font-weight:800;border-top:2px solid #1f2a44;font-size:11.5px}'
+        . '.sign{margin-top:34px;display:flex;gap:44px}.sign .b{flex:1;border-top:1px solid #1f2a44;padding-top:6px;font-size:11.5px;color:#5a6b8c;min-height:54px}'
+        . '.faitle{margin-top:26px;font-size:12.5px;color:#3a465f}'
+        . '.foot{margin-top:22px;border-top:1px solid #e6eaf3;padding-top:9px;font-size:9.5px;color:#9aa5bf;text-align:center}'
+        . '.lead{font-size:14.5px;line-height:1.85;margin:14px 0}.decl-box{border:1px solid #dbe3f2;border-radius:12px;padding:18px 22px;background:#f7f9ff;margin:14px 0}.meta{color:#444;font-size:12px}'
         . '.noprint{margin-bottom:16px}@media print{.noprint{display:none}}.btn{padding:9px 16px;border:none;border-radius:8px;background:#3B82F6;color:#fff;font-weight:700;cursor:pointer;font-size:14px}'
         . '</style></head><body><div class="doc"><div class="noprint"><button class="btn" onclick="window.print()">🖨️ Imprimer</button></div>';
 
@@ -185,8 +200,18 @@ if (isset($_GET['print']) && $canStup && $prod) {
         $rr = $pdo->prepare("SELECT r.*, TRIM(CONCAT(COALESCE(u.prenom,''),' ',COALESCE(u.nom,''))) agent FROM stupefiants_registre r LEFT JOIN utilisateurs u ON u.id=r.user_id WHERE r.produit_id=? ORDER BY r.cree_le ASC, r.id ASC");
         $rr->execute([$pid]); $rows = $rr->fetchAll(PDO::FETCH_ASSOC);
         $lbl = ['entree' => 'Entrée', 'administration' => 'Administration', 'destruction' => 'Destruction', 'casse' => 'Casse', 'perte' => 'Perte'];
-        echo '<div class="dh">' . $logoHtml . '<div class="t"><h1>Registre des stupéfiants</h1><div class="site">' . $entete . '</div></div></div>';
-        echo '<div class="meta"><b>Produit :</b> ' . $nomP . ($prod['dose_mg'] !== null ? ' — ' . $pxQ($prod['dose_mg']) . ' mg' : '') . ' &nbsp;·&nbsp; <b>Solde actuel :</b> ' . $pxQ($prod['quantite']) . ' ampoule(s) &nbsp;·&nbsp; <b>Édité le</b> ' . date('d/m/Y à H:i') . '</div>';
+        $cls = ['entree' => 't-entree', 'administration' => 't-admin', 'destruction' => 't-destr', 'casse' => 't-casse', 'perte' => 't-casse'];
+        $tEnt = 0; $tSort = 0; $tDetr = 0;
+        foreach ($rows as $r) { if ($r['qte_ampoules'] > 0) $tEnt += $r['qte_ampoules']; else $tSort += abs($r['qte_ampoules']); if ($r['detruit_mg'] !== null) $tDetr += (float)$r['detruit_mg']; }
+        echo '<div class="dh">' . $logoHtml . '<div class="t"><h1>Registre des stupéfiants</h1><div class="site">' . $entete . '</div></div><div class="ref">Édité le<br><b>' . date('d/m/Y à H:i') . '</b></div></div>';
+        echo '<p class="prodline"><b>Produit suivi :</b> ' . $nomP . ($prod['dose_mg'] !== null ? ' — ' . $pxQ($prod['dose_mg']) . ' mg' : '') . ($prod['volume_ml'] !== null ? ' / ' . $pxQ($prod['volume_ml']) . ' mL' : '') . ' &nbsp;·&nbsp; unité : ampoule</p>';
+        echo '<div class="summary">'
+            . '<div class="kpi"><div class="k">Solde actuel</div><div class="v">' . $pxQ($prod['quantite']) . '</div></div>'
+            . '<div class="kpi"><div class="k">Mouvements</div><div class="v">' . count($rows) . '</div></div>'
+            . '<div class="kpi"><div class="k">Entrées</div><div class="v" style="color:#1D9E75">+' . $pxQ($tEnt) . '</div></div>'
+            . '<div class="kpi"><div class="k">Sorties</div><div class="v" style="color:#E24B4A">−' . $pxQ($tSort) . '</div></div>'
+            . '<div class="kpi"><div class="k">Détruit (mg)</div><div class="v">' . $pxQ($tDetr) . '</div></div>'
+            . '</div>';
         echo '<table><thead><tr><th>Date &amp; heure</th><th>Mouvement</th><th>Détail</th><th class="r">Qté</th><th class="r">Solde</th><th>Reliquat</th><th>Agent</th></tr></thead><tbody>';
         foreach ($rows as $r) {
             $det = [];
@@ -195,12 +220,16 @@ if (isset($_GET['print']) && $canStup && $prod) {
             if ($r['lot']) $det[] = 'Lot ' . $r['lot'];
             if ($r['date_exp']) $det[] = 'exp ' . date('m/Y', strtotime($r['date_exp']));
             $rel = '';
-            if ($r['type'] === 'administration' && $r['ouvert_mg'] !== null) $rel = $pxQ($r['ouvert_mg']) . '→' . $pxQ($r['admin_mg']) . '→' . $pxQ($r['detruit_mg']) . ' mg dét.';
+            if ($r['type'] === 'administration' && $r['ouvert_mg'] !== null) $rel = $pxQ($r['ouvert_mg']) . ' → ' . $pxQ($r['admin_mg']) . ' → ' . $pxQ($r['detruit_mg']) . ' mg dét.';
             elseif ($r['detruit_mg'] !== null && (float)$r['detruit_mg'] > 0) $rel = $pxQ($r['detruit_mg']) . ' mg dét.';
-            echo '<tr><td>' . date('d/m/Y H:i', strtotime($r['cree_le'])) . '</td><td>' . ($lbl[$r['type']] ?? $r['type']) . '</td><td>' . htmlspecialchars(implode(' · ', $det)) . '</td><td class="r">' . ($r['qte_ampoules'] > 0 ? '+' : '') . $pxQ($r['qte_ampoules']) . '</td><td class="r">' . $pxQ($r['solde_apres']) . '</td><td>' . htmlspecialchars($rel) . '</td><td>' . htmlspecialchars($r['agent'] ?: '') . '</td></tr>';
+            $q = ($r['qte_ampoules'] > 0 ? '+' : '') . $pxQ($r['qte_ampoules']);
+            echo '<tr class="' . ($cls[$r['type']] ?? '') . '"><td>' . date('d/m/Y H:i', strtotime($r['cree_le'])) . '</td><td class="type">' . ($lbl[$r['type']] ?? $r['type']) . '</td><td>' . htmlspecialchars(implode(' · ', $det)) . '</td><td class="r ' . ($r['qte_ampoules'] >= 0 ? 'pos' : 'neg') . '">' . $q . '</td><td class="r"><b>' . $pxQ($r['solde_apres']) . '</b></td><td>' . htmlspecialchars($rel) . '</td><td>' . htmlspecialchars($r['agent'] ?: '—') . '</td></tr>';
         }
-        if (!$rows) echo '<tr><td colspan="7">Aucun mouvement.</td></tr>';
-        echo '</tbody></table><div class="sign"><div class="b">Responsable — nom &amp; signature</div><div class="b">Date</div></div>';
+        if (!$rows) echo '<tr><td colspan="7" style="text-align:center;color:#8a97b3;padding:18px">Aucun mouvement enregistré.</td></tr>';
+        echo '</tbody><tfoot><tr><td colspan="3">Totaux</td><td class="r"><span class="pos">+' . $pxQ($tEnt) . '</span> / <span class="neg">−' . $pxQ($tSort) . '</span></td><td class="r">' . $pxQ($prod['quantite']) . '</td><td colspan="2">Détruit : ' . $pxQ($tDetr) . ' mg</td></tr></tfoot></table>';
+        echo '<div class="faitle">Fait à ……………………………………………, le ……… / ……… / …………</div>';
+        echo '<div class="sign"><div class="b">Le responsable — nom &amp; signature</div><div class="b">Le pharmacien / cadre — nom &amp; signature</div></div>';
+        echo '<div class="foot">Registre des stupéfiants — ' . $entete . ' · Document confidentiel, à conserver.</div>';
     } elseif ($mode === 'declaration') {
         $rid = (int)($_GET['id'] ?? 0);
         $dr = $pdo->prepare("SELECT r.*, TRIM(CONCAT(COALESCE(u.prenom,''),' ',COALESCE(u.nom,''))) agent, p.nom pnom, p.dci pdci
@@ -211,13 +240,17 @@ if (isset($_GET['print']) && $canStup && $prod) {
             $verbe = $d['type'] === 'perte' ? 'perdu' : 'cassé';
             $nb = $pxQ(abs($d['qte_ampoules']));
             $nomP = htmlspecialchars($d['pdci'] ?: $d['pnom']);
-            echo '<div class="dh">' . $logoHtml . '<div class="t"><h1>Déclaration de ' . ($d['type'] === 'perte' ? 'perte' : 'casse') . ' de stupéfiant</h1><div class="site">' . $entete . '</div></div></div>';
-            echo '<p class="lead">Je soussigné(e) <b>' . htmlspecialchars($d['agent'] ?: '……………………………') . '</b> déclare avoir <b>' . $verbe . '</b> <b>' . $nb . ' ampoule(s)</b> de <b>' . $nomP . '</b>'
+            echo '<div class="dh">' . $logoHtml . '<div class="t"><h1>Déclaration de ' . ($d['type'] === 'perte' ? 'perte' : 'casse') . ' de stupéfiant</h1><div class="site">' . $entete . '</div></div><div class="ref">Réf. n° ' . (int)$d['id'] . '<br>' . date('d/m/Y', strtotime($d['cree_le'])) . '</div></div>';
+            echo '<div class="decl-box">'
+                . '<p class="lead" style="margin:0 0 10px">Je soussigné(e) <b>' . htmlspecialchars($d['agent'] ?: '……………………………') . '</b> déclare avoir <b>' . $verbe . '</b> <b>' . $nb . ' ampoule(s)</b> de <b>' . $nomP . '</b>'
                 . ($d['lot'] ? ' (lot ' . htmlspecialchars($d['lot']) . ($d['date_exp'] ? ', exp ' . date('m/Y', strtotime($d['date_exp'])) : '') . ')' : '')
-                . ', le <b>' . date('d/m/Y à H:i', strtotime($d['cree_le'])) . '</b>.</p>';
-            echo '<p class="lead"><b>Circonstances :</b><br>' . nl2br(htmlspecialchars($d['motif'] ?: '………………………………………………………………………………………………')) . '</p>';
+                . ', le <b>' . date('d/m/Y à H:i', strtotime($d['cree_le'])) . '</b>.</p>'
+                . '<p class="lead" style="margin:0"><b>Circonstances :</b><br>' . nl2br(htmlspecialchars($d['motif'] ?: '………………………………………………………………………………………………')) . '</p>'
+                . '</div>';
             echo '<p class="meta">L\'ampoule ' . ($d['type'] === 'perte' ? 'a été déclarée perdue' : 'a été détruite') . ' et le solde du coffre débité en conséquence. Document à conserver au registre des stupéfiants.</p>';
-            echo '<div class="sign"><div class="b">Déclarant — nom &amp; signature</div><div class="b">Responsable — nom &amp; signature</div></div>';
+            echo '<div class="faitle">Fait à ……………………………………………, le ……… / ……… / …………</div>';
+            echo '<div class="sign"><div class="b">Le déclarant — nom &amp; signature</div><div class="b">Le responsable — nom &amp; signature</div></div>';
+            echo '<div class="foot">Déclaration de ' . ($d['type'] === 'perte' ? 'perte' : 'casse') . ' — ' . $entete . ' · Document confidentiel, à conserver.</div>';
         } else { echo '<p>Déclaration introuvable.</p>'; }
     } else { echo '<p>Accès refusé.</p>'; }
     echo '</div><script>setTimeout(function(){try{window.print()}catch(e){}},350)</script></body></html>';
