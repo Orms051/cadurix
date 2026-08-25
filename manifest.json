@@ -5,8 +5,8 @@
   "start_url": "/dashboard.php",
   "display": "standalone",
   "orientation": "portrait-primary",
-  "background_color": "#080E1A",
-  "theme_color": "#7C3AED",
+  "background_color": "#F8FAFF",
+  "theme_color": "#3B82F6",
   "lang": "fr",
   "scope": "/",
   "icons": [

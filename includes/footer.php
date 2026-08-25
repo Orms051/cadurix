@@ -329,4 +329,60 @@ if (isset($pdo)) {
 })();
 </script>
 
+<!-- ════════════════════════════════════════════════════
+     PWA — enregistrement du service worker + invite d'installation
+════════════════════════════════════════════════════ -->
+<script>
+(function(){
+  // 1) Service worker : assets hors-ligne (jamais le PHP). HTTPS ou localhost requis.
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', function(){
+      navigator.serviceWorker.register('/service-worker.js').catch(function(){});
+    });
+  }
+
+  // Déjà installée (mode standalone) → ne rien proposer
+  var isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+  if (isStandalone) return;
+
+  // 2) Android / Chrome / Edge : bouton "Installer l'application"
+  var deferred = null;
+  window.addEventListener('beforeinstallprompt', function(e){
+    e.preventDefault();
+    deferred = e;
+    if (document.getElementById('pwa-install')) return;
+    var b = document.createElement('button');
+    b.id = 'pwa-install';
+    b.type = 'button';
+    b.textContent = '📲 Installer l\'application';
+    b.style.cssText = 'position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom,0px) + 76px);z-index:9997;display:flex;align-items:center;gap:8px;padding:11px 18px;border:none;border-radius:99px;background:var(--primary,#3B82F6);color:#fff;font-family:inherit;font-size:.85rem;font-weight:700;box-shadow:0 10px 28px -8px rgba(0,0,0,.5);cursor:pointer';
+    b.addEventListener('click', function(){
+      if (!deferred) return;
+      deferred.prompt();
+      deferred.userChoice.finally(function(){ deferred = null; b.remove(); });
+    });
+    document.body.appendChild(b);
+  });
+  window.addEventListener('appinstalled', function(){
+    var b = document.getElementById('pwa-install'); if (b) b.remove();
+  });
+
+  // 3) iOS Safari (pas de beforeinstallprompt) : rappel une seule fois
+  var ua = window.navigator.userAgent;
+  var isIOS = /iPad|iPhone|iPod/.test(ua) && !window.MSStream;
+  var isSafari = /^((?!chrome|android|crios|fxios).)*safari/i.test(ua);
+  if (isIOS && isSafari && !localStorage.getItem('pwa_ios_hint')) {
+    window.addEventListener('load', function(){
+      setTimeout(function(){
+        var d = document.createElement('div');
+        d.style.cssText = 'position:fixed;left:12px;right:12px;bottom:calc(env(safe-area-inset-bottom,0px) + 72px);z-index:9997;background:var(--bg2,#fff);border:1px solid var(--border,#dce6f7);border-radius:14px;padding:12px 14px;box-shadow:0 12px 32px -8px rgba(0,0,0,.4);font-family:inherit;font-size:.82rem;color:var(--text,#1e2a4a);display:flex;gap:10px;align-items:center';
+        d.innerHTML = '<span style="font-size:1.4rem">📲</span><div style="flex:1;line-height:1.35">Installer Cadurix : appuyez sur <b>Partager</b> puis <b>« Sur l\'écran d\'accueil »</b>.</div><button type="button" aria-label="Fermer" style="background:none;border:none;color:var(--text3,#7488ae);font-size:1.2rem;line-height:1;cursor:pointer">&times;</button>';
+        d.querySelector('button').addEventListener('click', function(){ d.remove(); try{ localStorage.setItem('pwa_ios_hint','1'); }catch(e){} });
+        document.body.appendChild(d);
+      }, 1500);
+    });
+  }
+})();
+</script>
+
 </body>
