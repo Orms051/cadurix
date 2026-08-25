@@ -193,7 +193,7 @@ if (isset($_GET['print']) && $canStup && $prod) {
         . '.foot{margin-top:22px;border-top:1px solid #e6eaf3;padding-top:9px;font-size:9.5px;color:#9aa5bf;text-align:center}'
         . '.lead{font-size:14.5px;line-height:1.85;margin:14px 0}.decl-box{border:1px solid #dbe3f2;border-radius:12px;padding:18px 22px;background:#f7f9ff;margin:14px 0}.meta{color:#444;font-size:12px}'
         . '.noprint{margin-bottom:16px}@media print{.noprint{display:none}}.btn{padding:9px 16px;border:none;border-radius:8px;background:#3B82F6;color:#fff;font-weight:700;cursor:pointer;font-size:14px}'
-        . '</style></head><body><div class="doc"><div class="noprint"><button class="btn" onclick="window.print()">🖨️ Imprimer</button></div>';
+        . '</style></head><body><div class="doc">';
 
     if ($mode === 'registre' && $canRegistre) {
         $nomP = htmlspecialchars($prod['dci'] ?: $prod['nom']);
