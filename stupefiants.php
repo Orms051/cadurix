@@ -530,18 +530,27 @@ require_once 'includes/header.php';
 #stx .note-banner{margin-top:26px;background:var(--bg3);border:1px solid var(--border);border-left:3px solid var(--primary);border-radius:13px;padding:16px 18px} #stx .note-banner h4{margin:0 0 9px;font-size:13.5px;font-weight:800} #stx .note-banner ul{margin:0;padding-left:20px;color:var(--text2);font-size:13px} #stx .note-banner li{margin:5px 0} #stx .note-banner b{color:var(--text)}
 
 /* ── Version mobile (n'affecte que le mobile, le rendu PC reste identique) ── */
+#stx .stx-mq{display:none}
 @media (max-width: 768px){
   #stx .page-header > div{width:100%;min-width:0}
   #stx select.psel{max-width:100%;width:100%}
-  #stx .actions{flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:6px;margin:0 -2px 8px}
-  #stx .action{flex-shrink:0}
-  #stx .pub{flex-direction:column;align-items:flex-start;gap:10px;padding:14px}
-  #stx .pub .rt{margin-left:0;border-left:none;padding-left:0;border-top:1px solid var(--border);padding-top:10px;max-width:none;width:100%}
-  #stx .pub .big{font-size:24px}
-  #stx table{min-width:560px;font-size:12.5px}
+  #stx .actions{display:none}   /* barre d'onglets remplacée par les actions rapides */
+  #stx .pub{display:none}       /* infos secondaires masquées sur mobile */
+  #stx .stx-mq{display:block;margin:8px 0 4px}
+  #stx .stx-mq .mq-h{font-size:12px;font-weight:800;color:var(--text2);text-transform:uppercase;letter-spacing:.06em;margin:0 0 10px}
+  #stx .stx-mq .mq-btn{display:flex;align-items:center;gap:14px;width:100%;text-align:left;border:none;border-radius:16px;padding:17px 18px;margin-bottom:12px;cursor:pointer;font-family:inherit;color:#fff;box-shadow:0 8px 20px -10px rgba(30,42,68,.6)}
+  #stx .stx-mq .mq-btn:active{transform:scale(.98)}
+  #stx .stx-mq .mq-ic{font-size:28px;flex-shrink:0;width:34px;text-align:center}
+  #stx .stx-mq .mq-t{font-weight:800;font-size:17px;display:flex;flex-direction:column;line-height:1.25}
+  #stx .stx-mq .mq-t small{font-weight:500;font-size:12.5px;opacity:.92}
+  #stx .stx-mq .mq-garde{background:linear-gradient(135deg,#5b9bff,#3B82F6)}
+  #stx .stx-mq .mq-admin{background:linear-gradient(135deg,#37c78a,#1D9E75)}
+  #stx .stx-mq .mq-casse{background:linear-gradient(135deg,#eaa14b,#C77C06)}
+  #stx .stx-mq .mq-mon{display:block;text-align:center;color:var(--primary);font-weight:700;font-size:14px;padding:10px;text-decoration:none;border:1px solid var(--border);border-radius:12px}
+  #stx table{min-width:520px;font-size:12.5px}
   #stx thead th,#stx tbody td{padding:9px 10px}
   #stx .panel-b{padding:14px}
-  #stx .section-h{margin:20px 0 10px}
+  #stx .section-h{margin:16px 0 10px}
   #stx .section-h h2{font-size:16px}
   #stx .row2{grid-template-columns:1fr}
   #stx .val-grid{grid-template-columns:1fr;gap:14px}
@@ -590,6 +599,17 @@ require_once 'includes/header.php';
     <?php endif; ?>
     <button class="action" data-view="coffre"><span class="ai">🏦</span><span class="t">Coffre</span></button>
   </div>
+
+  <?php if ($prod): ?>
+  <!-- Actions rapides (mobile uniquement) -->
+  <div class="stx-mq">
+    <div class="mq-h">Que veux-tu faire ?</div>
+    <button type="button" class="mq-btn mq-garde" data-view="garde"><span class="mq-ic">🕓</span><span class="mq-t">Contrôle du coffre<small>Compter les ampoules</small></span></button>
+    <button type="button" class="mq-btn mq-admin" data-view="admin"><span class="mq-ic">💉</span><span class="mq-t">J'ai administré<small>Déclarer une administration</small></span></button>
+    <button type="button" class="mq-btn mq-casse" data-view="casse"><span class="mq-ic">💥</span><span class="mq-t">Casse / perte / vol<small>Déclarer un incident</small></span></button>
+    <a class="mq-mon" href="#" data-view="mon">📄 Mon historique</a>
+  </div>
+  <?php endif; ?>
 
   <?php if (!$prod): ?>
     <div class="flash warn">Aucun stupéfiant dans un coffre pour l'instant. Ouvre l'onglet <b>🏦 Coffre</b> pour créer un coffre, puis ajoute un médicament coché <b>🔒 Stupéfiant</b> dans ce coffre depuis <b>Médicaments</b>.</div>
@@ -917,13 +937,15 @@ function stxAnalyse(){
     .catch(function(){ btn.disabled=false; btn.textContent=old; body.textContent='⚠️ Erreur réseau.'; });
 }
 (function(){
-  var btns=[].slice.call(document.querySelectorAll('#stx .action[data-view]'));
+  var btns=[].slice.call(document.querySelectorAll('#stx .action[data-view], #stx .stx-mq [data-view]'));
   var views={registre:'view-registre',mon:'view-mon',garde:'view-garde',admin:'view-admin',casse:'view-casse',valider:'view-valider',coffre:'view-coffre'};
   function show(v){ btns.forEach(function(b){b.classList.toggle('on',b.dataset.view===v);}); Object.keys(views).forEach(function(k){var el=document.getElementById(views[k]); if(el) el.classList.toggle('show',k===v);}); }
-  btns.forEach(function(b){ b.addEventListener('click',function(){ show(b.dataset.view); }); });
+  btns.forEach(function(b){ b.addEventListener('click',function(e){ if(b.tagName==='A') e.preventDefault(); show(b.dataset.view); if(b.classList.contains('mq-btn')||b.classList.contains('mq-mon')){ var el=document.getElementById(views[b.dataset.view]); if(el) el.scrollIntoView({behavior:'smooth',block:'start'}); } }); });
   var initial=(new URLSearchParams(location.search)).get('v');
   var hasInitial=initial && [].some.call(btns,function(b){return b.dataset.view===initial;});
-  if(hasInitial) show(initial); else if(btns.length) show(btns[0].dataset.view);
+  if(hasInitial){ show(initial); }
+  else if(window.matchMedia('(max-width:768px)').matches){ show('garde'); }   // mobile : démarre sur Contrôle
+  else if(btns.length){ show(btns[0].dataset.view); }
   var decl=(new URLSearchParams(location.search)).get('decl');
   if(decl && /^\d+$/.test(decl)){ stxPrint('stupefiants.php?print=declaration&id='+decl); }
 
