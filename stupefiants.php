@@ -898,8 +898,13 @@ require_once 'includes/header.php';
 </div>
 
 <script>
-function stxPrint(url){ var m=document.getElementById('stx-print-modal'), f=document.getElementById('stx-print-frame'); f.src=url; m.style.display='flex'; document.body.style.overflow='hidden'; }
-function stxPrintClose(){ var m=document.getElementById('stx-print-modal'), f=document.getElementById('stx-print-frame'); m.style.display='none'; f.src='about:blank'; document.body.style.overflow=''; }
+function stxPrint(url){
+  var m=document.getElementById('stx-print-modal'), f=document.getElementById('stx-print-frame');
+  m.style.display='flex'; document.body.style.overflow='hidden';
+  f.removeAttribute('src'); f.srcdoc='<p style="font-family:sans-serif;padding:24px;color:#5a6b8c">Chargement du document…</p>';
+  fetch(url).then(function(r){return r.text();}).then(function(html){ f.srcdoc=html; }).catch(function(){ f.srcdoc='<p style="font-family:sans-serif;padding:24px;color:#c0392b">Erreur de chargement du document.</p>'; });
+}
+function stxPrintClose(){ var m=document.getElementById('stx-print-modal'), f=document.getElementById('stx-print-frame'); m.style.display='none'; f.srcdoc=''; document.body.style.overflow=''; }
 function stxPrintNow(){ var f=document.getElementById('stx-print-frame'); try{ f.contentWindow.focus(); f.contentWindow.print(); }catch(e){ alert('Impression indisponible.'); } }
 function stxAnalyse(){
   var btn=document.getElementById('stx-ia-btn'), out=document.getElementById('stx-ia-out'), body=out.querySelector('.panel-b');
