@@ -629,16 +629,16 @@ require_once 'includes/header.php';
       </div></div>
       <?php endif; ?>
       <div class="panel"><div class="ledger-scroll"><table>
-        <thead><tr><th>Date</th><th>Mouvement</th><th>Détail</th><th class="r">Qté</th><th class="r">Solde</th><th>Reliquat</th><th>Agent</th></tr></thead>
+        <thead><tr><th>Date</th><th>Mouvement</th><th>Détail</th><th class="r">Qté</th><th class="r">Solde</th><th>Reliquat</th><th>Agent</th><th>Document</th></tr></thead>
         <tbody>
         <?php if (!$registre): ?>
-          <tr><td colspan="7" class="empty" style="border-left:none">Aucun mouvement pour l'instant.</td></tr>
+          <tr><td colspan="8" class="empty" style="border-left:none">Aucun mouvement pour l'instant.</td></tr>
         <?php else: $lastP=null; foreach ($registre as $row): if ($row['periode']!==$lastP): $lastP=$row['periode']; $isVal=in_array($row['periode'],$valPeriods,true); ?>
-          <tr class="period-band <?= $isVal?'validated':'current' ?>"><td colspan="7"><span class="lk"><?= $isVal?'🔒 Verrouillé':'⏳ En cours' ?></span><?= h($moisFr($row['periode'])) ?></td></tr>
+          <tr class="period-band <?= $isVal?'validated':'current' ?>"><td colspan="8"><span class="lk"><?= $isVal?'🔒 Verrouillé':'⏳ En cours' ?></span><?= h($moisFr($row['periode'])) ?></td></tr>
         <?php endif; ?>
           <tr class="<?= $mvClass[$row['type']] ?? '' ?>">
             <td class="date"><b><?= date('d/m', strtotime($row['cree_le'])) ?></b><?= date('H:i', strtotime($row['cree_le'])) ?></td>
-            <td class="mv"><?= h($mvLabel[$row['type']] ?? $row['type']) ?><?php if(in_array($row['type'],['casse','perte','vol'],true)): ?> <a href="#" onclick="stxPrint('stupefiants.php?print=declaration&id=<?= (int)$row['id'] ?>');return false" title="Imprimer la déclaration à signer" style="text-decoration:none">🖨️</a><?php endif; ?></td>
+            <td class="mv"><?= h($mvLabel[$row['type']] ?? $row['type']) ?></td>
             <td>
               <?php if ($row['intervention_ref']): ?>Interv. <span class="num"><?= h($row['intervention_ref']) ?></span><?php endif; ?>
               <?php if ($row['motif']): ?><?= h($row['motif']) ?><?php endif; ?>
@@ -655,6 +655,7 @@ require_once 'includes/header.php';
               <?php else: ?><span class="who">—</span><?php endif; ?>
             </td>
             <td><?= h($row['agent'] ?: '—') ?></td>
+            <td><?php if(in_array($row['type'],['casse','perte','vol'],true)): ?><a href="#" onclick="stxPrint('stupefiants.php?print=declaration&id=<?= (int)$row['id'] ?>');return false" class="btn btn-ghost" style="padding:5px 10px;white-space:nowrap" title="Voir / imprimer la déclaration">🖨️ Voir</a><?php else: ?><span class="who">—</span><?php endif; ?></td>
           </tr>
         <?php endforeach; endif; ?>
         </tbody>
