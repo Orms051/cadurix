@@ -254,6 +254,22 @@ require_once 'includes/header.php';
 .mobile-action-btn.mab-admin{background:rgba(100,116,139,.12);border-color:rgba(100,116,139,.32);color:var(--text)}
 .mobile-action-btn.mab-admin .mab-title{color:var(--text)}
 .mobile-action-btn.mab-admin .mab-label{color:var(--text3)}
+/* Tuiles d'accès rapide (mobile) */
+.m-tiles{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:20px}
+.m-tile{position:relative;display:flex;flex-direction:column;padding:16px 14px;border-radius:18px;text-decoration:none;background:var(--bg2);border:1px solid var(--border);border-top:3px solid var(--tile-c,var(--border));overflow:hidden;-webkit-tap-highlight-color:transparent;transition:transform .12s}
+.m-tile:active{transform:scale(.96)}
+.m-tile::before{content:'';position:absolute;inset:0;background:var(--tile-c,transparent);opacity:.09;pointer-events:none}
+.m-tile>*{position:relative;z-index:1}
+.m-tile-ic{font-size:1.9rem;line-height:1;margin-bottom:9px;filter:drop-shadow(0 2px 4px rgba(0,0,0,.18))}
+.m-tile-t{font-size:.95rem;font-weight:800;color:var(--text);line-height:1.15}
+.m-tile-s{font-size:.72rem;color:var(--text3);font-weight:500;margin-top:2px}
+.m-tile-badge{position:absolute;top:10px;right:10px;min-width:20px;height:20px;padding:0 6px;border-radius:99px;background:#ef4444;color:#fff;font-size:.7rem;font-weight:800;display:flex;align-items:center;justify-content:center;z-index:2}
+.t-stup{--tile-c:#ef4444}
+.t-remp{--tile-c:#3b82f6}
+.t-fiche{--tile-c:#10b981}
+.t-scan{--tile-c:#8b5cf6}
+.t-msg{--tile-c:#0ea5e9}
+.t-admin{--tile-c:#64748b}
 </style>
 <div class="mobile-only">
 
@@ -321,67 +337,56 @@ require_once 'includes/header.php';
     <?php endif; ?>
   </div>
 
-  <!-- Actions rapides -->
-  <div class="m-section-title">Actions rapides</div>
-  <div class="mobile-actions-grid">
+  <!-- Accès rapide -->
+  <div class="m-section-title">Accès rapide</div>
+  <div class="m-tiles">
+
+    <?php if (aff_mob('stupefiants')): ?>
+    <a href="/stupefiants.php" class="m-tile t-stup" onclick="cdxTrack&&cdxTrack('stupefiants')">
+      <span class="m-tile-ic">🔒</span>
+      <span class="m-tile-t">Stupéfiants</span>
+      <span class="m-tile-s">Coffre &amp; registre</span>
+    </a>
+    <?php endif; ?>
 
     <?php if (aff_mob('rempotages')): ?>
-    <a href="/rempotage.php" class="mobile-action-btn mab-primary" onclick="cdxTrack&&cdxTrack('rempotages')">
-      <span class="mab-icon">🔄</span>
-      <div class="mab-text">
-        <div class="mab-title">Rempotage</div>
-        <div class="mab-label">Refaire le plein d'un sac</div>
-      </div>
-    </a>
-    <?php elseif (aff_mob('scanner')): ?>
-    <a href="/scan.php" class="mobile-action-btn mab-primary" onclick="cdxTrack&&cdxTrack('scanner')">
-      <span class="mab-icon">📷</span>
-      <div class="mab-text">
-        <div class="mab-title">Scanner</div>
-        <div class="mab-label">DataMatrix · EAN13 · QR</div>
-      </div>
+    <a href="/rempotage.php" class="m-tile t-remp" onclick="cdxTrack&&cdxTrack('rempotages')">
+      <span class="m-tile-ic">🔄</span>
+      <span class="m-tile-t">Rempotage</span>
+      <span class="m-tile-s">Refaire un sac</span>
     </a>
     <?php endif; ?>
 
     <?php if (aff_mob('fiches')): ?>
-    <a href="/fiches.php" class="mobile-action-btn" onclick="cdxTrack&&cdxTrack('fiches')">
-      <span class="mab-icon">✅</span>
-      <div>Vérification</div>
-      <div class="mab-label">Fiches terrain</div>
+    <a href="/fiches.php" class="m-tile t-fiche" onclick="cdxTrack&&cdxTrack('fiches')">
+      <span class="m-tile-ic">🚒</span>
+      <span class="m-tile-t">Contrôle véhicule</span>
+      <span class="m-tile-s">Fiches de vérification</span>
     </a>
     <?php endif; ?>
 
     <?php if (aff_mob('scanner')): ?>
-    <a href="/scan.php" class="mobile-action-btn" onclick="cdxTrack&&cdxTrack('scanner')">
-      <span class="mab-icon">📷</span>
-      <div>Scanner</div>
-      <div class="mab-label">Rempotage</div>
-    </a>
-    <?php endif; ?>
-
-    <?php if (aff_mob('medicaments')): ?>
-    <a href="/products.php" class="mobile-action-btn" onclick="cdxTrack&&cdxTrack('medicaments')">
-      <span class="mab-icon">💊</span>
-      <div>Médicaments</div>
-      <div class="mab-label">Stock & alertes</div>
+    <a href="/scan.php" class="m-tile t-scan" onclick="cdxTrack&&cdxTrack('scanner')">
+      <span class="m-tile-ic">📷</span>
+      <span class="m-tile-t">Scanner</span>
+      <span class="m-tile-s">DataMatrix · EAN · QR</span>
     </a>
     <?php endif; ?>
 
     <?php if (aff_mob('messagerie')): ?>
-    <a href="/messaging.php" class="mobile-action-btn" onclick="cdxTrack&&cdxTrack('messagerie')" <?= $msg_non_lus>0?'style="border-color:rgba(59,130,246,.3);background:rgba(59,130,246,.07)"':'' ?>>
-      <span class="mab-icon">💬</span>
-      <div <?= $msg_non_lus>0?'style="color:#60a5fa"':'' ?>>Messages</div>
-      <div class="mab-label"><?= $msg_non_lus>0?$msg_non_lus.' non lu(s)':'Messagerie' ?></div>
+    <a href="/messaging.php" class="m-tile t-msg" onclick="cdxTrack&&cdxTrack('messagerie')">
+      <?php if ($msg_non_lus>0): ?><span class="m-tile-badge"><?= $msg_non_lus ?></span><?php endif; ?>
+      <span class="m-tile-ic">💬</span>
+      <span class="m-tile-t">Messages</span>
+      <span class="m-tile-s"><?= $msg_non_lus>0 ? $msg_non_lus.' non lu(s)' : 'Messagerie' ?></span>
     </a>
     <?php endif; ?>
 
     <?php if ((isAdmin() || nav_peut($nav_perms,'admin')) && (($aff_map['admin']['mobile'] ?? 1) == 1)): ?>
-    <a href="/admin/" class="mobile-action-btn mab-primary mab-admin" onclick="cdxTrack&&cdxTrack('admin')">
-      <span class="mab-icon">⚙️</span>
-      <div class="mab-text">
-        <div class="mab-title">Administration</div>
-        <div class="mab-label">Gestion du système</div>
-      </div>
+    <a href="/admin/" class="m-tile t-admin" onclick="cdxTrack&&cdxTrack('admin')">
+      <span class="m-tile-ic">⚙️</span>
+      <span class="m-tile-t">Administration</span>
+      <span class="m-tile-s">Gestion du système</span>
     </a>
     <?php endif; ?>
 
