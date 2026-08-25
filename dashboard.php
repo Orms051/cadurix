@@ -393,7 +393,7 @@ require_once 'includes/header.php';
   </div>
 
   <!-- Activité récente -->
-  <?php if ((nav_peut($nav_perms,'rempotages') && !empty($recent_remp)) || (nav_peut($nav_perms,'terrain') && !empty($recent_inter))): ?>
+  <?php if (nav_peut($nav_perms,'rempotages') && !empty($recent_remp)): ?>
   <div class="m-section-title">Activité récente</div>
   <div class="m-activity-list">
     <?php if (nav_peut($nav_perms,'rempotages')): foreach (array_slice($recent_remp, 0, 3) as $r): ?>
@@ -402,16 +402,6 @@ require_once 'includes/header.php';
       <div class="m-activity-info">
         <div class="m-activity-name">Rempotage — <?= h($r['empl_nom'] ?? '—') ?></div>
         <div class="m-activity-sub"><?= h($r['prenom'] ?? '') ?> · <?= $r['nb'] ?> article(s)</div>
-      </div>
-      <div class="m-activity-meta"><?= date('H:i', strtotime($r['cree_le'])) ?></div>
-    </a>
-    <?php endforeach; endif; ?>
-    <?php if (nav_peut($nav_perms,'terrain')): foreach (array_slice($recent_inter, 0, 2) as $r): ?>
-    <a href="/rempotages.php" class="m-activity-item">
-      <div class="m-activity-icon" style="background:rgba(239,68,68,.1)">🚑</div>
-      <div class="m-activity-info">
-        <div class="m-activity-name">Intervention <?= $r['reference'] ? h($r['reference']) : '#'.$r['nb'] ?></div>
-        <div class="m-activity-sub"><?= h($r['prenom'] ?? '') ?> · <?= $r['nb'] ?> ligne(s)</div>
       </div>
       <div class="m-activity-meta"><?= date('H:i', strtotime($r['cree_le'])) ?></div>
     </a>
