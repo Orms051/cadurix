@@ -286,24 +286,9 @@ require_once 'includes/header.php';
   </div>
   <?php endif; ?>
 
-  <!-- Alerte critique si nécessaire -->
-  <?php if (!empty($rappels_actifs) || ($expired > 0 && nav_peut($nav_perms,'medicaments'))): ?>
-  <a href="/products.php" class="m-alert-banner">
-    <span class="m-alert-icon">🚨</span>
-    <div>
-      <?php if (!empty($rappels_actifs)): ?>
-      <div><?= count($rappels_actifs) ?> lot(s) rappelé(s) ANSM — action requise</div>
-      <?php elseif ($expired > 0): ?>
-      <div><?= $expired ?> produit(s) périmé(s) — à retirer</div>
-      <?php endif; ?>
-      <div style="font-size:.72rem;opacity:.7;margin-top:2px">Appuyer pour voir →</div>
-    </div>
-  </a>
-  <?php endif; ?>
-
-  <!-- KPIs compacts -->
+  <!-- KPIs : Médicaments + Alertes (accès Médicaments requis) -->
+  <?php if (nav_peut($nav_perms,'medicaments')): ?>
   <div class="m-kpi-row">
-    <?php if (nav_peut($nav_perms,'medicaments')): ?>
     <a href="/products.php" class="m-kpi" style="border-top-color:#10b981">
       <div class="m-kpi-icon">💊</div>
       <div class="m-kpi-val" style="color:#10b981"><?= $total ?></div>
@@ -314,28 +299,8 @@ require_once 'includes/header.php';
       <div class="m-kpi-val" style="color:<?= ($expired+$critical)>0?'#f87171':'#34d399' ?>"><?= $expired+$critical ?></div>
       <div class="m-kpi-lbl">Alertes</div>
     </a>
-    <?php endif; ?>
-    <?php if (nav_peut($nav_perms,'biomed') && $biomed_total > 0): ?>
-    <a href="/biomed/dashboard.php" class="m-kpi" style="border-top-color:#8b5cf6">
-      <div class="m-kpi-icon">🔬</div>
-      <div class="m-kpi-val" style="color:#a78bfa"><?= $biomed_hs ?></div>
-      <div class="m-kpi-lbl">Biomed HS</div>
-    </a>
-    <?php elseif (nav_peut($nav_perms,'emplacements')): ?>
-    <a href="/emplacements.php" class="m-kpi" style="border-top-color:#0ea5e9">
-      <div class="m-kpi-icon">📍</div>
-      <div class="m-kpi-val" style="color:#38bdf8"><?= $emplCount ?></div>
-      <div class="m-kpi-lbl">Emplacements</div>
-    </a>
-    <?php endif; ?>
-    <?php if (nav_peut($nav_perms,'messagerie')): ?>
-    <a href="/messaging.php" class="m-kpi" style="border-top-color:<?= $msg_non_lus>0?'#3b82f6':'var(--border)' ?>">
-      <div class="m-kpi-icon">💬</div>
-      <div class="m-kpi-val" style="color:<?= $msg_non_lus>0?'#60a5fa':'var(--text2)' ?>"><?= $msg_non_lus ?></div>
-      <div class="m-kpi-lbl">Messages</div>
-    </a>
-    <?php endif; ?>
   </div>
+  <?php endif; ?>
 
   <!-- Accès rapide -->
   <div class="m-section-title">Accès rapide</div>
@@ -392,45 +357,6 @@ require_once 'includes/header.php';
 
   </div>
 
-  <!-- Activité récente -->
-  <?php if (nav_peut($nav_perms,'rempotages') && !empty($recent_remp)): ?>
-  <div class="m-section-title">Activité récente</div>
-  <div class="m-activity-list">
-    <?php if (nav_peut($nav_perms,'rempotages')): foreach (array_slice($recent_remp, 0, 3) as $r): ?>
-    <a href="/rempotages.php" class="m-activity-item">
-      <div class="m-activity-icon" style="background:rgba(16,185,129,.1)">🔄</div>
-      <div class="m-activity-info">
-        <div class="m-activity-name">Rempotage — <?= h($r['empl_nom'] ?? '—') ?></div>
-        <div class="m-activity-sub"><?= h($r['prenom'] ?? '') ?> · <?= $r['nb'] ?> article(s)</div>
-      </div>
-      <div class="m-activity-meta"><?= date('H:i', strtotime($r['cree_le'])) ?></div>
-    </a>
-    <?php endforeach; endif; ?>
-  </div>
-  <?php endif; ?>
-
-  <!-- Produits urgents -->
-  <?php if (nav_peut($nav_perms,'medicaments') && !empty($urgent)): ?>
-  <div class="m-section-title">Urgences péremption</div>
-  <div class="m-activity-list">
-    <?php foreach (array_slice($urgent, 0, 4) as $u): ?>
-    <?php
-      $j = (int)($u['jours'] ?? 0);
-      $col = $j < 0 ? '#ef4444' : ($j <= 7 ? '#f97316' : '#fbbf24');
-    ?>
-    <a href="/products.php" class="m-activity-item">
-      <div class="m-activity-icon" style="background:<?= $col ?>18">💊</div>
-      <div class="m-activity-info">
-        <div class="m-activity-name"><?= h($u['nom']) ?></div>
-        <div class="m-activity-sub"><?= h($u['empl_nom'] ?? '') ?></div>
-      </div>
-      <div class="m-activity-meta" style="color:<?= $col ?>;font-weight:700">
-        <?= $j < 0 ? 'PÉRIMÉ' : ($j === 0 ? 'Auj.' : $j.'j') ?>
-      </div>
-    </a>
-    <?php endforeach; ?>
-  </div>
-  <?php endif; ?>
 
 </div><!-- /mobile-only -->
 
