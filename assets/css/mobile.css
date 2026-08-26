@@ -37,6 +37,8 @@
   }
   .topbar-search { display: none !important; }
   .hamburger { display: none !important; }
+  /* Pastille "messages non lus" du haut : redondante avec le badge de la barre du bas → masquée */
+  .topbar-unread { display: none !important; }
   /* Switcher site — compact */
   .site-switcher, .switch-site-bar {
     font-size: .75rem !important;
