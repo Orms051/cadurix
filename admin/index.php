@@ -157,6 +157,20 @@ require_once '../includes/header.php';
 /* ── Onglet IA ───────────────────────────────────────── */
 .ia-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
 @media(max-width:700px){ .ia-grid { grid-template-columns: 1fr; } }
+
+/* ══ Admin : passe mobile ══ */
+@media (max-width: 768px) {
+  .admin-tabs-wrap { margin-bottom: 16px; }
+  .admin-tabs-bar { -webkit-overflow-scrolling: touch; }
+  .admin-tab { padding: 9px 12px; font-size: 12px; }
+  /* Tableaux admin (non wrappés) : scroll horizontal au lieu de déborder la page */
+  .admin-content table { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; max-width: 100%; }
+  /* Modal « accès par onglet » : fenêtre basse pleine largeur + table scrollable */
+  #modal-access.modal-overlay { align-items: flex-end; }
+  #modal-access .modal-box { width: 100%; max-width: none; padding: 18px; border-radius: 18px 18px 0 0;
+    position: fixed; left: 0; right: 0; bottom: 0; top: auto; max-height: 88vh; }
+  .access-table { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+}
 .toggle-big {
   display: flex; align-items: center; gap: 16px;
   background: var(--glass); border: 1px solid var(--border);
