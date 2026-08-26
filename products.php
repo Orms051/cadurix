@@ -1061,7 +1061,16 @@ require_once 'includes/header.php';
 .mobile-card-sub { font-size: 12px; color: var(--text3); font-weight: 600; margin-top: 3px; }
 .mobile-card-loc { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--text2); font-weight: 600; margin-top: 11px; }
 .mobile-card-loc .mcl-parent { color: var(--text3); font-weight: 500; }
-.mobile-card-info { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin: 12px 0; padding: 11px 0; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+.mc-qrow { display:flex; align-items:center; justify-content:space-between; gap:10px; margin:12px 0; padding:11px 0; border-top:1px solid var(--border); border-bottom:1px solid var(--border); }
+.mc-qrow .mcf-label { margin-bottom:0; }
+.mc-qbig { font-size:18px; font-weight:800; color:var(--text); }
+.mc-qbig .u { font-size:12px; color:var(--text3); font-weight:600; }
+.mc-step { display:flex; align-items:center; border:1px solid var(--border); border-radius:10px; overflow:hidden; }
+.mc-step button { width:40px; height:38px; border:none; background:var(--bg); color:var(--primary); font-size:20px; font-weight:700; cursor:pointer; line-height:1; }
+.mc-step button:active { background:var(--bg3); }
+.mc-step-v { min-width:54px; text-align:center; font-size:16px; font-weight:800; color:var(--text); font-variant-numeric:tabular-nums; padding:0 4px; }
+.mc-step-u { font-size:11px; color:var(--text3); font-weight:600; }
+.mc-info2 { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:12px; }
 .mcf-label { font-size: 9.5px; color: var(--text3); text-transform: uppercase; letter-spacing:.05em; margin-bottom:3px; font-weight: 700; }
 .mcf-val   { font-size: 14px; color: var(--text); font-weight: 700; }
 .mobile-card-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
@@ -1160,7 +1169,26 @@ require_once 'includes/header.php';
 .px-b-ok   { background:rgba(29,158,117,.14); color:#1D9E75; border-color:rgba(29,158,117,.22); }
 .px-b-mut  { background:rgba(107,114,128,.15); color:#9CA3AF; border-color:rgba(107,114,128,.22); }
 .px-actions { display:flex; gap:4px; justify-content:flex-end; }
-@media (max-width: 768px) { .px-tbl { display:none; } .px-toolbar, .px-quick { overflow-x:auto; } }
+@media (max-width: 768px) {
+  .px-tbl { display:none; }
+
+  /* Barre d'outils : empilée et lisible (fini le scroll horizontal) */
+  .px-toolbar { gap:8px; }
+  .px-search  { flex-basis:100%; max-width:none; order:-1; }          /* recherche en premier, pleine largeur */
+  .px-viewtog { flex-basis:100%; }                                    /* bascule vue / type en segments */
+  .px-viewtog a { flex:1; justify-content:center; }
+  .px-tabs { flex-basis:100%; }                                       /* Actifs / Archivés / Retirés */
+  .px-tabs .px-tab { flex:1; justify-content:center; }
+  .px-selbox { flex-basis:100%; justify-content:space-between; }      /* tri : pleine largeur */
+  .px-panel { flex-basis:100%; }                                      /* bouton Filtres : pleine largeur */
+  .px-panel .px-fbtn { width:100%; justify-content:center; }
+  .px-panel-drop { position:static; width:100%; box-shadow:none; margin-top:8px; }
+
+  /* Chips rapides : retour à la ligne au lieu du scroll */
+  .px-quick { flex-wrap:wrap; }
+  .px-quick .px-selbox { flex-basis:100%; }
+  .px-res { margin-left:0; width:100%; }
+}
 
 /* Édition en tiroir */
 .px-form-scrim { position:fixed; inset:0; background:rgba(30,42,74,.28); backdrop-filter:blur(4px); -webkit-backdrop-filter:blur(4px); opacity:0; pointer-events:none; transition:opacity .25s; z-index:900; }
@@ -1908,8 +1936,19 @@ if (empty($grouped)): ?>
       <span style="flex-shrink:0">📍</span>
       <span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><?php if($p['loc_parent_name']):?><span class="mcl-parent"><?=h($p['loc_parent_name'])?> › </span><?php endif;?><?=h($p['loc_name'])?></span>
     </div>
-    <div class="mobile-card-info">
-      <div><div class="mcf-label">Quantité</div><div class="mcf-val"><?=$p['quantite']?><span style="color:var(--text3);font-size:11px;font-weight:500"> <?=h($p['unite'])?></span></div></div>
+    <div class="mc-qrow">
+      <div class="mcf-label">Quantité</div>
+      <?php if($canAjust): ?>
+      <div class="mc-step">
+        <button type="button" onclick="mpxInc(<?=$p['id']?>,-1)" aria-label="Retirer 1">−</button>
+        <span class="mc-step-v"><span id="mpxq-<?=$p['id']?>"><?=$p['quantite']?></span><span class="mc-step-u"> <?=h($p['unite'])?></span></span>
+        <button type="button" onclick="mpxInc(<?=$p['id']?>,1)" aria-label="Ajouter 1">+</button>
+      </div>
+      <?php else: ?>
+      <div class="mc-qbig"><?=$p['quantite']?> <span class="u"><?=h($p['unite'])?></span></div>
+      <?php endif; ?>
+    </div>
+    <div class="mc-info2">
       <div><div class="mcf-label">Péremption</div><div class="mcf-val"><?=date('d/m/Y',strtotime($p['date_peremption']))?></div></div>
       <div><div class="mcf-label">N° Lot</div><div class="mcf-val" style="font-size:12px;font-family:var(--mono)"><?=h($p['numero_lot']?:'—')?></div></div>
     </div>
@@ -2270,6 +2309,17 @@ function pxInc(id, delta){
       var dot=parseFloat(el.dataset.dot)||0, q=parseFloat(d.quantite)||0;
       el.className='px-qbadge '+(dot>0?(q<dot?'px-q-under':(q>dot?'px-q-over':'px-q-ok')):'');
     }).catch(function(){ alert('Erreur réseau'); });
+}
+// Stepper quantité des CARTES MOBILES (id mpxq-*) — synchronise aussi le badge PC caché (pxq-*)
+function mpxInc(id, delta){
+  fetch('products.php?ajax=inc_qte',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'id='+id+'&delta='+delta})
+    .then(function(r){return r.json();}).then(function(d){
+      if(!d.ok){ if(typeof showToast==='function'){showToast(d.error||'Erreur','error');}else{alert(d.error||'Erreur');} return; }
+      var m=document.getElementById('mpxq-'+id); if(m) m.textContent=d.quantite_fmt;
+      var el=document.getElementById('pxq-'+id);
+      if(el){ el.textContent=d.quantite_fmt; var dot=parseFloat(el.dataset.dot)||0, q=parseFloat(d.quantite)||0;
+        el.className='px-qbadge '+(dot>0?(q<dot?'px-q-under':(q>dot?'px-q-over':'px-q-ok')):''); }
+    }).catch(function(){ if(typeof showToast==='function'){showToast('Erreur réseau','error');}else{alert('Erreur réseau');} });
 }
 document.addEventListener('DOMContentLoaded', function(){
   var n=document.getElementById('nom-input'); if(n) n.addEventListener('input', pxCheckWarn);
