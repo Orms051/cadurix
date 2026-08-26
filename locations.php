@@ -438,6 +438,7 @@ require_once 'includes/header.php';
 
   <!-- ═══ PANNEAU DÉTAIL ═══ -->
   <main class="loc-main">
+    <button type="button" class="loc-back" onclick="locBackToTree()">← Emplacements</button>
     <div class="main-empty" id="mainEmpty">
       <i class="ti ti-map-2" aria-hidden="true"></i>
       <p>Sélectionnez un emplacement dans l'arbre</p>
@@ -561,6 +562,22 @@ require_once 'includes/header.php';
   height: calc(100vh - 60px);
   padding: 16px;
   overflow: hidden;
+}
+
+/* ── Mobile : une seule colonne, bascule Arbre ↔ Détail (comme la messagerie) ── */
+.loc-back { display: none; }
+@media (max-width: 768px) {
+  .loc-page { grid-template-columns: 1fr; height: auto; overflow: visible; padding: 12px; }
+  .loc-sidebar { height: auto; max-height: none; }
+  .loc-main { display: none; }
+  .loc-page.detail-open .loc-sidebar { display: none; }
+  .loc-page.detail-open .loc-main { display: block; }
+  .loc-page.detail-open .loc-back {
+    display: inline-flex; align-items: center; gap: 6px; margin-bottom: 12px;
+    background: var(--bg2); border: 1px solid var(--border); color: var(--text);
+    border-radius: 10px; padding: 9px 14px; font-size: 13px; font-weight: 700;
+    font-family: var(--font); cursor: pointer;
+  }
 }
 
 /* ── Sidebar ── */
@@ -1502,7 +1519,9 @@ async function selectNode(id, autoExpand = true) {
   let dotation = null; try { dotation = await resD.json(); } catch(e) {}
   if (data.error) return;
   renderDetail(data, products, dotation);
+  var _lp = document.querySelector('.loc-page'); if (_lp) _lp.classList.add('detail-open'); // mobile : montre le détail
 }
+function locBackToTree(){ var lp = document.querySelector('.loc-page'); if (lp) lp.classList.remove('detail-open'); }
 
 // ══════════════════════════════════════════
 // DÉTAIL
