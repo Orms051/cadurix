@@ -1169,25 +1169,43 @@ require_once 'includes/header.php';
 .px-b-ok   { background:rgba(29,158,117,.14); color:#1D9E75; border-color:rgba(29,158,117,.22); }
 .px-b-mut  { background:rgba(107,114,128,.15); color:#9CA3AF; border-color:rgba(107,114,128,.22); }
 .px-actions { display:flex; gap:4px; justify-content:flex-end; }
+@media (max-width: 768px) { .px-tbl { display:none; } }
+
+/* ══ Filtres MOBILE : barre compacte + fenêtre « Filtres & tri » ══ */
+.pxm { display:none; }
+.pxm-scrim { display:none; position:fixed; inset:0; background:rgba(20,28,48,.45); z-index:1200; opacity:0; transition:opacity .2s; }
+.pxm-scrim.open { display:block; opacity:1; }
+.pxm-sheet { display:none; position:fixed; left:0; right:0; bottom:0; z-index:1201; background:var(--bg2); border-radius:20px 20px 0 0; max-height:86vh; flex-direction:column; transform:translateY(100%); transition:transform .25s cubic-bezier(.16,1,.3,1); box-shadow:0 -12px 40px rgba(0,0,0,.28); }
+.pxm-sheet.open { display:flex; transform:translateY(0); }
+.pxm-sheet-hd { display:flex; align-items:center; justify-content:space-between; padding:16px 18px; border-bottom:1px solid var(--border); font-size:16px; font-weight:800; color:var(--text); }
+.pxm-sheet-hd button { background:none; border:none; color:var(--text3); font-size:18px; cursor:pointer; line-height:1; }
+.pxm-sheet-bd { overflow-y:auto; padding:4px 18px 14px; }
+.pxm-lbl { font-size:10.5px; text-transform:uppercase; letter-spacing:.07em; color:var(--text3); font-weight:800; margin:16px 0 8px; }
+.pxm-seg { display:flex; background:var(--bg3); border:1px solid var(--border); border-radius:11px; padding:3px; }
+.pxm-seg a { flex:1; text-align:center; padding:9px 6px; border-radius:8px; font-size:13px; font-weight:700; color:var(--text2); text-decoration:none; }
+.pxm-seg a.on { background:var(--bg2); color:var(--primary); box-shadow:0 2px 8px rgba(0,0,0,.06); }
+.pxm-sel { width:100%; border:1px solid var(--border); background:var(--bg2); color:var(--text); border-radius:10px; padding:11px 12px; font-size:13.5px; font-weight:600; font-family:var(--font); }
+.pxm-prow { display:flex; flex-wrap:wrap; gap:7px; }
+.pxm-tchip { display:inline-flex; align-items:center; gap:5px; border:1px solid var(--border); background:var(--bg); color:var(--text2); border-radius:20px; padding:7px 12px; font-size:12.5px; font-weight:700; text-decoration:none; }
+.pxm-tchip.on { border-color:var(--primary); color:var(--primary); background:rgba(var(--primary-rgb),.08); }
+.pxm-sheet-ft { display:flex; align-items:center; gap:10px; padding:13px 18px calc(13px + env(safe-area-inset-bottom,0px)); border-top:1px solid var(--border); }
+.pxm-reset { font-size:13px; font-weight:700; color:var(--text2); text-decoration:none; padding:12px 14px; border:1px solid var(--border); border-radius:11px; white-space:nowrap; }
+.pxm-apply { flex:1; background:var(--primary); color:#fff; border:none; border-radius:11px; padding:13px; font-size:14px; font-weight:800; font-family:var(--font); cursor:pointer; }
+
 @media (max-width: 768px) {
-  .px-tbl { display:none; }
-
-  /* Barre d'outils : empilée et lisible (fini le scroll horizontal) */
-  .px-toolbar { gap:8px; }
-  .px-search  { flex-basis:100%; max-width:none; order:-1; }          /* recherche en premier, pleine largeur */
-  .px-viewtog { flex-basis:100%; }                                    /* bascule vue / type en segments */
-  .px-viewtog a { flex:1; justify-content:center; }
-  .px-tabs { flex-basis:100%; }                                       /* Actifs / Archivés / Retirés */
-  .px-tabs .px-tab { flex:1; justify-content:center; }
-  .px-selbox { flex-basis:100%; justify-content:space-between; }      /* tri : pleine largeur */
-  .px-panel { flex-basis:100%; }                                      /* bouton Filtres : pleine largeur */
-  .px-panel .px-fbtn { width:100%; justify-content:center; }
-  .px-panel-drop { position:static; width:100%; box-shadow:none; margin-top:8px; }
-
-  /* Chips rapides : retour à la ligne au lieu du scroll */
-  .px-quick { flex-wrap:wrap; }
-  .px-quick .px-selbox { flex-basis:100%; }
-  .px-res { margin-left:0; width:100%; }
+  .px-toolbar, .px-quick { display:none !important; }   /* remplacés par .pxm sur mobile */
+  .pxm { display:flex; flex-direction:column; gap:9px; margin-bottom:12px; }
+  .pxm-search { display:flex; align-items:center; gap:8px; background:var(--bg2); border:1px solid var(--border); border-radius:11px; padding:11px 13px; }
+  .pxm-search input { flex:1; border:none; outline:none; background:none; font-size:14px; color:var(--text); font-family:var(--font); }
+  .pxm-chips { display:flex; flex-wrap:wrap; gap:7px; }
+  .pxm-chip { display:inline-flex; align-items:center; gap:5px; border:1px solid var(--border); background:var(--bg2); color:var(--text2); border-radius:20px; padding:8px 14px; font-size:12.5px; font-weight:700; text-decoration:none; }
+  .pxm-chip.on { border-color:var(--primary); color:var(--primary); background:rgba(var(--primary-rgb),.08); }
+  .pxm-chip.chip-danger.on { border-color:#E24B4A; color:#E24B4A; background:rgba(226,75,74,.08); }
+  .pxm-bar { display:flex; align-items:center; gap:10px; }
+  .pxm-fbtn { position:relative; display:inline-flex; align-items:center; gap:7px; border:1px solid var(--border); background:var(--bg2); color:var(--text); border-radius:11px; padding:11px 16px; font-size:13px; font-weight:700; font-family:var(--font); cursor:pointer; }
+  .pxm-dot { width:8px; height:8px; border-radius:50%; background:var(--primary); }
+  .pxm-res { margin-left:auto; font-size:12.5px; color:var(--text2); }
+  .pxm-res b { color:var(--text); }
 }
 
 /* Édition en tiroir */
@@ -1618,6 +1636,82 @@ $nbOk       = count(array_filter($products, fn($p) => (int)$p['days_left'] > 30)
 $advStatuses = ['critical','warning','ok','cold','nocode'];
 $advActive = (in_array($filterStatus,$advStatuses,true)?1:0) + ($horizon!=='1'?1:0);
 ?>
+<!-- ══ BARRE MOBILE (compacte) + fenêtre Filtres & tri — mobile only ══ -->
+<div class="pxm">
+  <form class="pxm-search" method="get" action="products.php">
+    <span aria-hidden="true">🔎</span>
+    <input type="text" name="q" value="<?= h($qSearch) ?>" placeholder="Nom, lot, réf…" autocomplete="off">
+    <?php if ($statutLot!=='actif'): ?><input type="hidden" name="statut_lot" value="<?= h($statutLot) ?>"><?php endif; ?>
+    <?php if ($filterEmpl): ?><input type="hidden" name="emplacement" value="<?= (int)$filterEmpl ?>"><?php endif; ?>
+    <?php if ($viewMode==='grouped'): ?><input type="hidden" name="view" value="grouped"><?php endif; ?>
+    <?php if ($horizon!=='1'): ?><input type="hidden" name="horizon" value="<?= h($horizon) ?>"><?php endif; ?>
+    <?php if ($filterType!==''): ?><input type="hidden" name="type" value="<?= h($filterType) ?>"><?php endif; ?>
+  </form>
+  <div class="pxm-seg">
+    <a href="<?= h(pf_url(['type'=>null])) ?>"          class="<?= $filterType===''?'on':'' ?>">Tous</a>
+    <a href="<?= h(pf_url(['type'=>'medicament'])) ?>"  class="<?= $filterType==='medicament'?'on':'' ?>">💊 Médoc</a>
+    <a href="<?= h(pf_url(['type'=>'materiel'])) ?>"    class="<?= $filterType==='materiel'?'on':'' ?>">🧰 Matériel</a>
+  </div>
+  <div class="pxm-chips">
+    <a href="<?= h(pf_url(['status'=>$filterStatus==='expired'?'':'expired'])) ?>"  class="pxm-chip chip-danger <?= $filterStatus==='expired'?'on':'' ?>">💀 Périmés <?= $nbExpired ?></a>
+    <a href="<?= h(pf_url(['status'=>$filterStatus==='lowstock'?'':'lowstock'])) ?>" class="pxm-chip <?= $filterStatus==='lowstock'?'on':'' ?>">📦 Stock bas <?= (int)$totalLowStock ?></a>
+  </div>
+  <div class="pxm-bar">
+    <button type="button" class="pxm-fbtn" onclick="pxmSheet(true)">⚙️ Filtres &amp; tri<?php if($advActive || $viewMode==='grouped' || $statutLot!=='actif' || $sort!=='dci' || $filterEmpl): ?><span class="pxm-dot"></span><?php endif; ?></button>
+    <span class="pxm-res"><b><?= count($products) ?></b> résultat<?= count($products)>1?'s':'' ?></span>
+  </div>
+</div>
+<div class="pxm-scrim" id="pxm-scrim" onclick="pxmSheet(false)"></div>
+<div class="pxm-sheet" id="pxm-sheet" role="dialog" aria-label="Filtres et tri">
+  <div class="pxm-sheet-hd"><span>⚙️ Filtres &amp; tri</span><button type="button" onclick="pxmSheet(false)" aria-label="Fermer">✕</button></div>
+  <div class="pxm-sheet-bd">
+    <div class="pxm-lbl">Affichage</div>
+    <div class="pxm-seg">
+      <a href="<?= h(pf_url(['view'=>null])) ?>"     class="<?= $viewMode!=='grouped'?'on':'' ?>">☰ Liste</a>
+      <a href="<?= h(pf_url(['view'=>'grouped'])) ?>" class="<?= $viewMode==='grouped'?'on':'' ?>">🗂️ Par produit</a>
+    </div>
+    <div class="pxm-lbl">Statut du lot</div>
+    <div class="pxm-seg">
+      <a href="<?= h(pf_url(['statut_lot'=>'actif'])) ?>"   class="<?= $statutLot==='actif'?'on':'' ?>">Actifs</a>
+      <a href="<?= h(pf_url(['statut_lot'=>'archive'])) ?>" class="<?= $statutLot==='archive'?'on':'' ?>">Archivés</a>
+      <a href="<?= h(pf_url(['statut_lot'=>'retire'])) ?>"  class="<?= $statutLot==='retire'?'on':'' ?>">Retirés</a>
+    </div>
+    <div class="pxm-lbl">Trier par</div>
+    <select class="pxm-sel" onchange="if(this.value)location.href=this.value">
+      <?php foreach (['dci'=>'DCI (A→Z)','type'=>'Par type','peremption'=>'Péremption','nom'=>'Nom commercial','qte'=>'Quantité','emplacement'=>'Emplacement','lot'=>'Lot'] as $sk=>$sl): ?>
+      <option value="<?= h(pf_url(['sort'=>$sk])) ?>" <?= $sort===$sk?'selected':'' ?>><?= $sl ?></option>
+      <?php endforeach; ?>
+    </select>
+    <div class="pxm-lbl">Emplacement</div>
+    <select class="pxm-sel" onchange="if(this.value)location.href=this.value">
+      <option value="<?= h(pf_url(['emplacement'=>0])) ?>" <?= !$filterEmpl?'selected':'' ?>>Tous les sacs / PUI</option>
+      <?= renderEmplFilterOptions($emplTree, $filterEmpl) ?>
+    </select>
+    <div class="pxm-lbl">Péremption</div>
+    <div class="pxm-prow">
+      <a href="<?= h(pf_url(['status'=>''])) ?>"         class="pxm-tchip <?= !$filterStatus?'on':'' ?>">Tous</a>
+      <a href="<?= h(pf_url(['status'=>'critical'])) ?>" class="pxm-tchip <?= $filterStatus==='critical'?'on':'' ?>">⚠️ Critiques</a>
+      <a href="<?= h(pf_url(['status'=>'warning'])) ?>"  class="pxm-tchip <?= $filterStatus==='warning'?'on':'' ?>">🟡 Avert.</a>
+      <a href="<?= h(pf_url(['status'=>'ok'])) ?>"       class="pxm-tchip <?= $filterStatus==='ok'?'on':'' ?>">✅ OK</a>
+    </div>
+    <div class="pxm-lbl">Horizon (péremption à venir)</div>
+    <div class="pxm-prow">
+      <?php foreach (['1'=>'≤ 1 mois','2'=>'≤ 2 mois','3'=>'≤ 3 mois','6'=>'≤ 6 mois','12'=>'≤ 12 mois','all'=>'📦 Tout'] as $hk=>$hl): ?>
+      <a href="<?= h(pf_url(['horizon'=>$hk])) ?>" class="pxm-tchip <?= $horizon===$hk?'on':'' ?>"><?= $hl ?></a>
+      <?php endforeach; ?>
+    </div>
+    <div class="pxm-lbl">État / données</div>
+    <div class="pxm-prow">
+      <a href="<?= h(pf_url(['status'=>'cold'])) ?>"   class="pxm-tchip <?= $filterStatus==='cold'?'on':'' ?>">❄️ Chaîne du froid</a>
+      <a href="<?= h(pf_url(['status'=>'nocode','horizon'=>'all'])) ?>" class="pxm-tchip <?= $filterStatus==='nocode'?'on':'' ?>">📷 Sans code</a>
+    </div>
+  </div>
+  <div class="pxm-sheet-ft">
+    <a href="<?= h(pf_url(['status'=>'','type'=>null,'horizon'=>'1','sort'=>'dci','emplacement'=>0,'statut_lot'=>'actif','view'=>null])) ?>" class="pxm-reset">↺ Réinitialiser</a>
+    <button type="button" class="pxm-apply" onclick="pxmSheet(false)">Voir les <?= count($products) ?> résultats</button>
+  </div>
+</div>
+
 <div class="px-toolbar">
   <div class="px-viewtog">
     <a href="<?= h(pf_url(['view'=>null])) ?>"     class="<?= $viewMode!=='grouped'?'on':'' ?>">☰ Liste</a>
@@ -1688,6 +1782,12 @@ $advActive = (in_array($filterStatus,$advStatuses,true)?1:0) + ($horizon!=='1'?1
 </div>
 <script>
 function pxTogglePanel(e){ e.stopPropagation(); document.getElementById('px-panel').classList.toggle('open'); }
+function pxmSheet(open){
+  var s=document.getElementById('pxm-sheet'), sc=document.getElementById('pxm-scrim');
+  if(!s||!sc) return;
+  if(open){ s.classList.add('open'); sc.classList.add('open'); document.body.style.overflow='hidden'; }
+  else    { s.classList.remove('open'); sc.classList.remove('open'); document.body.style.overflow=''; }
+}
 document.addEventListener('click', function(){ var p=document.getElementById('px-panel'); if(p) p.classList.remove('open'); });
 </script>
 
