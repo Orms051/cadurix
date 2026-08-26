@@ -1201,6 +1201,42 @@ require_once 'includes/header.php';
   .pxm-dot { width:8px; height:8px; border-radius:50%; background:var(--primary); }
   .pxm-res { margin-left:auto; font-size:12.5px; color:var(--text2); }
   .pxm-res b { color:var(--text); }
+
+  /* Bandeau « stock minimum » : version slim (une ligne) sur mobile */
+  .px-lowstock { padding:8px 12px !important; font-size:12.5px !important; border-radius:11px !important; align-items:center; }
+  .px-lowstock .pls-txt { display:none; }
+  .px-lowstock .pls-txt-m { display:inline; }
+  .px-lowstock .pls-voir { margin-left:auto !important; }
+}
+.pls-txt-m { display:none; }   /* texte court : mobile uniquement */
+
+/* ══ FAB « + » mobile : créer Médicament / Matériel ══ */
+.pxfab-wrap { display:none; }
+.pxfab { position:fixed; right:16px; bottom:calc(var(--bottom-nav-h,68px) + 16px + env(safe-area-inset-bottom,0px)); z-index:1150; width:56px; height:56px; border-radius:50%; border:none; background:var(--primary); color:#fff; font-size:30px; line-height:1; box-shadow:0 12px 26px -6px rgba(59,130,246,.6); cursor:pointer; transition:transform .2s; }
+.pxfab.open { transform:rotate(45deg); }
+.pxfab-scrim { position:fixed; inset:0; z-index:1149; background:transparent; display:none; }
+.pxfab-scrim.open { display:block; }
+.pxfab-menu { position:fixed; right:16px; bottom:calc(var(--bottom-nav-h,68px) + 84px + env(safe-area-inset-bottom,0px)); z-index:1150; display:flex; flex-direction:column; gap:10px; align-items:flex-end; opacity:0; transform:translateY(8px); pointer-events:none; transition:opacity .18s, transform .18s; }
+.pxfab-menu.open { opacity:1; transform:translateY(0); pointer-events:auto; }
+.pxfab-item { display:flex; align-items:center; gap:10px; background:none; border:none; cursor:pointer; font-family:var(--font); padding:0; }
+.pxfab-item .lb { background:#10151f; color:#fff; font-size:12.5px; font-weight:700; padding:7px 12px; border-radius:9px; box-shadow:0 6px 16px -6px rgba(0,0,0,.4); }
+.pxfab-item .ic { width:48px; height:48px; border-radius:50%; background:var(--bg2); border:1px solid var(--border); display:flex; align-items:center; justify-content:center; font-size:22px; box-shadow:0 8px 20px -8px rgba(20,28,48,.45); }
+@media (max-width:768px){
+  .pxfab-wrap { display:block; }
+  #btn-ajouter-med, #btn-ajouter-mat { display:none !important; }   /* remplacés par le FAB */
+}
+
+/* ══ Vue « Par produit » : mini-cartes sur mobile (au lieu du tableau serré) ══ */
+.grp-mcards { display:none; }
+@media (max-width:768px){
+  .grp-body > table { display:none; }
+  .grp-mcards { display:flex; flex-direction:column; gap:7px; padding:8px 10px; }
+  .grp-lot { display:flex; align-items:center; gap:10px; background:var(--bg); border:1px solid var(--border); border-radius:10px; padding:9px 11px; text-decoration:none; }
+  .grp-lot-main { flex:1; min-width:0; }
+  .grp-lot-loc { font-size:12.5px; font-weight:600; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .grp-lot-loc .par { color:var(--text3); font-weight:500; }
+  .grp-lot-sub { font-size:10.5px; color:var(--text3); font-family:var(--mono); margin-top:2px; }
+  .grp-lot-q { font-size:14px; font-weight:800; color:var(--text); font-variant-numeric:tabular-nums; flex-shrink:0; }
 }
 
 /* Édition en tiroir */
@@ -1292,6 +1328,18 @@ foreach ($allEmpls as $e) {
   </div>
 </div>
 
+<?php if (canEdit() && $canCreer): ?>
+<!-- FAB « + » — mobile only (créer Médicament / Matériel) -->
+<div class="pxfab-wrap">
+  <div class="pxfab-scrim" id="pxfab-scrim" onclick="pxFab(false)"></div>
+  <div class="pxfab-menu" id="pxfab-menu">
+    <button type="button" class="pxfab-item" onclick="pxFab(false);pxSetType('medicament');openForm();"><span class="lb">Médicament</span><span class="ic">💊</span></button>
+    <button type="button" class="pxfab-item" onclick="pxFab(false);pxSetType('materiel');openForm();"><span class="lb">Matériel</span><span class="ic">🧰</span></button>
+  </div>
+  <button type="button" class="pxfab" id="pxfab-btn" onclick="pxFab()" aria-label="Ajouter un produit">+</button>
+</div>
+<?php endif; ?>
+
 <!-- SAISIE RAPIDE -->
 <?php if (canEdit()): ?>
 <div id="saisie-rapide-panel" style="display:none;margin-bottom:20px">
@@ -1362,10 +1410,10 @@ const SR_EMPLS = <?= json_encode($empl_for_js) ?>;
 <?php endif; ?>
 
 <?php if ($totalLowStock > 0): ?>
-<div class="flash-banner flash-warn">
+<div class="flash-banner flash-warn px-lowstock">
   <i class="ti ti-package"></i>
-  <strong><?= $totalLowStock ?> produit(s)</strong> en dessous du stock minimum —
-  <a href="products.php?status=lowstock" style="color:#EF9F27;font-weight:700;margin-left:4px">Voir →</a>
+  <strong><?= $totalLowStock ?>&nbsp;produit(s)</strong>&nbsp;<span class="pls-txt">en dessous du stock minimum —</span><span class="pls-txt-m">sous le stock mini</span>
+  <a href="products.php?status=lowstock" class="pls-voir" style="color:#EF9F27;font-weight:700;margin-left:4px">Voir →</a>
 </div>
 <?php endif; ?>
 
@@ -1783,6 +1831,14 @@ function pxmSheet(open){
   if(open){ s.classList.add('open'); sc.classList.add('open'); document.body.style.overflow='hidden'; }
   else    { s.classList.remove('open'); sc.classList.remove('open'); document.body.style.overflow=''; }
 }
+function pxFab(open){
+  var b=document.getElementById('pxfab-btn'), m=document.getElementById('pxfab-menu'), s=document.getElementById('pxfab-scrim');
+  if(!b||!m) return;
+  var willOpen = (typeof open==='boolean') ? open : !m.classList.contains('open');
+  m.classList.toggle('open', willOpen);
+  b.classList.toggle('open', willOpen);
+  if(s) s.classList.toggle('open', willOpen);
+}
 document.addEventListener('click', function(){ var p=document.getElementById('px-panel'); if(p) p.classList.remove('open'); });
 </script>
 
@@ -1877,6 +1933,24 @@ if (empty($grouped)): ?>
       <?php endforeach;?>
       </tbody>
     </table>
+    <div class="grp-mcards">
+      <?php foreach($items as $p):
+        $days=$p['days_left']; $st=expiryStatus($p['date_peremption']);
+        $bc=match($st){'expired'=>'badge-expired','critical'=>'badge-critical','warning'=>'badge-warning',default=>'badge-ok'};
+        $lbl=match(true){$days<0=>"J+".abs($days),$days==0=>"Auj.",$days==1=>"Demain",default=>"J-$days"};
+        $isLow=$p['quantite_min']>0&&$p['quantite']<=$p['quantite_min'];
+        $lotTag = $canMod ? 'a' : 'div'; $lotHref = $canMod ? ' href="products.php?edit='.(int)$p['id'].'"' : '';
+      ?>
+      <<?=$lotTag?> class="grp-lot"<?=$lotHref?>>
+        <div class="grp-lot-main">
+          <div class="grp-lot-loc"><?php if($p['loc_parent_name']):?><span class="par"><?=h($p['loc_parent_name'])?> › </span><?php endif;?><?=h($p['loc_name'])?></div>
+          <div class="grp-lot-sub">Lot <?=h($p['numero_lot']?:'—')?> · <?=date('d/m/Y',strtotime($p['date_peremption']))?></div>
+        </div>
+        <div class="grp-lot-q"><?=$p['quantite']?><?php if($isLow):?> <span style="color:#f59e0b">⚠</span><?php endif;?></div>
+        <span class="badge <?=$bc?>"><?=$lbl?></span>
+      </<?=$lotTag?>>
+      <?php endforeach;?>
+    </div>
   </div>
 </div>
 <?php endforeach;?>
