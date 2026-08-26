@@ -1212,6 +1212,28 @@ require_once 'includes/header.php';
 .mt-row.mt-row-warning  { background: rgba(239,159,39,.04); }
 
 .mt-td { padding: 11px 14px; vertical-align: middle; }
+/* ── Mobile : tableau Produits en cartes (locations.php n'avait aucun responsive) ── */
+@media (max-width: 768px) {
+  .med-table-wrap { overflow-x: auto; }
+  .med-prod thead { display: none; }
+  .med-prod, .med-prod tbody, .med-prod tr, .med-prod td { display: block; width: auto; }
+  .med-prod tr.mt-row, .med-prod tr.mt-sublot {
+    border: 1px solid var(--border); border-radius: 12px;
+    margin: 0 0 8px; padding: 10px 13px; background: var(--bg2);
+  }
+  .med-prod tr.mt-sublot { margin-left: 14px; }
+  .med-prod td.mt-td { border: none !important; padding: 2px 0 !important; }
+  .med-prod td.mt-td-nom { display: flex; margin-bottom: 6px; }
+  .med-prod td.mt-td-lot::before   { content: 'Lot : ';        color: var(--text3); font-weight: 600; }
+  .med-prod td.mt-td-date::before  { content: 'Péremption : '; color: var(--text3); font-weight: 600; }
+  .med-prod td.mt-td-qty:nth-child(4)::before { content: 'Dotation : '; color: var(--text3); font-weight: 600; }
+  .med-prod td.mt-td-qty:nth-child(5)::before { content: 'Quantité : '; color: var(--text3); font-weight: 600; }
+  .med-prod td.mt-td-qty:empty { display: none; }
+  .med-prod td.mt-td-status { margin-top: 6px; }
+  .med-prod td.mt-td-action { margin-top: 8px; }
+  .med-prod td.mt-td-action:empty { display: none; }
+  .med-prod td.mt-td-action > div { justify-content: flex-start !important; }
+}
 .mt-td-num {
   text-align: center; font-size: 11px;
   color: var(--text3); font-weight: 600;
@@ -1719,7 +1741,7 @@ function renderDetail({ node, breadcrumb, enfants, stats, last_remp }, products 
     produitsHtml = `
       <div class="med-table-wrap">
         <div class="mt-card-head"><span class="mt-card-title">Produits</span><span class="section-count">${products.length}</span></div>
-        <table class="med-table">
+        <table class="med-table med-prod">
           <thead>
             <tr>
               <th class="mt-th mt-th-nom">Produit</th>
