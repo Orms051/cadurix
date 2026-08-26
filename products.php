@@ -1065,11 +1065,6 @@ require_once 'includes/header.php';
 .mc-qrow .mcf-label { margin-bottom:0; }
 .mc-qbig { font-size:18px; font-weight:800; color:var(--text); }
 .mc-qbig .u { font-size:12px; color:var(--text3); font-weight:600; }
-.mc-step { display:flex; align-items:center; border:1px solid var(--border); border-radius:10px; overflow:hidden; }
-.mc-step button { width:40px; height:38px; border:none; background:var(--bg); color:var(--primary); font-size:20px; font-weight:700; cursor:pointer; line-height:1; }
-.mc-step button:active { background:var(--bg3); }
-.mc-step-v { min-width:54px; text-align:center; font-size:16px; font-weight:800; color:var(--text); font-variant-numeric:tabular-nums; padding:0 4px; }
-.mc-step-u { font-size:11px; color:var(--text3); font-weight:600; }
 .mc-info2 { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:12px; }
 .mcf-label { font-size: 9.5px; color: var(--text3); text-transform: uppercase; letter-spacing:.05em; margin-bottom:3px; font-weight: 700; }
 .mcf-val   { font-size: 14px; color: var(--text); font-weight: 700; }
@@ -2038,15 +2033,7 @@ if (empty($grouped)): ?>
     </div>
     <div class="mc-qrow">
       <div class="mcf-label">Quantité</div>
-      <?php if($canAjust): ?>
-      <div class="mc-step">
-        <button type="button" onclick="mpxInc(<?=$p['id']?>,-1)" aria-label="Retirer 1">−</button>
-        <span class="mc-step-v"><span id="mpxq-<?=$p['id']?>"><?=$p['quantite']?></span><span class="mc-step-u"> <?=h($p['unite'])?></span></span>
-        <button type="button" onclick="mpxInc(<?=$p['id']?>,1)" aria-label="Ajouter 1">+</button>
-      </div>
-      <?php else: ?>
       <div class="mc-qbig"><?=$p['quantite']?> <span class="u"><?=h($p['unite'])?></span></div>
-      <?php endif; ?>
     </div>
     <div class="mc-info2">
       <div><div class="mcf-label">Péremption</div><div class="mcf-val"><?=date('d/m/Y',strtotime($p['date_peremption']))?></div></div>
@@ -2409,17 +2396,6 @@ function pxInc(id, delta){
       var dot=parseFloat(el.dataset.dot)||0, q=parseFloat(d.quantite)||0;
       el.className='px-qbadge '+(dot>0?(q<dot?'px-q-under':(q>dot?'px-q-over':'px-q-ok')):'');
     }).catch(function(){ alert('Erreur réseau'); });
-}
-// Stepper quantité des CARTES MOBILES (id mpxq-*) — synchronise aussi le badge PC caché (pxq-*)
-function mpxInc(id, delta){
-  fetch('products.php?ajax=inc_qte',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'id='+id+'&delta='+delta})
-    .then(function(r){return r.json();}).then(function(d){
-      if(!d.ok){ if(typeof showToast==='function'){showToast(d.error||'Erreur','error');}else{alert(d.error||'Erreur');} return; }
-      var m=document.getElementById('mpxq-'+id); if(m) m.textContent=d.quantite_fmt;
-      var el=document.getElementById('pxq-'+id);
-      if(el){ el.textContent=d.quantite_fmt; var dot=parseFloat(el.dataset.dot)||0, q=parseFloat(d.quantite)||0;
-        el.className='px-qbadge '+(dot>0?(q<dot?'px-q-under':(q>dot?'px-q-over':'px-q-ok')):''); }
-    }).catch(function(){ if(typeof showToast==='function'){showToast('Erreur réseau','error');}else{alert('Erreur réseau');} });
 }
 document.addEventListener('DOMContentLoaded', function(){
   var n=document.getElementById('nom-input'); if(n) n.addEventListener('input', pxCheckWarn);
