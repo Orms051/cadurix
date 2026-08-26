@@ -216,9 +216,21 @@ if (site_actif()) {
 <html lang="fr">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
 <meta name="csrf-token" content="<?= csrf_token() ?>">
 <title>Cadurix — <?= h($pageTitle ?? 'Tableau de bord') ?></title>
+<!-- PWA : installable + écran d'accueil plein écran -->
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="<?= h($theme['accent'] ?? '#3B82F6') ?>">
+<meta name="application-name" content="Cadurix">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Cadurix">
+<link rel="apple-touch-icon" href="/assets/icons/icon-192.png">
+<link rel="apple-touch-icon" sizes="152x152" href="/assets/icons/icon-152.png">
+<link rel="apple-touch-icon" sizes="192x192" href="/assets/icons/icon-192.png">
+<link rel="icon" type="image/svg+xml" href="/assets/icons/icon.svg">
 <link rel="stylesheet" href="/libs/tabler/tabler-icons.min.css">
 <style>
 /* ── Variables ───────────────────────────────────────────── */
