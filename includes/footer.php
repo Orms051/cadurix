@@ -152,6 +152,7 @@ if (isset($pdo)) {
     } catch(Throwable $e) {}
 }
 ?>
+<?php $_bn_gate = function($m){ return !function_exists('aff_mob') || aff_mob($m); }; ?>
 <nav class="bottom-nav" role="navigation" aria-label="Navigation principale">
 
   <a href="/dashboard.php"
@@ -161,27 +162,34 @@ if (isset($pdo)) {
     <span class="bn-label">Accueil</span>
   </a>
 
-  <a href="/terrain.php"
-     class="bottom-nav-item <?= $_bn_page==='terrain'?'active':'' ?>"
-     aria-label="Terrain">
-    <div class="bn-icon">🚑</div>
-    <span class="bn-label">Terrain</span>
+  <?php if ($_bn_gate('stupefiants')): ?>
+  <a href="/stupefiants.php"
+     class="bottom-nav-item <?= $_bn_page==='stupefiants'?'active':'' ?>"
+     aria-label="Stupéfiants">
+    <div class="bn-icon">🔒</div>
+    <span class="bn-label">Stups</span>
   </a>
+  <?php endif; ?>
 
+  <?php if ($_bn_gate('scanner')): ?>
   <a href="/scan.php"
      class="bottom-nav-item bn-scan <?= $_bn_page==='scan'?'active':'' ?>"
      aria-label="Scanner">
     <div class="bn-icon">📷</div>
     <span class="bn-label">Scanner</span>
   </a>
+  <?php endif; ?>
 
-  <a href="/fiches.php"
-     class="bottom-nav-item <?= $_bn_page==='fiches'?'active':'' ?>"
-     aria-label="Fiches">
-    <div class="bn-icon">✅</div>
-    <span class="bn-label">Fiches</span>
+  <?php if ($_bn_gate('rempotages')): ?>
+  <a href="/rempotage.php"
+     class="bottom-nav-item <?= $_bn_page==='rempotage'?'active':'' ?>"
+     aria-label="Rempotage">
+    <div class="bn-icon">🔄</div>
+    <span class="bn-label">Rempotage</span>
   </a>
+  <?php endif; ?>
 
+  <?php if ($_bn_gate('messagerie')): ?>
   <a href="/messaging.php"
      class="bottom-nav-item <?= $_bn_page==='messaging'?'active':'' ?>"
      aria-label="Messages">
@@ -193,6 +201,7 @@ if (isset($pdo)) {
     </div>
     <span class="bn-label">Messages</span>
   </a>
+  <?php endif; ?>
 
 </nav>
 
