@@ -611,6 +611,12 @@ if (!defined('ADMIN_HUB')) require_once '../includes/header.php';
 .main-tab:hover { color:var(--text); }
 .main-tab.active { color:#3B82F6; border-bottom-color:#3B82F6; }
 .main-tab .tab-count { font-size:10px; background:var(--glass2); padding:1px 6px; border-radius:10px; }
+@media (max-width: 768px) {
+  /* Sous-onglets : scroll horizontal au lieu de déborder la page */
+  .main-tabs { overflow-x: auto; flex-wrap: nowrap; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+  .main-tabs::-webkit-scrollbar { display: none; }
+  .main-tab { flex-shrink: 0; white-space: nowrap; }
+}
 
 /* ── Table utilisateurs ── */
 .users-table { width:100%; border-collapse:collapse; }
