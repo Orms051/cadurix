@@ -1055,14 +1055,17 @@ require_once 'includes/header.php';
 .mobile-cards { display: none; }
 .mobile-card {
   background: var(--bg2); border: 1px solid var(--border);
-  border-radius: 12px; padding: 14px; border-left-width: 3px;
+  border-radius: 16px; padding: 15px; border-left-width: 4px;
 }
-.mobile-card-name { font-size: 15px; font-weight: 700; color: var(--text); margin-bottom: 6px; }
-.mobile-card-info { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 8px 0 10px; }
-.mcf-label { font-size: 10px; color: var(--text3); text-transform: uppercase; letter-spacing:.05em; margin-bottom:2px; }
-.mcf-val   { font-size: 13px; color: var(--text); font-weight: 600; font-family: var(--mono); }
-.mobile-card-actions { display: flex; gap: 6px; border-top: 1px solid var(--border); padding-top: 10px; }
-.mobile-card-actions .btn { flex:1; justify-content:center; font-size:12px; padding:8px; }
+.mobile-card-name { font-size: 16px; font-weight: 800; color: var(--text); line-height: 1.2; }
+.mobile-card-sub { font-size: 12px; color: var(--text3); font-weight: 600; margin-top: 3px; }
+.mobile-card-loc { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--text2); font-weight: 600; margin-top: 11px; }
+.mobile-card-loc .mcl-parent { color: var(--text3); font-weight: 500; }
+.mobile-card-info { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin: 12px 0; padding: 11px 0; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+.mcf-label { font-size: 9.5px; color: var(--text3); text-transform: uppercase; letter-spacing:.05em; margin-bottom:3px; font-weight: 700; }
+.mcf-val   { font-size: 14px; color: var(--text); font-weight: 700; }
+.mobile-card-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.mobile-card-actions .btn { justify-content: center; font-size: 12.5px; padding: 10px 8px; border-radius: 10px; }
 .mc-expired  { border-left-color: #6b7280; }
 .mc-critical { border-left-color: #E24B4A; }
 .mc-warning  { border-left-color: #EF9F27; }
@@ -1881,32 +1884,42 @@ if (empty($grouped)): ?>
     $isLow  = $p['quantite_min']>0 && $p['quantite']<=$p['quantite_min'];
   ?>
   <div class="mobile-card <?= $mcls ?>">
-    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:6px">
-      <div class="mobile-card-name"><?= h($p['nom']) ?></div>
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px">
+      <div style="min-width:0">
+        <div class="mobile-card-name"><?= h($p['nom']) ?></div>
+        <?php
+          $subParts = [];
+          $pdci = trim((string)($p['dci'] ?? ''));
+          if($pdci !== '' && mb_strtolower($pdci) !== mb_strtolower(trim((string)$p['nom']))) $subParts[] = h($pdci);
+          if(!empty($p['dosage'])) $subParts[] = h($p['dosage']);
+          if(!empty($p['forme']))  $subParts[] = h($p['forme']);
+        ?>
+        <?php if($subParts): ?><div class="mobile-card-sub"><?= implode(' · ', $subParts) ?></div><?php endif; ?>
+      </div>
       <span class="badge <?= $bc ?>" style="flex-shrink:0"><?= $lbl ?></span>
     </div>
-    <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:8px">
+    <?php if($p['chaine_froid'] || $isLow): ?>
+    <div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:9px">
       <?php if($p['chaine_froid']):?><span class="badge badge-cold" style="font-size:10px">❄️ Froid</span><?php endif;?>
       <?php if($isLow):?><span class="badge badge-stock" style="font-size:10px">📦 Stock bas</span><?php endif;?>
     </div>
+    <?php endif;?>
+    <div class="mobile-card-loc">
+      <span style="flex-shrink:0">📍</span>
+      <span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><?php if($p['loc_parent_name']):?><span class="mcl-parent"><?=h($p['loc_parent_name'])?> › </span><?php endif;?><?=h($p['loc_name'])?></span>
+    </div>
     <div class="mobile-card-info">
-      <div><div class="mcf-label">Emplacement</div>
-        <div style="font-size:12px;color:var(--text);font-weight:600">
-          <?php if($p['loc_parent_name']):?><span style="color:var(--text3);font-size:10px"><?=h($p['loc_parent_name'])?> ›</span><br><?php endif;?>
-          <?=h($p['loc_name'])?>
-        </div>
-      </div>
+      <div><div class="mcf-label">Quantité</div><div class="mcf-val"><?=$p['quantite']?><span style="color:var(--text3);font-size:11px;font-weight:500"> <?=h($p['unite'])?></span></div></div>
       <div><div class="mcf-label">Péremption</div><div class="mcf-val"><?=date('d/m/Y',strtotime($p['date_peremption']))?></div></div>
-      <div><div class="mcf-label">Quantité</div><div class="mcf-val"><?=$p['quantite']?> <span style="color:var(--text3);font-size:11px;font-weight:400"><?=h($p['unite'])?></span></div></div>
-      <div><div class="mcf-label">N° Lot</div><div class="mcf-val" style="font-size:11px"><?=h($p['numero_lot']?:'—')?></div></div>
+      <div><div class="mcf-label">N° Lot</div><div class="mcf-val" style="font-size:12px;font-family:var(--mono)"><?=h($p['numero_lot']?:'—')?></div></div>
     </div>
     <?php if(canEdit()):?>
     <div class="mobile-card-actions">
-      <?php if($canMod): ?><a href="products.php?edit=<?=$p['id']?>" class="btn btn-ghost btn-xs" style="flex:1;justify-content:center">✏️ Modifier</a><?php endif; ?>
-      <?php if($canRenew): ?><button type="button" class="btn btn-ghost btn-xs" style="flex:1;justify-content:center" title="Renouveler" data-rn="<?= htmlspecialchars(json_encode(['id'=>$p['id'],'nom'=>$p['nom'],'lot'=>$p['numero_lot'],'date'=>$p['date_peremption'],'qte'=>$p['quantite'],'unite'=>$p['unite']]),ENT_QUOTES) ?>" onclick="openRenew(this)">♻️ Renouveler</button><?php endif; ?>
-      <?php if($canDup): ?><button class="btn btn-ghost btn-xs" onclick="dupliquer(<?=$p['id']?>)" style="flex:1;justify-content:center">📋 Dupliquer</button><?php endif; ?>
+      <?php if($canMod): ?><a href="products.php?edit=<?=$p['id']?>" class="btn btn-ghost btn-xs">✏️ Modifier</a><?php endif; ?>
+      <?php if($canRenew): ?><button type="button" class="btn btn-ghost btn-xs" title="Renouveler" data-rn="<?= htmlspecialchars(json_encode(['id'=>$p['id'],'nom'=>$p['nom'],'lot'=>$p['numero_lot'],'date'=>$p['date_peremption'],'qte'=>$p['quantite'],'unite'=>$p['unite']]),ENT_QUOTES) ?>" onclick="openRenew(this)">♻️ Renouveler</button><?php endif; ?>
+      <?php if($canDup): ?><button class="btn btn-ghost btn-xs" onclick="dupliquer(<?=$p['id']?>)">📋 Dupliquer</button><?php endif; ?>
       <?php if($canDel):?>
-      <button type="button" class="btn btn-danger btn-xs" title="Supprimer" data-del-url="products.php?suppr=<?=$p['id']?>&csrf_token=<?=csrfToken()?>" data-del-nom="<?= h($p['nom']) ?>" onclick="openDelete(this)">🗑️</button>
+      <button type="button" class="btn btn-danger btn-xs" title="Supprimer" data-del-url="products.php?suppr=<?=$p['id']?>&csrf_token=<?=csrfToken()?>" data-del-nom="<?= h($p['nom']) ?>" onclick="openDelete(this)">🗑️ Supprimer</button>
       <?php endif;?>
     </div>
     <?php endif;?>
