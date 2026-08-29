@@ -704,6 +704,18 @@ require_once 'includes/header.php';
 }
 .tree-node.active .n-name { color: var(--primary); }
 .n-meta { font-size: 11px; color: var(--text3); font-weight: 500; margin-top: 1px; }
+/* ── Mobile : arbre plus lisible et tactile (icônes + noms plus grands) ── */
+@media (max-width: 768px) {
+  .tree-node { padding: 10px 12px; gap: 12px; margin: 2px 6px; }
+  .n-tile { width: 42px; height: 42px; border-radius: 12px; }
+  .n-tile > span { font-size: 22px !important; }
+  .n-tile svg { width: 30px !important; height: 30px !important; }
+  .n-name { font-size: 15px; }
+  .n-meta { font-size: 12px; margin-top: 2px; }
+  .n-pill { font-size: 11px; padding: 3px 8px; }
+  .node-toggle { width: 34px; height: 34px; display: inline-flex; align-items: center; justify-content: center; }
+  .node-toggle .ti { font-size: 18px; }
+}
 .n-right { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
 .n-pill { font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 7px; white-space: nowrap; }
 .n-pill.red   { background: rgba(226,75,74,.14); color: #E24B4A; }
