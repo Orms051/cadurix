@@ -1,52 +1,14 @@
 <svg width="512" height="512" viewBox="0 0 512 512" role="img" xmlns="http://www.w3.org/2000/svg">
 <title>Cadurix</title>
 <defs>
-  <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
-    <stop offset="0%" stop-color="#0A0E1A"/>
-    <stop offset="100%" stop-color="#0D1525"/>
-  </linearGradient>
-  <linearGradient id="shield" x1="0%" y1="0%" x2="100%" y2="100%">
-    <stop offset="0%" stop-color="#7C3AED"/>
-    <stop offset="100%" stop-color="#5B21B6"/>
-  </linearGradient>
-  <linearGradient id="cross" x1="0%" y1="0%" x2="100%" y2="100%">
-    <stop offset="0%" stop-color="#FFFFFF"/>
-    <stop offset="100%" stop-color="#E8E0FF"/>
-  </linearGradient>
-  <linearGradient id="glow" x1="0%" y1="0%" x2="0%" y2="100%">
-    <stop offset="0%" stop-color="#A855F7" stop-opacity="0.3"/>
-    <stop offset="100%" stop-color="#7C3AED" stop-opacity="0"/>
+  <linearGradient id="g" x1="0" y1="0" x2="512" y2="512" gradientUnits="userSpaceOnUse">
+    <stop offset="0" stop-color="#3B82F6"/>
+    <stop offset="1" stop-color="#7C4DFF"/>
   </linearGradient>
 </defs>
-
-<!-- Fond -->
-<rect width="512" height="512" rx="90" fill="url(#bg)"/>
-
-<!-- Halo lumineux -->
-<ellipse cx="256" cy="240" rx="150" ry="135" fill="url(#glow)"/>
-
-<!-- Bouclier principal -->
-<path d="M256 82 L384 139 L384 270 C384 345 256 428 256 428 C256 428 128 345 128 270 L128 139 Z"
-      fill="url(#shield)" opacity="0.95"/>
-
-<!-- Contour bouclier -->
-<path d="M256 82 L384 139 L384 270 C384 345 256 428 256 428 C256 428 128 345 128 270 L128 139 Z"
-      fill="none" stroke="#A855F7" stroke-width="2.5" opacity="0.6"/>
-
-<!-- Reflet haut bouclier -->
-<path d="M256 98 L368 149 L368 210 C368 210 316 195 256 195 C196 195 144 210 144 210 L144 149 Z"
-      fill="white" opacity="0.06"/>
-
-<!-- Croix médicale — barre horizontale -->
-<rect x="173" y="222" width="166" height="53" rx="11" fill="url(#cross)"/>
-
-<!-- Croix médicale — barre verticale -->
-<rect x="230" y="165" width="53" height="166" rx="11" fill="url(#cross)"/>
-
-<!-- Points déco -->
-<circle cx="147" cy="139" r="4" fill="#C4B5FD" opacity="0.6"/>
-<circle cx="365" cy="139" r="4" fill="#C4B5FD" opacity="0.6"/>
-<circle cx="256" cy="116" r="5" fill="#C4B5FD" opacity="0.8"/>
-<circle cx="161" cy="316" r="3" fill="#7C3AED" opacity="0.4"/>
-<circle cx="351" cy="316" r="3" fill="#7C3AED" opacity="0.4"/>
+<rect width="512" height="512" fill="url(#g)"/>
+<g fill="#ffffff">
+  <rect x="203" y="103" width="106" height="306" rx="53"/>
+  <rect x="103" y="203" width="306" height="106" rx="53"/>
+</g>
 </svg>
