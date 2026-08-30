@@ -132,6 +132,66 @@ $jours_fr = ['dimanche','lundi','mardi','mercredi','jeudi','vendredi','samedi'];
 $mois_fr  = ['','janvier','février','mars','avril','mai','juin','juillet','août','septembre','octobre','novembre','décembre'];
 $date_fr  = $jours_fr[(int)date('w')].' '.(int)date('j').' '.$mois_fr[(int)date('n')].' '.date('Y');
 
+// ══════════════════════════════════════════════════════════
+//  AJAX (avant tout affichage) — perso du tableau de bord + Copilote IA
+// ══════════════════════════════════════════════════════════
+$_KNOWN_W = ['ai','todo','kpi','surv','chart','meteo','conso','ready','act','agenda','stup','biomed'];
+
+// ── Sauvegarde de la disposition personnalisée ──
+if (($_GET['ajax'] ?? '') === 'save_layout' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    header('Content-Type: application/json');
+    if (!function_exists('csrf_verifier') || !csrf_verifier()) { echo json_encode(['error'=>'csrf']); exit; }
+    $order  = json_decode($_POST['order']  ?? '[]', true); if (!is_array($order))  $order  = [];
+    $hidden = json_decode($_POST['hidden'] ?? '[]', true); if (!is_array($hidden)) $hidden = [];
+    $order  = array_values(array_intersect($order,  $_KNOWN_W));
+    $hidden = array_values(array_intersect($hidden, $_KNOWN_W));
+    $density = (($_POST['density'] ?? 'cosy') === 'compact') ? 'compact' : 'cosy';
+    $layout = json_encode(['order'=>$order,'hidden'=>$hidden,'density'=>$density], JSON_UNESCAPED_UNICODE);
+    try {
+        $pdo->prepare("INSERT INTO user_dashboard_prefs (user_id,layout,updated_le) VALUES(?,?,NOW()) ON DUPLICATE KEY UPDATE layout=VALUES(layout), updated_le=NOW()")
+            ->execute([currentUserId(), $layout]);
+        echo json_encode(['ok'=>true]);
+    } catch (Throwable $e) { echo json_encode(['error'=>'db']); }
+    exit;
+}
+
+// ── Copilote IA : résumé du jour + questions (ne voit que les données autorisées) ──
+if (($_GET['ajax'] ?? '') === 'copilote') {
+    header('Content-Type: application/json');
+    $ai_actif = $pdo->query("SELECT valeur FROM ai_settings WHERE cle='actif'")->fetchColumn();
+    $api_key  = $pdo->query("SELECT valeur FROM ai_settings WHERE cle='api_key'")->fetchColumn();
+    $model    = $pdo->query("SELECT valeur FROM ai_settings WHERE cle='model'")->fetchColumn() ?: 'claude-haiku-4-5-20251001';
+    if ($ai_actif !== '1' || !$api_key) { echo json_encode(['error'=>"IA non configurée (Admin → IA)."]); exit; }
+    $canReg = ($_SESSION['super_admin'] ?? false) ? true : false;
+    if (!$canReg) { try { $rr=$pdo->prepare("SELECT niveau FROM role_permissions WHERE role=? AND module='stupefiants_registre'"); $rr->execute([role_sur_site()]); $canReg=((int)$rr->fetchColumn())>=1; } catch(Throwable $e){} }
+    $ctx  = "Site : ".($site_info['org_nom'] ?? '')." — ".($site_info['nom'] ?? '').". Score opérationnel : {$score_global}%.\n";
+    $ctx .= "Produits en stock : $total. Périmés : $expired. Critiques (<=7j) : $critical. A <=30j : $warning. Stock bas : $lowStock.\n";
+    if (!empty($rappels_actifs)) $ctx .= "Rappels ANSM actifs : ".count($rappels_actifs).".\n";
+    $ctx .= "Sacs de dotation incomplets : $dot_incomplets.\n";
+    if ($urgent) { $ctx .= "Produits urgents :\n"; foreach (array_slice($urgent,0,8) as $u){ $j=(int)($u['jours']??0); $ctx .= "- ".$u['nom']." (".($u['empl_parent']?$u['empl_parent'].' > ':'').$u['empl_nom'].") : ".($j<0?'perime':($j.'j')).".\n"; } }
+    if ($biomed_hs>0) $ctx .= "Biomedical hors service : $biomed_hs.\n";
+    if ($canReg && $site_id) { try { $cs=$pdo->query("SELECT COALESCE(SUM(p.quantite),0) FROM produits p JOIN emplacements e ON e.id=p.emplacement_id WHERE p.stupefiant=1 AND e.type='coffre' AND e.site_id=".intval($site_id))->fetchColumn(); $ctx .= "Coffre stupefiants : ".(float)$cs." ampoule(s).\n"; } catch(Throwable $e){} }
+    $q = trim((string)($_POST['q'] ?? ''));
+    if ($q !== '') {
+        $prompt = "Tu es le copilote de Cadurix (gestion de materiel medical SDIS/SSSM). Reponds en francais, court et concret, UNIQUEMENT a partir des donnees ci-dessous (n'invente rien, pas de conseil medical, pas de markdown).\n\nDONNEES :\n$ctx\nQUESTION : $q";
+        $maxtok = 400;
+    } else {
+        $prompt = "Tu es le copilote de Cadurix (gestion de materiel medical SDIS/SSSM). A partir des donnees ci-dessous, redige un resume du jour en francais : 1 phrase d'intro puis 3 a 5 points d'attention concrets et priorises. Court, professionnel, sans markdown, sans rien inventer, pas de conseil medical.\n\nDONNEES :\n$ctx";
+        $maxtok = 500;
+    }
+    $payload = ['model'=>$model,'max_tokens'=>$maxtok,'messages'=>[['role'=>'user','content'=>$prompt]]];
+    $is_prod = str_contains($_SERVER['HTTP_HOST'] ?? '', 'cadurix.fr');
+    $ch = curl_init('https://api.anthropic.com/v1/messages');
+    curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER=>true,CURLOPT_POST=>true,CURLOPT_POSTFIELDS=>json_encode($payload),
+        CURLOPT_HTTPHEADER=>['Content-Type: application/json','x-api-key: '.$api_key,'anthropic-version: 2023-06-01'],
+        CURLOPT_TIMEOUT=>40,CURLOPT_SSL_VERIFYPEER=>$is_prod,CURLOPT_SSL_VERIFYHOST=>$is_prod?2:0]);
+    $resp=curl_exec($ch); $http=curl_getinfo($ch,CURLINFO_HTTP_CODE); $cerr=curl_error($ch); curl_close($ch);
+    if ($resp===false||$cerr){ echo json_encode(['error'=>"Reseau IA : $cerr"]); exit; }
+    $jr=json_decode($resp,true);
+    if ($http!==200||empty($jr['content'][0]['text'])){ echo json_encode(['error'=>($jr['error']['message']??"Erreur IA HTTP $http")]); exit; }
+    echo json_encode(['ok'=>true,'texte'=>$jr['content'][0]['text']], JSON_UNESCAPED_UNICODE); exit;
+}
+
 require_once 'includes/header.php';
 ?>
 <style>
@@ -362,305 +422,484 @@ require_once 'includes/header.php';
 
 <!-- ── Contenu desktop uniquement (masqué sur mobile) ── -->
 <div class="desktop-only">
-
-<!-- ── Bannière score + infos ── -->
-<div class="db-hero">
-  <div>
-    <div style="font-size:1.3rem;font-weight:800"><?= $site_info ? h($site_info['org_nom'].' — '.$site_info['nom']) : '' ?></div>
-    <div style="font-size:.82rem;color:var(--text3);margin-top:2px">📅 <?= $date_fr ?> · <?= date('H:i') ?></div>
-  </div>
-  <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
-    <?php if ($msg_non_lus > 0): ?>
-    <a href="messaging.php" style="display:flex;align-items:center;gap:7px;padding:8px 14px;background:rgba(59,130,246,.1);border:1px solid rgba(59,130,246,.25);border-radius:9px;text-decoration:none;font-size:.82rem;font-weight:600;color:#60a5fa">
-      💬 <?= $msg_non_lus ?> message<?= $msg_non_lus>1?'s':'' ?> non lu<?= $msg_non_lus>1?'s':'' ?>
-    </a>
-    <?php endif; ?>
-    <div class="db-score">
-      <div class="db-score-circle" style="background:<?= $score_color ?>22;color:<?= $score_color ?>;border:2px solid <?= $score_color ?>44"><?= $score_global ?>%</div>
-      <div>
-        <div style="font-weight:700;font-size:.92rem">État opérationnel</div>
-        <div style="font-size:.78rem;color:<?= $score_color ?>;font-weight:600"><?= $score_label ?></div>
-      </div>
-    </div>
-  </div>
-</div>
-
-<!-- ── À traiter maintenant (actions urgentes consolidées) ── -->
 <?php
-$todo = [];
-if (!empty($rappels_actifs)) {
-    $n = count($rappels_actifs);
-    $todo[] = ['ic'=>'🧯','bg'=>'rgba(239,68,68,.12)',
-        'tt'=>"$n lot".($n>1?'s':'')." rappelé".($n>1?'s':'')." (ANSM)",
-        'sb'=>implode(' · ', array_map(fn($r)=>h($r['numero_lot']), array_slice($rappels_actifs,0,3))).' — à isoler',
-        'go'=>'Voir','lien'=>'tracabilite.php'];
+// ══════════ Données supplémentaires (widgets pro) ══════════
+$m7=$m30=$m90=0; $conso=[];
+if ($site_id && nav_peut($nav_perms,'medicaments')) {
+  $m7  = (int)$pdo->query("SELECT COUNT(*) FROM produits p JOIN emplacements e ON e.id=p.emplacement_id WHERE p.statut='actif' AND DATEDIFF(p.date_peremption,CURDATE()) BETWEEN 0 AND 7 AND $fs AND $fe")->fetchColumn();
+  $m30 = (int)$pdo->query("SELECT COUNT(*) FROM produits p JOIN emplacements e ON e.id=p.emplacement_id WHERE p.statut='actif' AND DATEDIFF(p.date_peremption,CURDATE()) BETWEEN 0 AND 30 AND $fs AND $fe")->fetchColumn();
+  $m90 = (int)$pdo->query("SELECT COUNT(*) FROM produits p JOIN emplacements e ON e.id=p.emplacement_id WHERE p.statut='actif' AND DATEDIFF(p.date_peremption,CURDATE()) BETWEEN 0 AND 90 AND $fs AND $fe")->fetchColumn();
+  try { $conso = $pdo->query("SELECT p.nom, SUM(ABS(ms.quantite_delta)) AS q FROM mouvements_stock ms JOIN produits p ON p.id=ms.produit_id JOIN emplacements e ON e.id=p.emplacement_id WHERE ms.type='sortie' AND ms.cree_le >= DATE_SUB(CURDATE(), INTERVAL 30 DAY) AND $fs AND $fe GROUP BY p.nom ORDER BY q DESC LIMIT 5")->fetchAll(PDO::FETCH_ASSOC); } catch (Throwable $e) {}
 }
-if (nav_peut($nav_perms,'medicaments') && $expired > 0) {
-    $todo[] = ['ic'=>'🔴','bg'=>'rgba(239,68,68,.12)',
-        'tt'=>"$expired produit".($expired>1?'s':'')." périmé".($expired>1?'s':''),
-        'sb'=>'À retirer du stock','go'=>'Retirer','lien'=>'alerts.php'];
-}
-if (nav_peut($nav_perms,'biomed') && $biomed_hs > 0) {
-    $todo[] = ['ic'=>'🔧','bg'=>'rgba(239,68,68,.12)',
-        'tt'=>"$biomed_hs matériel".($biomed_hs>1?'s':'')." hors service",
-        'sb'=>'Intervention nécessaire','go'=>'Voir','lien'=>'materiel.php'];
-}
-if ($dot_incomplets > 0) {
-    $_pire = $dot_sacs[0]['nom'] ?? '';
-    $todo[] = ['ic'=>'🎯','bg'=>'rgba(245,158,11,.14)',
-        'tt'=>"$dot_incomplets sac".($dot_incomplets>1?'s':'')." incomplet".($dot_incomplets>1?'s':'')." (dotation)",
-        'sb'=>'À compléter'.($_pire!==''?" — ex. « ".h($_pire)." »":''),'go'=>'Voir','lien'=>'locations.php'.(isset($dot_sacs[0]['id'])?'?sel='.$dot_sacs[0]['id']:'')];
-}
-if (!empty($todo)):
-?>
-<div class="db-todo">
-  <div class="db-todo-head">
-    <span style="font-size:1.15rem">🚨</span>
-    <span class="t">À traiter maintenant</span>
-    <span class="c"><?= count($todo) ?> action<?= count($todo)>1?'s':'' ?></span>
-  </div>
-  <?php foreach ($todo as $it): ?>
-  <a href="<?= $it['lien'] ?>" class="db-todo-item">
-    <span class="db-todo-ic" style="background:<?= $it['bg'] ?>"><?= $it['ic'] ?></span>
-    <span class="db-todo-tx">
-      <span class="db-todo-tt" style="display:block"><?= $it['tt'] ?></span>
-      <span class="db-todo-sb" style="display:block"><?= $it['sb'] ?></span>
-    </span>
-    <span class="db-todo-go"><?= $it['go'] ?> →</span>
-  </a>
-  <?php endforeach; ?>
-</div>
-<?php endif; ?>
+$conso_max = 1; foreach ($conso as $c) $conso_max = max($conso_max,(float)$c['q']);
 
-<?php
-// ── Chiffres clés (allégés : l'essentiel, 4 max) — étape 2 ──
-// Les détails (biomed, SSE, graphique…) restent dans les cartes plus bas ;
-// les urgences sont déjà dans « À traiter maintenant » en haut.
-$kpis = [];
+// ── Stupéfiants (gaté) ──
+$dbStup = nav_peut($nav_perms,'stupefiants');
+$dbStupReg = false;
+if ($dbStup) { if (($_SESSION['super_admin']??false)) { $dbStupReg=true; } else { try { $rr=$pdo->prepare("SELECT niveau FROM role_permissions WHERE role=? AND module='stupefiants_registre'"); $rr->execute([role_sur_site()]); $dbStupReg=((int)$rr->fetchColumn())>=1; } catch(Throwable $e){} } }
+$stx_solde=0; $stx_ctl=null; $stx_mv=[];
+if ($dbStup && $site_id) {
+  try { $stx_solde=(float)$pdo->query("SELECT COALESCE(SUM(p.quantite),0) FROM produits p JOIN emplacements e ON e.id=p.emplacement_id WHERE p.stupefiant=1 AND e.type='coffre' AND e.site_id=".intval($site_id))->fetchColumn(); } catch(Throwable $e){}
+  try { $stx_ctl=$pdo->query("SELECT MAX(sc.cree_le) FROM stupefiants_controles sc JOIN produits p ON p.id=sc.produit_id JOIN emplacements e ON e.id=p.emplacement_id WHERE e.type='coffre' AND e.site_id=".intval($site_id))->fetchColumn(); } catch(Throwable $e){}
+  if ($dbStupReg) { try { $stx_mv=$pdo->query("SELECT sr.type, sr.qte_ampoules, sr.cree_le, TRIM(CONCAT(COALESCE(u.prenom,''),' ',COALESCE(u.nom,''))) AS agent FROM stupefiants_registre sr JOIN produits p ON p.id=sr.produit_id JOIN emplacements e ON e.id=p.emplacement_id LEFT JOIN utilisateurs u ON u.id=sr.user_id WHERE e.type='coffre' AND e.site_id=".intval($site_id)." ORDER BY sr.cree_le DESC LIMIT 5")->fetchAll(PDO::FETCH_ASSOC); } catch(Throwable $e){} }
+}
+$stx_ctl_days = $stx_ctl ? floor((time()-strtotime($stx_ctl))/86400) : null;
+
+// ── Échéancier des contrôles ──
+$agenda=[];
+if ($dbStup) {
+  if ($stx_ctl===null && $stx_solde>0) $agenda[]=['ic'=>'🔒','t'=>'Coffre à stupéfiants','s'=>'Aucun contrôle enregistré','due'=>'À faire','cls'=>'late'];
+  elseif ($stx_ctl_days!==null && $stx_ctl_days>30) $agenda[]=['ic'=>'🔒','t'=>'Coffre à stupéfiants','s'=>'Contrôle du coffre','due'=>'En retard '.$stx_ctl_days.' j','cls'=>'late'];
+}
+if ($site_id && nav_peut($nav_perms,'emplacements')) {
+  try { $sc=$pdo->query("SELECT nom, controle_le FROM emplacements WHERE site_id=".intval($site_id)." AND actif=1 AND scelle_numero IS NOT NULL AND scelle_numero<>'' ORDER BY controle_le IS NULL DESC, controle_le ASC LIMIT 4")->fetchAll(PDO::FETCH_ASSOC);
+    foreach ($sc as $s){ $d = $s['controle_le'] ? floor((time()-strtotime($s['controle_le']))/86400) : null; $late=($d===null||$d>30); $agenda[]=['ic'=>'🛡️','t'=>'Scellé — '.$s['nom'],'s'=>'Contrôle du scellé','due'=>($d===null?'Jamais':($late?'En retard':'OK')),'cls'=>($late?'late':'ok')]; }
+  } catch(Throwable $e){}
+}
+
+// ── À traiter (actions urgentes) ──
+$todo=[];
+if (!empty($rappels_actifs)) { $n=count($rappels_actifs); $todo[]=['ic'=>'🧯','cls'=>'','tt'=>"$n lot".($n>1?'s':'')." rappelé".($n>1?'s':'')." (ANSM)",'sb'=>'À isoler','lien'=>'tracabilite.php']; }
+if (nav_peut($nav_perms,'medicaments') && $expired>0) $todo[]=['ic'=>'🔴','cls'=>'','tt'=>"$expired produit".($expired>1?'s':'')." périmé".($expired>1?'s':''),'sb'=>'À retirer du stock','lien'=>'alerts.php'];
+if ($dbStup && (($stx_ctl_days!==null && $stx_ctl_days>30) || ($stx_ctl===null && $stx_solde>0))) $todo[]=['ic'=>'🔒','cls'=>'vio','tt'=>'Contrôle coffre en retard','sb'=>'Stupéfiants — à contrôler','lien'=>'stupefiants.php'];
+if ($dot_incomplets>0) { $_pire=$dot_sacs[0]['nom']??''; $todo[]=['ic'=>'🎯','cls'=>'amber','tt'=>"$dot_incomplets sac".($dot_incomplets>1?'s':'')." incomplet".($dot_incomplets>1?'s':''),'sb'=>'Dotation à compléter'.($_pire!==''?" — ex. « ".h($_pire)." »":''),'lien'=>'locations.php']; }
+if (nav_peut($nav_perms,'biomed') && $biomed_hs>0) $todo[]=['ic'=>'🔧','cls'=>'','tt'=>"$biomed_hs matériel".($biomed_hs>1?'s':'')." HS",'sb'=>'Intervention nécessaire','lien'=>'materiel.php'];
+
+// ── Activité récente (fusion) ──
+$activite=[];
+if (nav_peut($nav_perms,'rempotages')) foreach ($recent_remp as $r) $activite[]=['ic'=>'🔄','col'=>'#10b981','d'=>$r['cree_le'],'tt'=>'Rempotage — '.h($r['empl_nom']??'—'),'sb'=>((int)$r['nb']).' article(s) · '.h($r['prenom']??'')];
+if (nav_peut($nav_perms,'fiches')) foreach ($recent_fiches as $f) $activite[]=['ic'=>'📋','col'=>($f['statut']==='anomalie'?'#ef4444':'#10b981'),'d'=>$f['cree_le'],'tt'=>h($f['modele_nom']),'sb'=>h($f['prenom']??'').' · '.($f['statut']==='anomalie'?'Anomalie':'OK')];
+if (nav_peut($nav_perms,'terrain')) foreach ($recent_inter as $it) $activite[]=['ic'=>'🚑','col'=>($it['statut']==='termine'?'#10b981':'#f59e0b'),'d'=>$it['cree_le'],'tt'=>'Intervention '.($it['reference']?h($it['reference']):'sans réf.'),'sb'=>((int)$it['nb']).' article(s) · '.h($it['prenom']??'')];
+usort($activite, fn($a,$b)=>strtotime($b['d'])<=>strtotime($a['d']));
+$activite=array_slice($activite,0,6);
+
+// ── KPI (max 4) ──
+$kpis=[];
 if (nav_peut($nav_perms,'medicaments')) {
-  $kpis[] = ['v'=>$total,'l'=>'Produits en stock','i'=>'💊','c'=>'var(--primary)','link'=>'products.php','alert'=>false];
-  $al_per = $expired + $critical;
-  $kpis[] = ['v'=>$al_per,'l'=>'Alertes péremption','i'=>'⚠️','c'=>$al_per>0?'#ef4444':'#34d399','link'=>'alerts.php','alert'=>$al_per>0];
+  $kpis[]=['v'=>$total,'l'=>'Produits en stock','i'=>'💊','c'=>'#3b82f6','link'=>'products.php','alert'=>false];
+  $al=$expired+$critical; $kpis[]=['v'=>$al,'l'=>'Alertes péremption','i'=>'⚠️','c'=>$al>0?'#ef4444':'#10b981','link'=>'alerts.php','alert'=>$al>0];
 }
-if (nav_peut($nav_perms,'messagerie')) {
-  $kpis[] = ['v'=>$msg_non_lus,'l'=>'Messages non lus','i'=>'💬','c'=>$msg_non_lus>0?'#60a5fa':'var(--text2)','link'=>'messaging.php','alert'=>false];
-}
-if (count($kpis) < 4 && nav_peut($nav_perms,'biomed') && $biomed_total > 0) {
-  $kpis[] = ['v'=>$biomed_hs,'l'=>'Biomédical HS','i'=>'🩺','c'=>$biomed_hs>0?'#ef4444':'#34d399','link'=>'materiel.php','alert'=>$biomed_hs>0];
-}
-if (count($kpis) < 4 && nav_peut($nav_perms,'sse')) {
-  $kpis[] = ['v'=>$sse_alerte,'l'=>'Alertes SSE/NRBC','i'=>'🧪','c'=>$sse_alerte>0?'#8b5cf6':'var(--text2)','link'=>'sse.php','alert'=>$sse_alerte>0];
-}
-$kpis = array_slice($kpis, 0, 4);
-if (!empty($kpis)):
+if ($dbStup) $kpis[]=['v'=>rtrim(rtrim(number_format($stx_solde,2,'.',''),'0'),'.'),'l'=>'Ampoules coffre','i'=>'🔒','c'=>'#8b5cf6','link'=>'stupefiants.php','alert'=>false];
+if (count($kpis)<4 && !empty($dot_sacs)) { $cf = count($dot_sacs)>0 ? round($dot_prets/max(count($dot_sacs),1)*100) : 0; $kpis[]=['v'=>$cf.'%','l'=>'Dotation conforme','i'=>'🎯','c'=>'#10b981','link'=>'locations.php','alert'=>false]; }
+if (count($kpis)<4 && nav_peut($nav_perms,'biomed') && $biomed_total>0) $kpis[]=['v'=>$biomed_hs,'l'=>'Biomédical HS','i'=>'🩺','c'=>$biomed_hs>0?'#ef4444':'#10b981','link'=>'materiel.php','alert'=>$biomed_hs>0];
+$kpis=array_slice($kpis,0,4);
+
+// ── Préférences perso ──
+$prefHidden=[]; $prefDensity='cosy';
+try { $pl=$pdo->prepare("SELECT layout FROM user_dashboard_prefs WHERE user_id=?"); $pl->execute([currentUserId()]); $raw=$pl->fetchColumn();
+  if ($raw){ $jj=json_decode($raw,true); if(is_array($jj)){ if(!empty($jj['hidden'])&&is_array($jj['hidden'])) $prefHidden=$jj['hidden']; if(!empty($jj['density'])&&$jj['density']==='compact') $prefDensity='compact'; } }
+} catch(Throwable $e){}
+$aiOn=false; try { $aiOn=($pdo->query("SELECT valeur FROM ai_settings WHERE cle='actif'")->fetchColumn()==='1'); } catch(Throwable $e){}
+
+// ── Gate + visibilité par widget ──
+$wGate = [
+  'ai'=>$aiOn,'todo'=>!empty($todo),'kpi'=>!empty($kpis),
+  'surv'=>(nav_peut($nav_perms,'medicaments') && !empty($urgent)),
+  'chart'=>(nav_peut($nav_perms,'medicaments') && !empty($chart_mois)),
+  'meteo'=>nav_peut($nav_perms,'medicaments'),
+  'conso'=>(nav_peut($nav_perms,'medicaments') && !empty($conso)),
+  'ready'=>!empty($dot_sacs),'act'=>!empty($activite),'agenda'=>!empty($agenda),
+  'stup'=>$dbStup,'biomed'=>(nav_peut($nav_perms,'biomed') && $biomed_total>0),
+];
+$wShow = function($k) use ($wGate,$prefHidden){ return (($wGate[$k]??false) && !in_array($k,$prefHidden,true)); };
+$secShow = function(array $ks) use ($wShow){ foreach ($ks as $k) if ($wShow($k)) return true; return false; };
+$WLABEL = ['ai'=>['🤖','Copilote IA (résumé du jour)'],'todo'=>['🚨','À traiter maintenant'],'kpi'=>['📊','Chiffres clés'],'surv'=>['⚠️','Produits à surveiller'],'chart'=>['📅','Péremptions par mois'],'meteo'=>['🌡️','Météo des péremptions'],'conso'=>['🔥','Top consommés'],'ready'=>['🎯','Prêt à partir'],'act'=>['🕑','Activité récente'],'agenda'=>['🗓️','Échéancier des contrôles'],'stup'=>['🔒','Stupéfiants — coffre'],'biomed'=>['🩺','Biomédical']];
 ?>
-<!-- ── Chiffres clés (essentiel) ── -->
-<div class="db-section-title">Chiffres clés</div>
-<div class="db-kpi-grid" style="margin-bottom:24px">
-  <?php foreach ($kpis as $k): $al = $k['alert']; ?>
-  <a href="<?= $k['link'] ?>" class="db-kpi" style="border-top-color:<?= $k['c'] ?>;<?= $al?'background:rgba(239,68,68,.04);border-color:rgba(239,68,68,.25)':'' ?>">
-    <div class="db-kpi-icon"><?= $k['i'] ?></div>
-    <div class="db-kpi-n" style="color:<?= $k['c'] ?>"><?= $k['v'] ?></div>
-    <div class="db-kpi-l"><?= $k['l'] ?></div>
-  </a>
-  <?php endforeach; ?>
-</div>
-<?php endif; ?>
+<style>
+#dbx{--line:var(--border);--line2:var(--border2);--vio:#8b5cf6;--grn:#10b981;--amb:#f59e0b;--rd:#ef4444}
+#dbx .sec{display:flex;align-items:center;gap:9px;margin:22px 2px 13px}
+#dbx .sec .bar{width:4px;height:16px;border-radius:3px;background:var(--primary)}
+#dbx .sec.vio .bar{background:var(--vio)} #dbx .sec.grn .bar{background:var(--grn)} #dbx .sec.red .bar{background:var(--rd)}
+#dbx .sec .t{font-size:.73rem;font-weight:800;text-transform:uppercase;letter-spacing:.09em;color:var(--text2)}
+#dbx .sec .line{flex:1;height:1px;background:var(--border)}
+#dbx .sec .lk{font-size:.74rem;font-weight:700;color:var(--primary);text-decoration:none}
+#dbx .card{background:var(--bg2);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow);overflow:hidden;margin-bottom:14px}
+#dbx .card-h{display:flex;align-items:center;gap:10px;padding:14px 17px;border-bottom:1px solid var(--border)}
+#dbx .card-h .cic{width:30px;height:30px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:.95rem;background:var(--bg3)}
+#dbx .card-h .ttl{font-weight:800;font-size:.92rem}
+#dbx .card-h .link{margin-left:auto;font-size:.74rem;color:var(--primary);font-weight:700;text-decoration:none}
+#dbx .card-b{padding:15px 17px}
+#dbx .grid{display:grid;grid-template-columns:1.55fr 1fr;gap:16px;align-items:start}
+#dbx .col{display:flex;flex-direction:column}
+#dbx.compact .card-b{padding:11px 13px} #dbx.compact .sec{margin:15px 2px 9px}
+/* KPI */
+#dbx .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:13px}
+#dbx .kpi{background:var(--bg2);border:1px solid var(--border);border-radius:16px;padding:15px 16px;box-shadow:var(--shadow);text-decoration:none;transition:transform .15s;display:block}
+#dbx .kpi:hover{transform:translateY(-2px)}
+#dbx .kpi .ic{width:34px;height:34px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:1.05rem}
+#dbx .kpi .n{font-size:1.9rem;font-weight:800;line-height:1;margin-top:12px;font-variant-numeric:tabular-nums}
+#dbx .kpi .l{font-size:.73rem;color:var(--text3);font-weight:700;margin-top:5px}
+#dbx .kpi.alert{border-color:rgba(239,68,68,.3);background:linear-gradient(180deg,rgba(239,68,68,.05),var(--bg2))}
+/* Copilote */
+#dbx .ai{position:relative;overflow:hidden;border-radius:18px;border:1px solid var(--border);background:linear-gradient(135deg,rgba(59,130,246,.09),rgba(139,92,246,.07)),var(--bg2);box-shadow:var(--shadow);padding:18px 20px}
+#dbx .ai-head{display:flex;align-items:center;gap:13px}
+#dbx .ai-orb{width:48px;height:48px;border-radius:15px;flex-shrink:0;background:linear-gradient(135deg,#3b82f6,#8b5cf6);display:flex;align-items:center;justify-content:center;font-size:23px;box-shadow:0 10px 26px -6px rgba(139,92,246,.6)}
+#dbx .ai-title{font-weight:800;font-size:1.1rem;display:flex;align-items:center;gap:9px;color:var(--text)}
+#dbx .ai-tag{font-size:.6rem;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:var(--vio);background:rgba(139,92,246,.14);padding:3px 9px;border-radius:20px}
+#dbx .ai-sub{font-size:.75rem;color:var(--text3);font-weight:600;margin-top:2px}
+#dbx .ai-refresh{margin-left:auto;background:var(--bg2);border:1px solid var(--border);border-radius:10px;font-family:inherit;font-size:.74rem;font-weight:700;color:var(--text2);padding:8px 13px;cursor:pointer}
+#dbx .ai-chips{display:flex;gap:8px;flex-wrap:wrap;margin:14px 0 2px}
+#dbx .ai-chip{display:inline-flex;align-items:center;gap:6px;background:var(--bg2);border:1px solid var(--border2);border-radius:20px;padding:7px 13px;font-size:.78rem;font-weight:700;color:var(--text2);cursor:pointer}
+#dbx .ai-chip:hover{border-color:var(--vio);color:var(--vio)}
+#dbx .ai-body{background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:15px 16px;margin-top:12px}
+#dbx .ai-txt{font-size:.87rem;color:var(--text2);line-height:1.6;white-space:pre-wrap}
+#dbx .ai-thread{display:flex;flex-direction:column;gap:10px;margin-top:12px}
+#dbx .ai-thread:empty{display:none}
+#dbx .msg{display:flex;gap:9px;max-width:94%} #dbx .msg.u{align-self:flex-end;flex-direction:row-reverse}
+#dbx .msg .av{width:28px;height:28px;border-radius:9px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:.85rem;color:#fff}
+#dbx .msg.a .av{background:linear-gradient(135deg,#3b82f6,#8b5cf6)} #dbx .msg.u .av{background:var(--border2);color:var(--text)}
+#dbx .msg .bub{padding:10px 13px;border-radius:13px;font-size:.84rem;line-height:1.5;white-space:pre-wrap}
+#dbx .msg.a .bub{background:var(--bg3);border:1px solid var(--border);border-top-left-radius:4px}
+#dbx .msg.u .bub{background:var(--primary);color:#fff;border-top-right-radius:4px;font-weight:600}
+#dbx .dots i{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--text3);margin:0 1px;animation:dbxb 1.2s infinite}
+#dbx .dots i:nth-child(2){animation-delay:.15s} #dbx .dots i:nth-child(3){animation-delay:.3s}
+@keyframes dbxb{0%,60%,100%{transform:translateY(0);opacity:.4}30%{transform:translateY(-4px);opacity:1}}
+#dbx .ai-ask{display:flex;gap:9px;margin-top:12px}
+#dbx .ai-ask input{flex:1;border:1px solid var(--border2);background:var(--bg2);border-radius:12px;padding:11px 14px;font-family:inherit;font-size:.85rem;color:var(--text);outline:none}
+#dbx .ai-ask input:focus{border-color:var(--primary)}
+#dbx .ai-ask button{background:linear-gradient(135deg,#3b82f6,#8b5cf6);color:#fff;border:none;border-radius:12px;padding:11px 18px;font-family:inherit;font-weight:800;font-size:.85rem;cursor:pointer}
+/* todo */
+#dbx .todo{display:flex;gap:12px;flex-wrap:wrap}
+#dbx .todo-card{flex:1;min-width:210px;display:flex;align-items:center;gap:12px;background:var(--bg2);border:1px solid var(--border);border-left:4px solid var(--rd);border-radius:14px;padding:13px 15px;box-shadow:var(--shadow);text-decoration:none;color:var(--text);transition:transform .15s}
+#dbx .todo-card:hover{transform:translateY(-2px)}
+#dbx .todo-card.amber{border-left-color:var(--amb)} #dbx .todo-card.vio{border-left-color:var(--vio)}
+#dbx .todo-card .ic{width:38px;height:38px;border-radius:11px;display:flex;align-items:center;justify-content:center;font-size:1.1rem;background:rgba(239,68,68,.12)}
+#dbx .todo-card.amber .ic{background:rgba(245,158,11,.14)} #dbx .todo-card.vio .ic{background:rgba(139,92,246,.13)}
+#dbx .todo-card .tt{font-size:.9rem;font-weight:800} #dbx .todo-card .sb{font-size:.72rem;color:var(--text3);font-weight:600;margin-top:1px}
+#dbx .todo-card .go{margin-left:auto;color:var(--text3)}
+/* tables & divers */
+#dbx table{width:100%;border-collapse:collapse;font-size:.82rem}
+#dbx th{text-align:left;font-size:.65rem;text-transform:uppercase;letter-spacing:.05em;color:var(--text3);font-weight:800;padding:9px 17px;background:var(--bg3)}
+#dbx td{padding:11px 17px;border-top:1px solid var(--border)}
+#dbx .badge{font-size:.7rem;font-weight:800;padding:3px 9px;border-radius:7px;white-space:nowrap}
+#dbx .b-red{background:rgba(239,68,68,.14);color:var(--rd)} #dbx .b-org{background:rgba(245,158,11,.16);color:#B4700A}
+#dbx .b-vio{background:rgba(139,92,246,.13);color:var(--vio)}
+#dbx .chart{display:flex;align-items:flex-end;gap:8px;height:120px;padding-top:10px}
+#dbx .bar{flex:1;display:flex;flex-direction:column;align-items:center;gap:5px;height:100%;justify-content:flex-end}
+#dbx .bar .fl{width:100%;border-radius:6px 6px 3px 3px} #dbx .bar .n{font-size:.62rem;font-weight:700;color:var(--text2)} #dbx .bar .lb{font-size:.6rem;color:var(--text3);font-weight:600}
+#dbx .meteo{display:flex;gap:10px} #dbx .meteo a{flex:1;text-align:center;padding:13px 8px;border-radius:12px;border:1px solid var(--border);text-decoration:none}
+#dbx .meteo .v{font-size:1.5rem;font-weight:800;font-variant-numeric:tabular-nums} #dbx .meteo .k{font-size:.64rem;color:var(--text3);font-weight:800;text-transform:uppercase;margin-top:2px}
+#dbx .m-red{background:rgba(239,68,68,.07)} #dbx .m-red .v{color:var(--rd)} #dbx .m-org{background:rgba(245,158,11,.08)} #dbx .m-org .v{color:#B4700A} #dbx .m-blu{background:rgba(59,130,246,.07)} #dbx .m-blu .v{color:var(--primary)}
+#dbx .conso-row{display:flex;align-items:center;gap:11px;padding:9px 17px;border-top:1px solid var(--border)}
+#dbx .conso-row .nm{width:150px;font-size:.8rem;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#dbx .conso-row .track{flex:1;height:8px;background:var(--bg3);border-radius:5px;overflow:hidden} #dbx .conso-row .track i{display:block;height:100%;border-radius:5px;background:linear-gradient(90deg,#3b82f6,#8b5cf6)}
+#dbx .conso-row .qc{width:40px;text-align:right;font-size:.82rem;font-weight:800}
+#dbx .rt-row{display:flex;gap:11px;padding:14px 17px}
+#dbx .rt{flex:1;text-align:center;padding:11px;border-radius:11px} #dbx .rt .v{font-size:1.4rem;font-weight:800} #dbx .rt .k{font-size:.64rem;color:var(--text3);font-weight:800}
+#dbx .rt.g{background:rgba(16,185,129,.08);border:1px solid rgba(16,185,129,.2)} #dbx .rt.a{background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.2)} #dbx .rt.n{background:var(--bg3);border:1px solid var(--border)}
+#dbx .row{display:flex;align-items:center;gap:11px;padding:10px 17px;border-top:1px solid var(--border);text-decoration:none;color:var(--text)}
+#dbx .row .nm{flex:1;min-width:0;font-size:.82rem;font-weight:600} #dbx .row .nm small{display:block;color:var(--text3);font-weight:500;font-size:.7rem}
+#dbx .pbar{width:70px;height:6px;background:var(--border);border-radius:4px;overflow:hidden} #dbx .pbar i{display:block;height:100%}
+#dbx .pc{width:40px;text-align:right;font-weight:800;font-size:.78rem}
+#dbx .tl{display:flex;align-items:center;gap:11px;padding:10px 17px;border-top:1px solid var(--border)}
+#dbx .tl .dot{width:9px;height:9px;border-radius:50%;flex-shrink:0} #dbx .tl .t{flex:1;min-width:0;font-size:.8rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis} #dbx .tl .t small{color:var(--text3);font-weight:500} #dbx .tl .dd{font-size:.68rem;color:var(--text3);white-space:nowrap}
+#dbx .agr{display:flex;align-items:center;gap:11px;padding:11px 17px;border-top:1px solid var(--border)}
+#dbx .agr .ic{width:30px;height:30px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:.9rem;background:var(--bg3)}
+#dbx .agr .t{flex:1;font-size:.82rem;font-weight:700} #dbx .agr .t small{display:block;color:var(--text3);font-weight:500;font-size:.7rem}
+#dbx .due{font-size:.7rem;font-weight:800;padding:3px 9px;border-radius:7px;white-space:nowrap}
+#dbx .due.late{background:rgba(239,68,68,.14);color:var(--rd)} #dbx .due.ok{background:rgba(59,130,246,.12);color:var(--primary)}
+/* stup */
+#dbx .stup{border-top:3px solid var(--vio)}
+#dbx .stx-seg{margin-left:auto;display:flex;gap:2px;background:var(--bg3);border:1px solid var(--border);border-radius:9px;padding:2px}
+#dbx .stx-seg button{border:none;background:none;font-family:inherit;font-size:.68rem;font-weight:800;color:var(--text3);padding:5px 9px;border-radius:7px;cursor:pointer}
+#dbx .stx-seg button.on{background:var(--bg2);color:var(--vio)}
+#dbx .stup-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px}
+#dbx .stup-tile{background:var(--bg3);border:1px solid var(--border);border-radius:12px;padding:13px}
+#dbx .stup-tile .v{font-size:1.5rem;font-weight:800} #dbx .stup-tile .k{font-size:.7rem;color:var(--text3);font-weight:700;margin-top:2px}
+#dbx .chip{display:inline-flex;align-items:center;gap:5px;font-size:.72rem;font-weight:800;padding:3px 10px;border-radius:20px}
+#dbx .chip.ok{background:rgba(16,185,129,.13);color:var(--grn)} #dbx .chip.late{background:rgba(239,68,68,.13);color:var(--rd)}
+#dbx .stup-mv{display:flex;align-items:center;gap:10px;padding:9px 0;border-top:1px solid var(--border);font-size:.8rem}
+#dbx .stup-mv .d{color:var(--text3);font-size:.7rem;white-space:nowrap} #dbx .stup-mv .t{flex:1;font-weight:600} #dbx .stup-mv .t small{color:var(--text3);font-weight:500}
+#dbx .stup-mv .q{font-weight:800} #dbx .stup-mv .q.neg{color:var(--rd)} #dbx .stup-mv .q.pos{color:var(--grn)}
+#dbx .locknote{background:var(--bg3);border:1px dashed var(--border2);border-radius:11px;padding:12px 13px;font-size:.78rem;color:var(--text2);line-height:1.55}
+/* toolbar */
+#dbx .db-tools{display:flex;align-items:center;gap:10px;margin:0 2px 6px}
+#dbx .db-btn{display:inline-flex;align-items:center;gap:7px;background:var(--bg2);border:1px solid var(--border);border-radius:11px;padding:8px 13px;font-family:inherit;font-size:.78rem;font-weight:700;color:var(--text2);cursor:pointer;box-shadow:var(--shadow)}
+#dbx .db-btn:hover{border-color:var(--primary);color:var(--primary)}
+@keyframes dbxrise{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+#dbx .rise{animation:dbxrise .5s cubic-bezier(.16,1,.3,1) both}
+@media(max-width:900px){#dbx .grid{grid-template-columns:1fr}#dbx .kpis{grid-template-columns:repeat(2,1fr)}}
+/* drawer perso */
+#dbx-scrim{position:fixed;inset:0;background:rgba(15,20,35,.5);opacity:0;pointer-events:none;transition:.2s;z-index:1200}
+#dbx-scrim.open{opacity:1;pointer-events:auto}
+#dbx-drawer{position:fixed;top:0;right:0;bottom:0;width:340px;max-width:92vw;background:var(--bg2);box-shadow:-16px 0 50px -20px rgba(0,0,0,.5);transform:translateX(100%);transition:transform .25s cubic-bezier(.4,0,.2,1);z-index:1201;display:flex;flex-direction:column}
+#dbx-drawer.open{transform:none}
+#dbx-drawer .dh{padding:18px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;font-weight:800}
+#dbx-drawer .dh button{margin-left:auto;background:none;border:none;font-size:1.2rem;cursor:pointer;color:var(--text3)}
+#dbx-drawer .db{padding:14px 16px;overflow-y:auto;flex:1}
+#dbx-drawer .note{font-size:.76rem;color:var(--text3);margin:0 0 12px;line-height:1.5}
+#dbx-drawer .presets{display:flex;gap:7px;margin-bottom:11px}
+#dbx-drawer .preset{flex:1;padding:9px 6px;border:1px solid var(--border);border-radius:10px;background:var(--bg2);font-family:inherit;font-size:.73rem;font-weight:800;color:var(--text2);cursor:pointer}
+#dbx-drawer .densrow{display:flex;align-items:center;gap:8px;margin-bottom:14px;font-size:.8rem;font-weight:700;color:var(--text2)}
+#dbx-drawer .seg{margin-left:auto;display:flex;background:var(--bg3);border:1px solid var(--border);border-radius:9px;padding:2px}
+#dbx-drawer .seg button{border:none;background:none;font-family:inherit;font-size:.72rem;font-weight:800;color:var(--text3);padding:5px 10px;border-radius:7px;cursor:pointer}
+#dbx-drawer .seg button.on{background:var(--bg2);color:var(--primary)}
+#dbx-drawer .wt{display:flex;align-items:center;gap:12px;padding:11px 12px;border:1px solid var(--border);border-radius:12px;margin-bottom:9px;cursor:pointer}
+#dbx-drawer .wt .ic{width:32px;height:32px;border-radius:9px;background:var(--bg3);display:flex;align-items:center;justify-content:center}
+#dbx-drawer .wt .nm{flex:1;font-weight:700;font-size:.85rem}
+#dbx-drawer .sw{width:40px;height:23px;border-radius:20px;background:var(--border2);position:relative;transition:.2s;flex-shrink:0}
+#dbx-drawer .sw::after{content:'';position:absolute;top:2px;left:2px;width:19px;height:19px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.3);transition:.2s}
+#dbx-drawer .wt.on .sw{background:var(--primary)} #dbx-drawer .wt.on .sw::after{left:19px}
+#dbx-drawer .df{padding:14px 16px;border-top:1px solid var(--border);display:flex;gap:10px}
+#dbx-drawer .df button{flex:1;padding:11px;border-radius:11px;border:none;font-family:inherit;font-weight:800;cursor:pointer}
+#dbx-drawer .df .g{background:var(--bg3);color:var(--text2)} #dbx-drawer .df .p{background:var(--primary);color:#fff}
+</style>
 
-<!-- ── Contenu principal ── -->
-<div class="db-cols">
+<div id="dbx" class="<?= $prefDensity==='compact'?'compact':'' ?>">
 
-<!-- Colonne gauche -->
-<div>
-
-  <!-- Produits à surveiller -->
-  <?php if (nav_peut($nav_perms,'medicaments') && !empty($urgent)): ?>
-  <div class="db-card" style="margin-bottom:20px">
-    <div class="db-card-head">
-      <div class="db-card-title">⚠️ Produits à surveiller</div>
-      <a href="alerts.php" style="font-size:.72rem;color:var(--primary);text-decoration:none">Tout voir →</a>
+  <!-- Barre : titre + score + personnaliser -->
+  <div class="db-tools">
+    <div style="font-size:1.15rem;font-weight:800"><?= $site_info ? h($site_info['org_nom'].' — '.$site_info['nom']) : '' ?></div>
+    <div style="margin-left:auto;display:flex;align-items:center;gap:10px">
+      <?php if ($msg_non_lus>0): ?><a class="db-btn" href="messaging.php" style="text-decoration:none">💬 <?= $msg_non_lus ?> non lu<?= $msg_non_lus>1?'s':'' ?></a><?php endif; ?>
+      <span class="db-btn" style="cursor:default">📅 <?= $date_fr ?></span>
+      <span class="db-btn" style="cursor:default;color:<?= $score_color ?>">● État <?= $score_global ?>%</span>
+      <button class="db-btn" onclick="dbxDrawer(true)">⚙️ Personnaliser</button>
     </div>
-    <table class="db-urg-table">
-      <thead><tr>
-        <th>Produit</th><th>Emplacement</th><th style="text-align:right">Péremption</th><th style="text-align:right">Statut</th>
-      </tr></thead>
-      <tbody>
-      <?php foreach ($urgent as $u):
-        $j = (int)($u['jours'] ?? 0);
-        $color = $j<0?'#ef4444':($j<=7?'#f97316':($j<=30?'#eab308':'#10b981'));
-        $badge = $j<0?'Périmé':($j===0?'Auj.':($j<=7?$j.'j':date('d/m/Y',strtotime($u['date_peremption']))));
-        $low = ($u['quantite_min']>0 && $u['quantite']<=$u['quantite_min']);
-      ?>
-      <tr>
-        <td style="font-weight:600"><?= h($u['nom']) ?></td>
-        <td style="color:var(--text2);font-size:.78rem"><?= $u['empl_parent']?h($u['empl_parent']).' › ':'' ?><?= h($u['empl_nom']) ?></td>
-        <td style="text-align:right;color:var(--text2);font-size:.78rem"><?= $u['date_peremption']?date('d/m/Y',strtotime($u['date_peremption'])):'—' ?></td>
-        <td style="text-align:right">
-          <?php if ($low): ?>
-          <span style="padding:2px 8px;border-radius:20px;font-size:.7rem;font-weight:700;background:rgba(139,92,246,.12);color:#8b5cf6">Stock bas</span>
-          <?php else: ?>
-          <span style="padding:2px 8px;border-radius:20px;font-size:.7rem;font-weight:700;background:<?= $color ?>18;color:<?= $color ?>"><?= $badge ?></span>
-          <?php endif; ?>
-        </td>
-      </tr>
-      <?php endforeach; ?>
-      </tbody>
-    </table>
+  </div>
+
+  <?php if ($wShow('ai')): ?>
+  <!-- COPILOTE -->
+  <div class="sec vio"><span class="bar"></span><span class="t">Copilote intelligent</span><span class="line"></span></div>
+  <div class="ai" data-w="ai">
+    <div class="ai-head">
+      <div class="ai-orb">🤖</div>
+      <div><div class="ai-title">Copilote Cadurix <span class="ai-tag">IA</span></div><div class="ai-sub">Analyse tes données du jour — clique « Générer » ou pose une question</div></div>
+      <button class="ai-refresh" onclick="dbxCopilote('')">↻ Générer le résumé</button>
+    </div>
+    <div class="ai-chips">
+      <span class="ai-chip" onclick="dbxCopilote('Que dois-je commander en priorité ?')">📦 Que commander ?</span>
+      <span class="ai-chip" onclick="dbxCopilote('Quels sacs sont à compléter ?')">🎒 Sacs à compléter</span>
+      <span class="ai-chip" onclick="dbxCopilote('Quels produits périment bientôt ?')">💀 Périmés à venir</span>
+      <?php if ($dbStup): ?><span class="ai-chip" onclick="dbxCopilote('Fais le point sur le coffre à stupéfiants')">🔒 État du coffre</span><?php endif; ?>
+    </div>
+    <div class="ai-body">
+      <div class="ai-txt" id="dbx-ai-txt" style="color:var(--text3)">Clique « Générer le résumé » pour obtenir la synthèse du jour, ou pose une question ci-dessous.</div>
+      <div class="ai-thread" id="dbx-ai-thread"></div>
+      <div class="ai-ask"><input id="dbx-ai-input" placeholder="Pose une question sur ton stock, tes sacs, tes péremptions…" onkeydown="if(event.key==='Enter')dbxAsk()"><button onclick="dbxAsk()">Demander</button></div>
+    </div>
   </div>
   <?php endif; ?>
 
+  <?php if ($wShow('todo')): ?>
+  <div class="sec red"><span class="bar"></span><span class="t">À traiter maintenant</span><span class="line"></span></div>
+  <div class="todo" data-w="todo">
+    <?php foreach ($todo as $t): ?>
+    <a class="todo-card <?= $t['cls'] ?>" href="<?= $t['lien'] ?>"><span class="ic"><?= $t['ic'] ?></span><div><div class="tt"><?= $t['tt'] ?></div><div class="sb"><?= $t['sb'] ?></div></div><span class="go">→</span></a>
+    <?php endforeach; ?>
+  </div>
+  <?php endif; ?>
 
-  <?php if (nav_peut($nav_perms,'medicaments')): ?>
-  <!-- Graphique péremptions -->
-  <div class="db-card" style="margin-bottom:20px">
-    <div class="db-card-head">
-      <div class="db-card-title">📅 Péremptions par mois</div>
+  <?php if ($wShow('kpi')): ?>
+  <div class="sec"><span class="bar"></span><span class="t">Vue d'ensemble</span><span class="line"></span></div>
+  <div class="kpis" data-w="kpi">
+    <?php foreach ($kpis as $k): ?>
+    <a class="kpi <?= $k['alert']?'alert':'' ?>" href="<?= $k['link'] ?>"><span class="ic" style="background:<?= $k['c'] ?>1f;color:<?= $k['c'] ?>"><?= $k['i'] ?></span><div class="n" style="color:<?= $k['c'] ?>"><?= $k['v'] ?></div><div class="l"><?= $k['l'] ?></div></a>
+    <?php endforeach; ?>
+  </div>
+  <?php endif; ?>
+
+  <?php if ($secShow(['surv','chart','meteo','conso','biomed'])): ?>
+  <div class="sec"><span class="bar"></span><span class="t">Stock &amp; péremptions</span><span class="line"></span></div>
+  <div class="grid">
+    <div class="col">
+      <?php if ($wShow('surv')): ?>
+      <div class="card" data-w="surv">
+        <div class="card-h"><span class="cic">⚠️</span><span class="ttl">Produits à surveiller</span><a class="link" href="alerts.php">Tout voir →</a></div>
+        <table><thead><tr><th>Produit</th><th>Emplacement</th><th style="text-align:right">Statut</th></tr></thead><tbody>
+        <?php foreach (array_slice($urgent,0,6) as $u): $j=(int)($u['jours']??0); $low=($u['quantite_min']>0 && $u['quantite']<=$u['quantite_min']);
+          $bd=$j<0?'b-red':($j<=30?'b-org':'b-org'); $lbl=$j<0?'Périmé':($j===0?'Auj.':$j.' j'); ?>
+        <tr><td style="font-weight:700"><?= h($u['nom']) ?></td><td style="color:var(--text2);font-size:.78rem"><?= $u['empl_parent']?h($u['empl_parent']).' › ':'' ?><?= h($u['empl_nom']) ?></td><td style="text-align:right"><?php if($low):?><span class="badge b-vio">Stock bas</span><?php else:?><span class="badge <?= $bd ?>"><?= $lbl ?></span><?php endif;?></td></tr>
+        <?php endforeach; ?>
+        </tbody></table>
+      </div>
+      <?php endif; ?>
+      <?php if ($wShow('chart')): ?>
+      <div class="card" data-w="chart">
+        <div class="card-h"><span class="cic">📅</span><span class="ttl">Péremptions par mois</span></div>
+        <div class="card-b"><div class="chart">
+          <?php $cmax=max(max(array_column($chart_mois,'nb')),1); foreach (array_slice($chart_mois,0,6) as $m): $pct=round($m['nb']/$cmax*100); $c=$m['mois']===0?'var(--rd)':($m['mois']<=1?'var(--amb)':($m['mois']<=2?'#EAB308':'rgba(var(--primary-rgb),.45)')); ?>
+          <div class="bar"><div class="n"><?= $m['nb'] ?></div><div class="fl" style="height:<?= max($pct,3) ?>%;background:<?= $c ?>"></div><div class="lb"><?= $m['label'] ?></div></div>
+          <?php endforeach; ?>
+        </div></div>
+      </div>
+      <?php endif; ?>
     </div>
-    <div style="padding:14px 16px">
-      <?php $max_nb = max(max(array_column($chart_mois,'nb')),1); ?>
-      <div class="db-chart">
-        <?php foreach ($chart_mois as $m):
-          $pct = round($m['nb']/$max_nb*100);
-          $c = $m['mois']===0?'#ef4444':($m['mois']<=1?'#f97316':($m['mois']<=2?'#eab308':'rgba(var(--primary-rgb),.4)'));
-        ?>
-        <div class="db-bar">
-          <div style="flex:1;width:100%;display:flex;align-items:flex-end">
-            <div class="db-bar-fill" title="<?= $m['label'] ?> : <?= $m['nb'] ?>" style="height:<?= max($pct,2) ?>%;background:<?= $c ?>"
-                 onmouseover="this.style.opacity='.7'" onmouseout="this.style.opacity='1'"></div>
-          </div>
-          <?php if ($m['nb']>0): ?><div style="font-size:.55rem;color:var(--text2);font-weight:600"><?= $m['nb'] ?></div><?php endif; ?>
-          <div class="db-bar-lbl"><?= $m['label'] ?></div>
+    <div class="col">
+      <?php if ($wShow('meteo')): ?>
+      <div class="card" data-w="meteo">
+        <div class="card-h"><span class="cic">🌡️</span><span class="ttl">Météo des péremptions</span></div>
+        <div class="card-b"><div class="meteo">
+          <a class="m-red" href="alerts.php"><div class="v"><?= $m7 ?></div><div class="k">≤ 7 j</div></a>
+          <a class="m-org" href="alerts.php"><div class="v"><?= $m30 ?></div><div class="k">≤ 30 j</div></a>
+          <a class="m-blu" href="products.php"><div class="v"><?= $m90 ?></div><div class="k">≤ 90 j</div></a>
+        </div></div>
+      </div>
+      <?php endif; ?>
+      <?php if ($wShow('conso')): ?>
+      <div class="card" data-w="conso">
+        <div class="card-h"><span class="cic">🔥</span><span class="ttl">Top consommés (30 j)</span></div>
+        <div class="card-b" style="padding:8px 0">
+        <?php foreach ($conso as $c): $w=round((float)$c['q']/$conso_max*100); ?>
+          <div class="conso-row"><span class="nm"><?= h($c['nom']) ?></span><span class="track"><i style="width:<?= max($w,4) ?>%"></i></span><span class="qc"><?= rtrim(rtrim(number_format((float)$c['q'],2,'.',''),'0'),'.') ?></span></div>
+        <?php endforeach; ?>
         </div>
+      </div>
+      <?php endif; ?>
+      <?php if ($wShow('biomed')): ?>
+      <div class="card" data-w="biomed">
+        <div class="card-h"><span class="cic">🩺</span><span class="ttl">Biomédical</span><a class="link" href="biomed/dashboard.php">Voir →</a></div>
+        <div class="rt-row"><div class="rt n"><div class="v"><?= $biomed_total ?></div><div class="k">Total</div></div><div class="rt <?= $biomed_hs>0?'a':'n' ?>"><div class="v" style="color:<?= $biomed_hs>0?'var(--rd)':'inherit' ?>"><?= $biomed_hs ?></div><div class="k">HS</div></div><div class="rt n"><div class="v"><?= $biomed_maint ?></div><div class="k">Maint.</div></div></div>
+      </div>
+      <?php endif; ?>
+    </div>
+  </div>
+  <?php endif; ?>
+
+  <?php if ($secShow(['ready','act','agenda'])): ?>
+  <div class="sec grn"><span class="bar"></span><span class="t">Terrain &amp; dotation</span><span class="line"></span></div>
+  <div class="grid">
+    <div class="col">
+      <?php if ($wShow('ready')): ?>
+      <div class="card" data-w="ready">
+        <div class="card-h"><span class="cic">🎯</span><span class="ttl">Prêt à partir</span><a class="link" href="locations.php">Emplacements →</a></div>
+        <div class="rt-row"><div class="rt g"><div class="v" style="color:var(--grn)"><?= $dot_prets ?></div><div class="k">✅ Prêts</div></div><div class="rt <?= $dot_incomplets>0?'a':'n' ?>"><div class="v" style="color:<?= $dot_incomplets>0?'var(--amb)':'inherit' ?>"><?= $dot_incomplets ?></div><div class="k">À compléter</div></div></div>
+        <?php foreach (array_slice(array_values(array_filter($dot_sacs, fn($s)=>$s['completude']<100)),0,5) as $s): $c=$s['completude']>=70?'var(--amb)':'var(--rd)'; ?>
+        <a class="row" href="locations.php?sel=<?= $s['id'] ?>"><div class="nm"><?= h($s['nom']) ?><small><?= $s['manquant'] ?> manquant<?= $s['manquant']>1?'s':'' ?><?= $s['insuffisant']>0?' · '.$s['insuffisant'].' insuff.':'' ?></small></div><div class="pbar"><i style="width:<?= $s['completude'] ?>%;background:<?= $c ?>"></i></div><div class="pc" style="color:<?= $c ?>"><?= $s['completude'] ?>%</div></a>
+        <?php endforeach; ?>
+        <?php if ($dot_incomplets===0): ?><div style="padding:14px 17px;text-align:center;color:var(--grn);font-weight:700;font-size:.85rem">✅ Tous les sacs sont conformes</div><?php endif; ?>
+      </div>
+      <?php endif; ?>
+    </div>
+    <div class="col">
+      <?php if ($wShow('act')): ?>
+      <div class="card" data-w="act">
+        <div class="card-h"><span class="cic">🕑</span><span class="ttl">Activité récente</span></div>
+        <?php foreach ($activite as $a): ?>
+        <div class="tl"><span class="dot" style="background:<?= $a['col'] ?>"></span><span class="t"><?= $a['ic'] ?> <?= $a['tt'] ?> <small>· <?= $a['sb'] ?></small></span><span class="dd"><?= date('d/m H:i',strtotime($a['d'])) ?></span></div>
         <?php endforeach; ?>
       </div>
+      <?php endif; ?>
+      <?php if ($wShow('agenda')): ?>
+      <div class="card" data-w="agenda">
+        <div class="card-h"><span class="cic">🗓️</span><span class="ttl">Prochains contrôles</span></div>
+        <?php foreach ($agenda as $a): ?>
+        <div class="agr"><span class="ic"><?= $a['ic'] ?></span><span class="t"><?= h($a['t']) ?><small><?= h($a['s']) ?></small></span><span class="due <?= $a['cls'] ?>"><?= h($a['due']) ?></span></div>
+        <?php endforeach; ?>
+      </div>
+      <?php endif; ?>
     </div>
   </div>
   <?php endif; ?>
 
-</div><!-- /col gauche -->
-
-<!-- Colonne droite -->
-<div>
-
-  <!-- Cockpit dotation : prêt à partir -->
-  <?php if (!empty($dot_sacs)): ?>
-  <div class="db-card">
-    <div class="db-card-head">
-      <div class="db-card-title">🎯 Prêt à partir</div>
-      <a href="locations.php" style="font-size:.72rem;color:var(--primary);text-decoration:none">Emplacements →</a>
-    </div>
-    <div style="padding:12px 16px 4px;display:flex;gap:10px">
-      <div style="flex:1;text-align:center;padding:10px;background:rgba(16,185,129,.06);border:1px solid rgba(16,185,129,.2);border-radius:9px">
-        <div style="font-size:1.3rem;font-weight:800;color:#34d399"><?= $dot_prets ?></div>
-        <div style="font-size:.68rem;color:var(--text3)">✅ Prêts</div>
-      </div>
-      <div style="flex:1;text-align:center;padding:10px;background:<?= $dot_incomplets>0?'rgba(245,158,11,.06)':'var(--bg3)' ?>;border:1px solid <?= $dot_incomplets>0?'rgba(245,158,11,.2)':'var(--border)' ?>;border-radius:9px">
-        <div style="font-size:1.3rem;font-weight:800;color:<?= $dot_incomplets>0?'#fbbf24':'var(--text)' ?>"><?= $dot_incomplets ?></div>
-        <div style="font-size:.68rem;color:var(--text3)">À compléter</div>
-      </div>
-    </div>
-    <?php foreach (array_slice(array_values(array_filter($dot_sacs, fn($s)=>$s['completude']<100)), 0, 5) as $s):
-      $c = $s['completude']>=70?'#fbbf24':'#f87171'; ?>
-    <a href="locations.php?sel=<?= $s['id'] ?>" class="db-row" style="text-decoration:none;color:var(--text)">
-      <div style="flex:1;min-width:0">
-        <div style="font-size:.82rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><?= h($s['nom']) ?></div>
-        <div style="font-size:.68rem;color:var(--text3)"><?= $s['manquant'] ?> manquant<?= $s['manquant']>1?'s':'' ?><?= $s['insuffisant']>0?' · '.$s['insuffisant'].' insuff.':'' ?></div>
-      </div>
-      <div style="width:64px;height:6px;background:var(--border);border-radius:4px;overflow:hidden;flex-shrink:0"><div style="width:<?= $s['completude'] ?>%;height:100%;background:<?= $c ?>"></div></div>
-      <div style="font-size:.78rem;font-weight:700;color:<?= $c ?>;width:36px;text-align:right"><?= $s['completude'] ?>%</div>
-    </a>
-    <?php endforeach; ?>
-    <?php if ($dot_incomplets===0): ?>
-    <div style="padding:14px 16px;text-align:center;color:#34d399;font-size:.85rem;font-weight:600">✅ Tous les sacs sont conformes</div>
-    <?php endif; ?>
-  </div>
-  <?php endif; ?>
-
-  <!-- Biomédical -->
-  <?php if (nav_peut($nav_perms,'biomed') && $biomed_total > 0): ?>
-  <div class="db-card">
-    <div class="db-card-head">
-      <div class="db-card-title">🩺 Biomédical</div>
-      <a href="biomed/dashboard.php" style="font-size:.72rem;color:var(--primary);text-decoration:none">Voir →</a>
-    </div>
-    <div style="padding:12px 16px;display:flex;gap:10px">
-      <div style="flex:1;text-align:center;padding:10px;background:var(--bg3);border-radius:9px">
-        <div style="font-size:1.3rem;font-weight:800"><?= $biomed_total ?></div>
-        <div style="font-size:.68rem;color:var(--text3)">Total</div>
-      </div>
-      <div style="flex:1;text-align:center;padding:10px;background:<?= $biomed_hs>0?'rgba(239,68,68,.06)':'var(--bg3)' ?>;border:1px solid <?= $biomed_hs>0?'rgba(239,68,68,.2)':'var(--border)' ?>;border-radius:9px">
-        <div style="font-size:1.3rem;font-weight:800;color:<?= $biomed_hs>0?'#f87171':'var(--text)' ?>"><?= $biomed_hs ?></div>
-        <div style="font-size:.68rem;color:var(--text3)">HS</div>
-      </div>
-      <div style="flex:1;text-align:center;padding:10px;background:<?= $biomed_maint>0?'rgba(245,158,11,.06)':'var(--bg3)' ?>;border:1px solid <?= $biomed_maint>0?'rgba(245,158,11,.2)':'var(--border)' ?>;border-radius:9px">
-        <div style="font-size:1.3rem;font-weight:800;color:<?= $biomed_maint>0?'#fbbf24':'var(--text)' ?>"><?= $biomed_maint ?></div>
-        <div style="font-size:.68rem;color:var(--text3)">Maint.</div>
+  <?php if ($wShow('stup')): ?>
+  <div class="sec vio"><span class="bar"></span><span class="t">Réglementé — Stupéfiants</span><span class="line"></span></div>
+  <div class="grid">
+    <div class="col" style="grid-column:1 / -1;max-width:640px">
+      <div class="card stup" data-w="stup">
+        <div class="card-h"><span class="cic" style="background:rgba(139,92,246,.13);color:var(--vio)">🔒</span><span class="ttl">Coffre à stupéfiants</span><a class="link" href="stupefiants.php">Ouvrir →</a></div>
+        <div class="card-b">
+          <?php if ($dbStupReg): ?>
+          <div class="stup-grid">
+            <div class="stup-tile"><div class="v" style="color:var(--vio)"><?= rtrim(rtrim(number_format($stx_solde,2,'.',''),'0'),'.') ?></div><div class="k">Ampoules en coffre</div></div>
+            <div class="stup-tile"><div class="k" style="margin-bottom:6px">Dernier contrôle</div><?php if($stx_ctl_days===null):?><span class="chip late">⏰ Jamais</span><?php elseif($stx_ctl_days>30):?><span class="chip late">⏰ En retard (<?= $stx_ctl_days ?> j)</span><?php else:?><span class="chip ok">✅ Il y a <?= $stx_ctl_days ?> j</span><?php endif;?></div>
+          </div>
+          <?php if ($stx_mv): ?>
+          <div class="k" style="font-size:.7rem;color:var(--text3);font-weight:700">Derniers mouvements</div>
+          <?php foreach ($stx_mv as $m): $lbl=['administration'=>'💉 Administration','entree'=>'➕ Réappro','casse'=>'💥 Casse','perte'=>'❓ Perte','vol'=>'🚨 Vol','destruction'=>'🗑️ Destruction'][$m['type']]??$m['type']; $qq=(float)$m['qte_ampoules']; ?>
+          <div class="stup-mv"><span class="d"><?= date('d/m H:i',strtotime($m['cree_le'])) ?></span><span class="t"><?= $lbl ?> <small>· <?= h($m['agent']?:'—') ?></small></span><span class="q <?= $qq>=0?'pos':'neg' ?>"><?= ($qq>0?'+':'').rtrim(rtrim(number_format($qq,2,'.',''),'0'),'.') ?></span></div>
+          <?php endforeach; ?>
+          <?php else: ?><div class="locknote">Aucun mouvement enregistré pour l'instant.</div><?php endif; ?>
+          <?php else: ?>
+          <div class="stup-grid">
+            <div class="stup-tile"><div class="v" style="color:var(--vio)"><?= rtrim(rtrim(number_format($stx_solde,2,'.',''),'0'),'.') ?></div><div class="k">Dernier solde publié</div></div>
+            <div class="stup-tile"><div class="k" style="margin-bottom:6px">Contrôle du coffre</div><?php if($stx_ctl_days!==null && $stx_ctl_days<=30):?><span class="chip ok">✅ Suivi à jour</span><?php else:?><span class="chip late">⏰ À contrôler</span><?php endif;?></div>
+          </div>
+          <div class="locknote">🔒 Le <b>détail du registre</b> (mouvements, administrations, agents) est réservé aux personnes ayant le droit <b>« Voir le registre »</b>.</div>
+          <?php endif; ?>
+        </div>
       </div>
     </div>
   </div>
   <?php endif; ?>
 
-  <!-- Activité récente (rempotages + fiches + interventions consolidés) -->
-  <?php
-  $activite = [];
-  if (nav_peut($nav_perms,'rempotages') && !empty($recent_remp)) {
-    foreach ($recent_remp as $r) $activite[] = [
-      'ic'=>'🔄','col'=>'#10b981','d'=>$r['cree_le'],
-      'tt'=>'Rempotage — '.h($r['empl_nom'] ?? '—'),
-      'sb'=>((int)$r['nb']).' article(s) · '.h($r['prenom'] ?? ''),
-    ];
+</div><!-- /#dbx -->
+
+<!-- Drawer perso -->
+<div id="dbx-scrim" onclick="dbxDrawer(false)"></div>
+<aside id="dbx-drawer">
+  <div class="dh">⚙️ <span>Mon tableau de bord</span><button onclick="dbxDrawer(false)">✕</button></div>
+  <div class="db">
+    <p class="note">Choisis les widgets à afficher et la densité. Préférences propres à ton compte.</p>
+    <div class="presets">
+      <button class="preset" onclick="dbxPreset('lecteur')">👁️ Lecteur</button>
+      <button class="preset" onclick="dbxPreset('gestionnaire')">🗂️ Gestion.</button>
+      <button class="preset" onclick="dbxPreset('tout')">👑 Tout</button>
+    </div>
+    <div class="densrow">Densité <div class="seg"><button class="<?= $prefDensity!=='compact'?'on':'' ?>" onclick="dbxDensity('cosy',this)">Confort</button><button class="<?= $prefDensity==='compact'?'on':'' ?>" onclick="dbxDensity('compact',this)">Compact</button></div></div>
+    <div id="dbx-wlist"></div>
+  </div>
+  <div class="df"><button class="g" onclick="dbxDrawer(false)">Fermer</button><button class="p" onclick="dbxSave()">💾 Enregistrer</button></div>
+</aside>
+
+<script>
+(function(){
+  var CSRF = (document.querySelector('meta[name=csrf-token]')||{}).content || '';
+  var CAT = <?= json_encode(array_map(fn($k)=>['k'=>$k,'ic'=>$WLABEL[$k][0],'nm'=>$WLABEL[$k][1],'gate'=>(bool)($wGate[$k]??false)], array_keys($WLABEL))) ?>;
+  var hidden = <?= json_encode(array_values($prefHidden)) ?>;
+  var density = '<?= $prefDensity ?>';
+  var dbx = document.getElementById('dbx');
+  function isHidden(k){return hidden.indexOf(k)>=0;}
+  function apply(){ CAT.forEach(function(w){ document.querySelectorAll('[data-w="'+w.k+'"]').forEach(function(el){ el.style.display=(!isHidden(w.k))?'':'none'; }); }); dbx.className = density==='compact'?'compact':''; }
+  window.dbxDrawer=function(o){document.getElementById('dbx-drawer').classList.toggle('open',o);document.getElementById('dbx-scrim').classList.toggle('open',o);if(o)renderList();};
+  function renderList(){
+    document.getElementById('dbx-wlist').innerHTML = CAT.map(function(w){
+      var dis = w.gate ? '' : ' style="opacity:.4;pointer-events:none"';
+      return '<div class="wt '+(!isHidden(w.k)&&w.gate?'on':'')+'"'+dis+' onclick="dbxToggle(\''+w.k+'\')"><span class="ic">'+w.ic+'</span><span class="nm">'+w.nm+(w.gate?'':' <small style=\'color:var(--text3)\'>(non autorisé)</small>')+'</span><span class="sw"></span></div>';
+    }).join('');
   }
-  if (nav_peut($nav_perms,'fiches') && !empty($recent_fiches)) {
-    foreach ($recent_fiches as $f) $activite[] = [
-      'ic'=>'📋','col'=>$f['statut']==='anomalie'?'#ef4444':'#10b981','d'=>$f['cree_le'],
-      'tt'=>h($f['modele_nom']),
-      'sb'=>h($f['prenom'] ?? '').' · '.($f['statut']==='anomalie'?'<span style="color:#f87171">Anomalie</span>':'<span style="color:#34d399">OK</span>'),
-    ];
-  }
-  if (nav_peut($nav_perms,'terrain') && !empty($recent_inter)) {
-    foreach ($recent_inter as $it) $activite[] = [
-      'ic'=>'🚑','col'=>$it['statut']==='termine'?'#10b981':'#f59e0b','d'=>$it['cree_le'],
-      'tt'=>'Intervention '.($it['reference']?h($it['reference']):'sans réf.'),
-      'sb'=>((int)$it['nb']).' article(s) · '.h($it['prenom'] ?? ''),
-    ];
-  }
-  usort($activite, fn($a,$b)=>strtotime($b['d']) <=> strtotime($a['d']));
-  $activite = array_slice($activite, 0, 6);
-  if (!empty($activite)):
-  ?>
-  <div class="db-card">
-    <div class="db-card-head">
-      <div class="db-card-title">🕑 Activité récente</div>
-    </div>
-    <?php foreach ($activite as $a): ?>
-    <div class="db-row">
-      <div class="db-dot" style="background:<?= $a['col'] ?>"></div>
-      <div style="flex:1;min-width:0">
-        <div style="font-size:.8rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><?= $a['ic'] ?> <?= $a['tt'] ?></div>
-        <div style="font-size:.68rem;color:var(--text3)"><?= $a['sb'] ?></div>
-      </div>
-      <div style="font-size:.68rem;color:var(--text3);white-space:nowrap"><?= date('d/m H:i',strtotime($a['d'])) ?></div>
-    </div>
-    <?php endforeach; ?>
-  </div>
-  <?php endif; ?>
-
-  <?php if (nav_peut($nav_perms,'sse') && $sse_alerte > 0): ?>
-  <div class="db-card" style="background:rgba(99,102,241,.05);border-color:rgba(99,102,241,.25)">
-    <div class="db-card-head" style="background:rgba(99,102,241,.08)">
-      <div class="db-card-title" style="color:#818cf8">🧪 SSE / NRBC — Alertes</div>
-      <a href="sse.php" class="btn btn-sm" style="background:#818cf8;color:white;border:none;padding:3px 10px;font-size:.72rem">Voir →</a>
-    </div>
-    <div style="padding:12px 16px;font-size:.85rem;color:var(--text2)">
-      <?= $sse_alerte ?> consommable<?= $sse_alerte>1?'s':'' ?> à traiter
-      <?= $sse_conso_perime>0?" · <strong style='color:#f87171'>$sse_conso_perime périmé(s)</strong>":'' ?>
-    </div>
-  </div>
-  <?php endif; ?>
-
-</div><!-- /col droite -->
-</div><!-- /db-cols -->
-
+  window.dbxToggle=function(k){ var i=hidden.indexOf(k); if(i>=0)hidden.splice(i,1); else hidden.push(k); apply(); renderList(); };
+  window.dbxDensity=function(m,btn){ density=m; btn.parentNode.querySelectorAll('button').forEach(function(b){b.classList.remove('on');}); btn.classList.add('on'); apply(); };
+  window.dbxPreset=function(role){
+    var sets={lecteur:['ai','todo','kpi','surv','chart','meteo'],gestionnaire:['ai','todo','kpi','surv','chart','meteo','conso','ready','act','agenda','biomed'],tout:CAT.map(function(w){return w.k;})};
+    var on=sets[role]||[]; hidden = CAT.filter(function(w){return on.indexOf(w.k)<0;}).map(function(w){return w.k;}); apply(); renderList();
+  };
+  window.dbxSave=function(){
+    var body='order=[]&hidden='+encodeURIComponent(JSON.stringify(hidden))+'&density='+density+'&csrf_token='+encodeURIComponent(CSRF);
+    fetch('dashboard.php?ajax=save_layout',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded','X-CSRF-Token':CSRF},body:body})
+      .then(function(r){return r.json();}).then(function(d){ if(d.ok){ location.reload(); } else { if(typeof showToast==='function')showToast('Erreur d\'enregistrement','error'); } })
+      .catch(function(){ if(typeof showToast==='function')showToast('Erreur réseau','error'); });
+  };
+  // Copilote
+  function esc(s){return (s+'').replace(/&/g,'&amp;').replace(/</g,'&lt;');}
+  window.dbxCopilote=function(q){
+    var box=document.getElementById('dbx-ai-txt'); if(!box)return;
+    box.style.color='var(--text3)'; box.innerHTML='<span class="dots"><i></i><i></i><i></i></span> le copilote analyse…';
+    var body = q?('q='+encodeURIComponent(q)):''; body += (body?'&':'')+'csrf_token='+encodeURIComponent(CSRF);
+    fetch('dashboard.php?ajax=copilote',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded','X-CSRF-Token':CSRF},body:body})
+      .then(function(r){return r.json();}).then(function(d){ if(d.ok){box.style.color='var(--text2)';box.textContent=d.texte;}else{box.style.color='var(--rd)';box.textContent=d.error||'Erreur';} })
+      .catch(function(){ box.style.color='var(--rd)'; box.textContent='Erreur réseau.'; });
+  };
+  window.dbxAsk=function(){
+    var i=document.getElementById('dbx-ai-input'); var q=(i.value||'').trim(); if(!q)return;
+    var th=document.getElementById('dbx-ai-thread');
+    th.insertAdjacentHTML('beforeend','<div class="msg u"><span class="av">🧑</span><div class="bub">'+esc(q)+'</div></div>');
+    var think=document.createElement('div'); think.className='msg a'; think.innerHTML='<span class="av">🤖</span><div class="bub dots"><i></i><i></i><i></i></div>'; th.appendChild(think);
+    i.value='';
+    var body='q='+encodeURIComponent(q)+'&csrf_token='+encodeURIComponent(CSRF);
+    fetch('dashboard.php?ajax=copilote',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded','X-CSRF-Token':CSRF},body:body})
+      .then(function(r){return r.json();}).then(function(d){ think.innerHTML='<span class="av">🤖</span><div class="bub">'+(d.ok?esc(d.texte):('⚠️ '+esc(d.error||'Erreur')))+'</div>'; think.scrollIntoView({block:'nearest'}); })
+      .catch(function(){ think.innerHTML='<span class="av">🤖</span><div class="bub">⚠️ Erreur réseau.</div>'; });
+  };
+  // count-up + apparition
+  function countUp(el){var m=(el.textContent||'').trim().match(/^(\D*)(\d+)(\D*)$/);if(!m)return;var pre=m[1],tg=parseInt(m[2],10),su=m[3],t0=null;el.textContent=pre+'0'+su;function st(ts){if(!t0)t0=ts;var p=Math.min((ts-t0)/800,1);var e=p<.5?2*p*p:1-Math.pow(-2*p+2,2)/2;el.textContent=pre+Math.round(tg*e)+su;if(p<1)requestAnimationFrame(st);}requestAnimationFrame(st);}
+  window.addEventListener('load',function(){
+    document.querySelectorAll('#dbx .kpi .n, #dbx .meteo .v, #dbx .rt .v, #dbx .stup-tile .v').forEach(countUp);
+    document.querySelectorAll('#dbx .ai, #dbx .todo, #dbx .kpis, #dbx .grid').forEach(function(b,i){ b.style.animationDelay=(i*60)+'ms'; b.classList.add('rise'); });
+  });
+  apply();
+})();
+</script>
 </div><!-- /desktop-only -->
 
 <?php require_once 'includes/footer.php'; ?>
