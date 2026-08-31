@@ -352,7 +352,7 @@ $evRow = function($e) use ($ev_icons,$ev_colors){
 .sec-evrow .tm{color:var(--text3);font-size:11px;white-space:nowrap;flex-shrink:0}
 .sec-modal{position:fixed;inset:0;background:rgba(8,12,24,.6);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);display:none;align-items:flex-start;justify-content:center;z-index:9999;padding:40px 16px;overflow-y:auto}
 .sec-modal.open{display:flex}
-#lockdown-modal{align-items:center;padding:16px 16px}
+#lockdown-modal,#preview-modal{align-items:center;padding:16px 16px}
 .sec-modal-box{background:var(--bg2,var(--bg));border:1px solid var(--border);border-radius:18px;width:min(760px,100%);max-height:calc(100vh - 80px);overflow-y:auto;padding:22px;margin:0 auto}
 .sec-modal-x{float:right;background:none;border:none;color:var(--text2);font-size:22px;cursor:pointer;line-height:1}
 </style>
