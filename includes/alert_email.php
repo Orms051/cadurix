@@ -90,7 +90,7 @@ function buildAlertEmail(string $site, string $date, string $note, array $includ
     <!-- Header -->
     <tr><td style="background:#4f46e5;background:linear-gradient(135deg,#3b82f6,#7c4dff);padding:24px 26px;font-family:Arial,Helvetica,sans-serif" bgcolor="#4f46e5">
       <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
-        <td width="48" valign="middle"><img src="'.$logoUrl.'" width="44" height="44" alt="Cadurix" style="display:block;border-radius:12px;border:0"></td>
+        <td width="48" valign="middle"><div style="width:44px;height:44px;background:#ffffff;border-radius:12px;text-align:center;line-height:44px;font-size:24px;color:#3b82f6;font-weight:800;font-family:Arial,Helvetica,sans-serif">✚</div></td>
         <td valign="middle" style="padding-left:12px">
           <div style="color:#ffffff;font-size:19px;font-weight:800;line-height:1.15">Cadurix</div>
           <div style="color:#e6ecff;font-size:12.5px;margin-top:2px">Rapport d\'alertes · '.$E($site).'</div>
