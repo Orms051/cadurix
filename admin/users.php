@@ -49,11 +49,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     if (!empty($_tgt['email'])) $_dest[$_tgt['email']] = trim(($_tgt['prenom']??'').' '.($_tgt['nom']??''));
                     $_alert_to = cdx_get_param($pdo,'sec_alert_email'); if ($_alert_to) $_dest[$_alert_to] = 'Sécurité Cadurix';
                     if ($_dest) {
-                        $_html = '<div style="font-family:system-ui,sans-serif;color:#1f2937">'
-                               . '<h2 style="color:#dc2626;margin:0 0 10px">⚠️ Tentative bloquée sur un compte protégé</h2>'
-                               . '<p>Une action <b>'.h($type).'</b> visant le compte <b>'.h(trim(($_tgt['prenom']??'').' '.($_tgt['nom']??''))).'</b> (Super Admin) a été tentée par <b>'.h($_acteur).'</b>.</p>'
-                               . '<p>Elle a été <b>refusée automatiquement</b>.<br>IP : '.h($_SERVER['REMOTE_ADDR']??'?').' &middot; '.date('d/m/Y H:i:s').'</p>'
-                               . '<p style="font-size:12px;color:#6b7280">Cadurix — Sécurité</p></div>';
+                        $_html = cdx_email_layout('Tentative bloquée sur un compte protégé', 'Sécurité — action refusée',
+                               'Une action <strong>'.h($type).'</strong> visant le compte <strong>'.h(trim(($_tgt['prenom']??'').' '.($_tgt['nom']??''))).'</strong> (Super Admin) a été tentée par <strong>'.h($_acteur).'</strong>.'
+                               . cdx_email_note('Elle a été <strong>refusée automatiquement</strong>.', 'danger')
+                               . cdx_email_kv([['🌐 IP', $_SERVER['REMOTE_ADDR']??'?'], ['📅 Date', date('d/m/Y H:i:s')]]),
+                               null, '', '#ef4444');
                         foreach ($_dest as $_em=>$_nm) { cadurix_send_mail($pdo,$_em,$_nm?:'Administrateur','Cadurix — tentative bloquée sur votre compte',$_html); }
                     }
                 } catch (Throwable $e) {}
@@ -141,16 +141,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             if ($send_mail) {
                                 require_once __DIR__.'/../includes/mailer.php';
                                 $_wurl = isset($_SERVER['HTTP_HOST']) ? 'https://'.$_SERVER['HTTP_HOST'].'/' : '/';
-                                $_whtml = '<div style="font-family:system-ui,sans-serif;color:#1f2937;max-width:460px">'
-                                    .'<h2 style="color:#7c3aed;margin:0 0 10px">Bienvenue sur Cadurix</h2>'
-                                    .'<p>Bonjour '.h($prenom).',</p>'
-                                    .'<p>Un compte vient de vous être créé. Voici vos identifiants :</p>'
-                                    .'<table style="border-collapse:collapse;margin:14px 0;background:#f8fafc;border-radius:8px">'
-                                    .'<tr><td style="padding:8px 14px;color:#64748b">Identifiant</td><td style="padding:8px 14px"><b>'.h($login).'</b></td></tr>'
-                                    .'<tr><td style="padding:8px 14px;color:#64748b">Mot de passe</td><td style="padding:8px 14px;font-family:monospace"><b>'.h($mdp).'</b></td></tr></table>'
-                                    .'<p><a href="'.$_wurl.'" style="display:inline-block;background:#7c3aed;color:#fff;padding:11px 20px;border-radius:8px;text-decoration:none;font-weight:600">Se connecter</a></p>'
-                                    .($force_mdp ? '<p style="font-size:13px;color:#64748b">🔒 Vous devrez choisir un nouveau mot de passe à la première connexion.</p>' : '')
-                                    .'<hr style="border:none;border-top:1px solid #e2e8f0;margin:18px 0"><p style="font-size:11px;color:#94a3b8">Cadurix — Gestion des péremptions</p></div>';
+                                $_whtml = cdx_email_layout('Bienvenue sur Cadurix — votre compte', 'Votre nouveau compte',
+                                    'Bonjour <strong>'.h($prenom).'</strong>,<br>Un compte vient de vous être créé sur Cadurix. Voici vos identifiants :'
+                                    . cdx_email_kv([['👤 Identifiant', $login], ['🔑 Mot de passe', $mdp]])
+                                    . ($force_mdp ? cdx_email_note('🔒 Vous devrez choisir un nouveau mot de passe à la première connexion.', 'warn') : ''),
+                                    ['text'=>'Se connecter', 'url'=>$_wurl], '', '#7c3aed');
                                 try { cadurix_send_mail($pdo, $email, trim($prenom.' '.$nom), 'Cadurix — votre compte a été créé', $_whtml); } catch (Throwable $e) {}
                             }
                             flashSuccess("Utilisateur créé.".($site_id && in_array($role_init,$roles_valides,true) ? ' Accès attribué.' : '').($send_mail ? ' Email envoyé.' : ''));
@@ -213,15 +208,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     audit_log($pdo,'CREATION_UTILISATEUR','utilisateurs',$nid);
                     if ($send_mail) {
                         $wurl = isset($_SERVER['HTTP_HOST']) ? 'https://'.$_SERVER['HTTP_HOST'].'/' : '/';
-                        $html = '<div style="font-family:system-ui,sans-serif;color:#1f2937;max-width:460px">'
-                            .'<h2 style="color:#7c3aed;margin:0 0 10px">Bienvenue sur Cadurix</h2>'
-                            .'<p>Bonjour '.h($prenom).',</p><p>Un compte vient de vous être créé. Vos identifiants :</p>'
-                            .'<table style="border-collapse:collapse;margin:14px 0;background:#f8fafc;border-radius:8px">'
-                            .'<tr><td style="padding:8px 14px;color:#64748b">Identifiant</td><td style="padding:8px 14px"><b>'.h($login).'</b></td></tr>'
-                            .'<tr><td style="padding:8px 14px;color:#64748b">Mot de passe</td><td style="padding:8px 14px;font-family:monospace"><b>'.h($pwd).'</b></td></tr></table>'
-                            .'<p><a href="'.$wurl.'" style="display:inline-block;background:#7c3aed;color:#fff;padding:11px 20px;border-radius:8px;text-decoration:none;font-weight:600">Se connecter</a></p>'
-                            .($force_mdp?'<p style="font-size:13px;color:#64748b">🔒 Vous devrez choisir un nouveau mot de passe à la première connexion.</p>':'')
-                            .'<p style="font-size:11px;color:#94a3b8">Cadurix</p></div>';
+                        $html = cdx_email_layout('Bienvenue sur Cadurix — votre compte', 'Votre nouveau compte',
+                            'Bonjour <strong>'.h($prenom).'</strong>,<br>Un compte vient de vous être créé sur Cadurix. Voici vos identifiants :'
+                            . cdx_email_kv([['👤 Identifiant', $login], ['🔑 Mot de passe', $pwd]])
+                            . ($force_mdp ? cdx_email_note('🔒 Vous devrez choisir un nouveau mot de passe à la première connexion.', 'warn') : ''),
+                            ['text'=>'Se connecter', 'url'=>$wurl], '', '#7c3aed');
                         try { cadurix_send_mail($pdo,$email,trim($prenom.' '.$nom),'Cadurix — votre compte a été créé',$html); } catch (Throwable $e) {}
                     }
                     $created++;
@@ -244,15 +235,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             audit_log($pdo,'RESET_MDP','utilisateurs',$uid);
             require_once __DIR__.'/../includes/mailer.php';
             $wurl = isset($_SERVER['HTTP_HOST']) ? 'https://'.$_SERVER['HTTP_HOST'].'/' : '/';
-            $html = '<div style="font-family:system-ui,sans-serif;color:#1f2937;max-width:460px">'
-                .'<h2 style="color:#7c3aed;margin:0 0 10px">Vos nouveaux identifiants</h2>'
-                .'<p>Bonjour '.h($tu['prenom']).',</p><p>Votre mot de passe a ete reinitialise. Voici vos identifiants :</p>'
-                .'<table style="border-collapse:collapse;margin:14px 0;background:#f8fafc;border-radius:8px">'
-                .'<tr><td style="padding:8px 14px;color:#64748b">Identifiant</td><td style="padding:8px 14px"><b>'.h($tu['login']).'</b></td></tr>'
-                .'<tr><td style="padding:8px 14px;color:#64748b">Mot de passe</td><td style="padding:8px 14px;font-family:monospace"><b>'.h($pwd).'</b></td></tr></table>'
-                .'<p><a href="'.$wurl.'" style="display:inline-block;background:#7c3aed;color:#fff;padding:11px 20px;border-radius:8px;text-decoration:none;font-weight:600">Se connecter</a></p>'
-                .'<p style="font-size:13px;color:#64748b">Vous devrez choisir un nouveau mot de passe a la connexion.</p>'
-                .'<p style="font-size:11px;color:#94a3b8">Cadurix</p></div>';
+            $html = cdx_email_layout('Vos nouveaux identifiants Cadurix', 'Réinitialisation du mot de passe',
+                'Bonjour <strong>'.h($tu['prenom']).'</strong>,<br>Votre mot de passe a été réinitialisé. Voici vos nouveaux identifiants :'
+                . cdx_email_kv([['👤 Identifiant', $tu['login']], ['🔑 Mot de passe', $pwd]])
+                . cdx_email_note('Vous devrez choisir un nouveau mot de passe à la connexion.', 'warn'),
+                ['text'=>'Se connecter', 'url'=>$wurl], '', '#7c3aed');
             $sent=false; try { $sent=cadurix_send_mail($pdo,$tu['email'],trim($tu['prenom'].' '.$tu['nom']),'Cadurix - vos nouveaux identifiants',$html); } catch(Throwable $e){}
             flashSuccess('Identifiants regeneres'.($sent?' et envoyes par email.':" - mais l'email n'a pas pu etre envoye (verifier le SMTP)."));
         } else {

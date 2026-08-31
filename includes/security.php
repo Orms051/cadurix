@@ -315,14 +315,11 @@ class MedSecurity {
         }
         if (!$email) return;
 
-        $html = '<!DOCTYPE html><html><body style="font-family:Arial,sans-serif;background:#f8fafc;padding:20px">
-        <div style="max-width:500px;margin:0 auto;background:#fff;border-radius:8px;border:2px solid #ef4444;padding:24px">
-          <h2 style="color:#ef4444;margin:0 0 16px">⚠️ Alerte Sécurité Cadurix</h2>
-          <p style="color:#1e293b;line-height:1.6">' . nl2br(htmlspecialchars($body)) . '</p>
-          <hr style="border:none;border-top:1px solid #e2e8f0;margin:16px 0">
-          <p style="font-size:12px;color:#94a3b8">Cadurix v5.2 · ' . date('d/m/Y H:i:s') . '</p>
-        </div></body></html>';
-
+        require_once __DIR__ . '/email_layout.php';
+        $content = 'Une alerte de sécurité a été déclenchée sur votre instance Cadurix :'
+            . cdx_email_note(nl2br(htmlspecialchars($body, ENT_QUOTES, 'UTF-8')), 'danger')
+            . '<div style="font-size:12.5px;color:#64748b;margin-top:6px">Consultez le tableau de bord Sécurité pour le détail et l\'historique.</div>';
+        $html = cdx_email_layout('Alerte de sécurité Cadurix', 'Sécurité — surveillance', $content, ['text'=>'Ouvrir la sécurité','url'=>'https://cadurix.fr/admin/index.php?tab=security'], '', '#ef4444');
         $headers = "MIME-Version: 1.0\r\nContent-Type: text/html; charset=UTF-8\r\n";
         $headers .= "From: Cadurix Security <noreply@cadurix.fr>\r\n";
         @mail($email, $subject, $html, $headers);

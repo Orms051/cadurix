@@ -3,6 +3,8 @@
 // Extrait de send_alerts.php (noms préfixés cdx_ pour éviter tout conflit).
 // Charge la config SMTP depuis la table parametres et envoie via PHPMailer si présent, sinon mail().
 
+require_once __DIR__ . '/email_layout.php'; // gabarit partagé cdx_email_layout / cdx_email_kv / cdx_email_note
+
 if (!function_exists('cdx_get_param')) {
     function cdx_get_param(PDO $pdo, string $cle, string $default = ''): string {
         try {

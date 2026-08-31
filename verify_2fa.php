@@ -40,24 +40,11 @@ function sendOTP(PDO $pdo, int $user_id, array $smtp): bool {
 
     // Envoyer email
     $subject = "🔐 Code de connexion Cadurix : $code";
-    $html = '<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body style="font-family:Arial,sans-serif;background:#f8fafc;padding:20px">
-    <div style="max-width:400px;margin:0 auto;background:#fff;border-radius:12px;padding:30px;box-shadow:0 2px 10px rgba(0,0,0,.1)">
-      <div style="text-align:center;margin-bottom:20px">
-        <div style="width:60px;height:60px;background:linear-gradient(135deg,#7C3AED,#5B21B6);border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:24px">🔐</div>
-      </div>
-      <h2 style="text-align:center;color:#1e293b;margin:0 0 8px">Code de connexion</h2>
-      <p style="text-align:center;color:#64748b;font-size:14px">Bonjour '.$user['prenom'].',</p>
-      <div style="background:#f1f5f9;border-radius:8px;padding:20px;text-align:center;margin:20px 0">
-        <div style="font-size:36px;font-weight:800;letter-spacing:8px;color:#7C3AED;font-family:monospace">'.$code.'</div>
-        <div style="font-size:12px;color:#94a3b8;margin-top:8px">Valide 10 minutes</div>
-      </div>
-      <p style="font-size:13px;color:#64748b;text-align:center">Si vous n\'avez pas demandé ce code, ignorez cet email.</p>
-      <hr style="border:none;border-top:1px solid #e2e8f0;margin:20px 0">
-      <p style="font-size:11px;color:#94a3b8;text-align:center">Cadurix v5.2 — Sécurité</p>
-    </div></body></html>';
-
-    $headers  = "MIME-Version: 1.0\r\nContent-Type: text/html; charset=UTF-8\r\n";
-    $headers .= "From: Cadurix <" . ($smtp['from'] ?? 'noreply@cadurix.fr') . ">\r\n";
+    $E = fn($v) => htmlspecialchars((string)$v, ENT_QUOTES, 'UTF-8');
+    $content = 'Bonjour <strong>'.$E($user['prenom']).'</strong>,<br>Voici votre code de connexion à usage unique :'
+      .'<div style="text-align:center;margin:18px 0"><div style="display:inline-block;background:#f1f5f9;border:1px solid #e6ecf5;border-radius:12px;padding:16px 24px;font-family:\'Courier New\',monospace;font-size:34px;font-weight:800;letter-spacing:8px;color:#4f46e5">'.$E($code).'</div><div style="font-size:12px;color:#94a3b8;margin-top:8px">Valide 10 minutes</div></div>'
+      .cdx_email_note("Si vous n'avez pas demandé ce code, ignorez cet email — votre compte reste protégé.", 'info');
+    $html = cdx_email_layout("Votre code de connexion Cadurix : $code", "Vérification en deux étapes", $content);
     return cadurix_send_mail($pdo, $user['email'], $user['prenom'] ?? '', $subject, $html);
 }
 
