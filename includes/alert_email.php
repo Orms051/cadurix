@@ -75,19 +75,12 @@ function buildAlertEmail(string $site, string $date, string $note, array $includ
     $soonBlock = $soon ? '<tr><td class="px" style="padding:10px 26px 0 26px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td style="background:#fff7ed;border:1px solid #fed7aa;border-radius:10px;padding:11px 14px;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#9a3412">⏱️ <strong>Prochaine échéance :</strong> '.$E($soon['nom']).($soon['loc']!==''?' <span style="color:#c2704a">('.$E($soon['loc']).')</span>':'').' — le <strong>'.date('d/m/Y',$soon['t']).'</strong> (J-'.max(0,(int)floor(($soon['t']-time())/86400)).')</td></tr></table></td></tr>' : '';
 
     // ── Document ──
-    return '<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light dark"><meta name="supported-color-schemes" content="light dark"><title>Alertes Cadurix</title>
+    return '<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light"><meta name="supported-color-schemes" content="light"><title>Alertes Cadurix</title>
 <style>
 @media only screen and (max-width:620px){
   .wrap{width:100%!important}
   .kpi{display:block!important;width:100%!important;box-sizing:border-box}
   .px{padding-left:16px!important;padding-right:16px!important}
-}
-@media (prefers-color-scheme: dark){
-  .bg{background:#0f172a!important}
-  .card{background:#111827!important;border-color:#1f2937!important}
-  .txt{color:#e5e7eb!important}
-  .mut{color:#9ca3af!important}
-  .ftr{background:#0b1220!important;border-color:#1f2937!important}
 }
 </style></head>
 <body class="bg" style="margin:0;padding:0;background:#eef2f9;-webkit-text-size-adjust:100%">
