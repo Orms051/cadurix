@@ -185,18 +185,12 @@ function send_alert_email(PDO $pdo, int $site_id, string $site_nom, array $stats
     if ($stats['nb_stock'] > 0)    $lines[] = "• {$stats['nb_stock']} produit(s) en stock bas";
     $body_lines = implode("<br>", $lines);
 
+    require_once __DIR__ . '/includes/email_layout.php';
+    $accent = $stats['nb_perime'] > 0 ? '#ef4444' : '#f59e0b';
     foreach ($admins as $admin) {
-        $html = "<!DOCTYPE html><html><body style='font-family:Arial,sans-serif;color:#1e293b;background:#f8fafc;padding:20px'>
-        <div style='max-width:500px;margin:0 auto;background:white;border-radius:12px;padding:24px;box-shadow:0 2px 10px rgba(0,0,0,.1)'>
-        <h2 style='color:#ef4444'>⚠️ Alertes péremptions — $site_nom</h2>
-        <p>Bonjour {$admin['prenom']},</p>
-        <p>Des produits nécessitent votre attention :</p>
-        <p>$body_lines</p>
-        <a href='https://cadurix.fr/dashboard.php' style='display:inline-block;background:#0f4c81;color:white;padding:10px 20px;border-radius:8px;text-decoration:none;margin-top:12px'>Accéder à Cadurix</a>
-        <hr style='border:none;border-top:1px solid #e2e8f0;margin:16px 0'>
-        <p style='font-size:11px;color:#94a3b8'>Cadurix v5 — Notification automatique</p>
-        </div></body></html>";
-
+        $content = 'Bonjour <strong>'.htmlspecialchars((string)$admin['prenom'], ENT_QUOTES, 'UTF-8').'</strong>,<br>Des produits nécessitent votre attention sur <strong>'.htmlspecialchars($site_nom, ENT_QUOTES, 'UTF-8').'</strong> :'
+            . cdx_email_note($body_lines, $stats['nb_perime'] > 0 ? 'danger' : 'warn');
+        $html = cdx_email_layout("Alertes péremptions — $site_nom", "Alertes péremptions", $content, ['text'=>'Ouvrir le tableau de bord', 'url'=>'https://cadurix.fr/dashboard.php'], '', $accent);
         $headers = "MIME-Version: 1.0\r\nContent-Type: text/html; charset=UTF-8\r\nFrom: Cadurix Alertes <noreply@cadurix.fr>\r\n";
         @mail($admin['email'], $subject, $html, $headers);
     }
