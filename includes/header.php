@@ -886,9 +886,11 @@ window.VAPID_PUBLIC_KEY = <?php
       try {
         $nb_ban_nav   = (int)$pdo->query("SELECT COUNT(*) FROM security_ips WHERE statut='banni'")->fetchColumn();
         $lockdown_nav = (int)$pdo->query("SELECT COUNT(*) FROM security_lockdown WHERE actif=1")->fetchColumn();
-        if ($lockdown_nav): ?>
+        $__lev_nav    = (int)$pdo->query("SELECT COALESCE(MAX(id),0) FROM security_events")->fetchColumn();
+        $sec_new_nav  = (($_COOKIE['sec_ack'] ?? '') !== ($nb_ban_nav.'|'.$lockdown_nav.'|'.$__lev_nav));
+        if ($sec_new_nav && $lockdown_nav): ?>
         <span class="nav-badge" style="background:#EF4444">🔒</span>
-        <?php elseif ($nb_ban_nav > 0): ?>
+        <?php elseif ($sec_new_nav && $nb_ban_nav > 0): ?>
         <span class="nav-badge" style="background:#F59E0B"><?= $nb_ban_nav ?></span>
         <?php endif;
       } catch(Exception $e) {}

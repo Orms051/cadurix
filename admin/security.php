@@ -326,6 +326,7 @@ $evRow = function($e) use ($ev_icons,$ev_colors){
 .sec-evrow .tm{color:var(--text3);font-size:11px;white-space:nowrap;flex-shrink:0}
 .sec-modal{position:fixed;inset:0;background:rgba(8,12,24,.6);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);display:none;align-items:flex-start;justify-content:center;z-index:9999;padding:40px 16px;overflow-y:auto}
 .sec-modal.open{display:flex}
+#lockdown-modal{align-items:center;padding:16px 16px}
 .sec-modal-box{background:var(--bg2,var(--bg));border:1px solid var(--border);border-radius:18px;width:min(760px,100%);max-height:calc(100vh - 80px);overflow-y:auto;padding:22px;margin:0 auto}
 .sec-modal-x{float:right;background:none;border:none;color:var(--text2);font-size:22px;cursor:pointer;line-height:1}
 </style>
@@ -534,4 +535,16 @@ document.addEventListener('keydown',function(e){ if(e.key==='Escape'){secClose('
   </div>
 </div>
 
+<?php
+// ── Marque la notif sécurité comme « vue » (cookie sec_ack = signature courante) ──
+// → le badge (onglet Sécurité + sidebar Administration) disparaît, et ne réapparaît
+//   que s'il y a du nouveau (nouveau ban / lockdown / nouvel événement).
+try {
+    $__nbb = (int)$pdo->query("SELECT COUNT(*) FROM security_ips WHERE statut='banni'")->fetchColumn();
+    $__lck = (int)$pdo->query("SELECT COUNT(*) FROM security_lockdown WHERE actif=1")->fetchColumn();
+    $__lev = (int)$pdo->query("SELECT COALESCE(MAX(id),0) FROM security_events")->fetchColumn();
+    $__sig = $__nbb.'|'.$__lck.'|'.$__lev;
+    echo '<script>document.cookie="sec_ack='.h($__sig).';path=/;max-age=2592000";</script>';
+} catch (Throwable $e) {}
+?>
 <?php if (!defined('ADMIN_HUB')) require_once '../includes/footer.php'; ?>

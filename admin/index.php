@@ -60,10 +60,15 @@ $tab_meta = array_map(fn($t) => ['icon'=>$t['icon'], 'label'=>$t['label']], admi
 $tab_groups = [];
 foreach (admin_tabs_definis() as $__k => $__t) $tab_groups[$__t['group']][] = $__k;
 
-$nb_ban = 0; $lockdown = 0;
+$nb_ban = 0; $lockdown = 0; $sec_new = false; $sec_sig = '';
 try {
   $nb_ban   = (int)$pdo->query("SELECT COUNT(*) FROM security_ips WHERE statut='banni'")->fetchColumn();
   $lockdown = (int)$pdo->query("SELECT COUNT(*) FROM security_lockdown WHERE actif=1")->fetchColumn();
+  // Notif « vue » : signature de l'état sécu (bans + lockdown + dernier événement).
+  // Le badge ne s'affiche que si ça a changé depuis la dernière ouverture de l'onglet (cookie sec_ack).
+  $__lev   = (int)$pdo->query("SELECT COALESCE(MAX(id),0) FROM security_events")->fetchColumn();
+  $sec_sig = $nb_ban.'|'.$lockdown.'|'.$__lev;
+  $sec_new = (($_COOKIE['sec_ack'] ?? '') !== $sec_sig);
 } catch(Exception $e) {}
 
 // Supprime d'éventuels onglets orphelins d'anciennes configs BDD (ex: 'logs')
@@ -221,9 +226,9 @@ require_once '../includes/header.php';
          onclick="document.cookie='admin_last_tab=<?= $t ?>;path=/;max-age=86400'">
         <span class="tab-emoji"><?= $meta['icon'] ?></span>
         <?= $meta['label'] ?>
-        <?php if ($t==='security' && $lockdown): ?>
+        <?php if ($t==='security' && $sec_new && $lockdown): ?>
           <span class="admin-tab-badge">🔒</span>
-        <?php elseif ($t==='security' && $nb_ban>0): ?>
+        <?php elseif ($t==='security' && $sec_new && $nb_ban>0): ?>
           <span class="admin-tab-badge"><?= $nb_ban ?></span>
         <?php endif; ?>
         <?php if ($t==='maintenance'): ?>
