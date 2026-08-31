@@ -93,6 +93,27 @@ $ips_list = $pdo->query("
     LIMIT 30
 ")->fetchAll(PDO::FETCH_ASSOC);
 
+// ── Identifiants (login) tentés par chaque IP de la liste ──
+$loginsByIp = [];
+if ($ips_list) {
+    $ipset = array_values(array_unique(array_column($ips_list, 'ip')));
+    if ($ipset) {
+        $ph = implode(',', array_fill(0, count($ipset), '?'));
+        try {
+            $st = $pdo->prepare("SELECT ip, TRIM(SUBSTRING(details, 7)) AS login, COUNT(*) AS n
+                                 FROM security_events
+                                 WHERE type='login_fail' AND details LIKE 'Login:%' AND ip IN ($ph)
+                                 GROUP BY ip, login ORDER BY n DESC");
+            $st->execute($ipset);
+            foreach ($st as $r) {
+                $lg = trim((string)$r['login']);
+                $lg = ($lg === '') ? '∅ vide' : $lg;
+                $loginsByIp[$r['ip']][] = ['login'=>$lg, 'n'=>(int)$r['n']];
+            }
+        } catch (Throwable $e) {}
+    }
+}
+
 $lockdown_history = $pdo->query("
     SELECT ld.*, u1.login AS declenche_login, u2.login AS debloque_login
     FROM security_lockdown ld
@@ -256,7 +277,7 @@ if ($ip_addrs) {
     foreach ($q->fetchAll(PDO::FETCH_ASSOC) as $r) { if (!isset($ip_user[$r['ip']])) $ip_user[$r['ip']] = trim(($r['prenom']??'').' '.($r['nom']??'')); }
   } catch (Throwable $e) {}
 }
-$ipRow = function($ip_row) use ($ip_user, $my_ip){
+$ipRow = function($ip_row) use ($ip_user, $my_ip, $loginsByIp){
   $color = $ip_row['statut']==='banni' ? '#dc2626' : ($ip_row['score']>=70 ? '#d97706' : 'var(--text2)');
   $stat_color = $ip_row['statut']==='banni' ? '#dc2626' : '#d97706';
   $stat_lbl   = $ip_row['statut']==='banni' ? '🔴 Bannie' : '🟡 Surveillée';
@@ -266,6 +287,11 @@ $ipRow = function($ip_row) use ($ip_user, $my_ip){
       <div class="sec-ip" style="color:<?= $color ?>"><span class="sec-iplink" onclick="secOpenIP('<?= h($ip_row['ip']) ?>')" title="Voir les événements de cette IP"><?= h($ip_row['ip']) ?></span><?php $w = $ip_user[$ip_row['ip']] ?? ''; if ($ip_row['ip']===$my_ip): ?> <span class="sec-who sec-me">👤 Vous</span><?php elseif ($w!==''): ?> <span class="sec-who">👤 <?= h($w) ?></span><?php else: ?> <span class="sec-who sec-unknown">Inconnu</span><?php endif; ?></div>
       <div class="sec-row-sub">Score <?= $ip_row['score'] ?>/100 · <?= $ip_row['nb_tentatives'] ?> tentatives<?php if($ip_row['banni_jusqu']&&strtotime($ip_row['banni_jusqu'])>time()):?> · ban → <?= date('H:i',strtotime($ip_row['banni_jusqu'])) ?><?php endif;?></div>
       <div class="sec-scorebar"><span style="width:<?= min(100,(int)$ip_row['score']) ?>%;background:<?= $color ?>"></span></div>
+      <?php $lg = $loginsByIp[$ip_row['ip']] ?? []; if ($lg): ?>
+      <div class="sec-row-sub" style="margin-top:3px">🔑 Identifiants tentés :
+        <?php $parts=[]; foreach (array_slice($lg,0,6) as $x){ $parts[] = '<b style="color:var(--text2)">'.h($x['login']).'</b>'.($x['n']>1?'<span style="color:var(--text3)"> ×'.$x['n'].'</span>':''); } echo implode(', ', $parts); if (count($lg)>6) echo ' …'; ?>
+      </div>
+      <?php endif; ?>
     </div>
     <span class="sec-tag sec-statbadge" style="background:<?= $stat_color ?>1e;color:<?= $stat_color ?>;border:1px solid <?= $stat_color ?>44"><?= $stat_lbl ?></span>
     <?php if($ip_row['statut']==='banni'):?>
