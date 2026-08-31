@@ -73,23 +73,50 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $is_new_device = (int)$stmt_hist->fetchColumn() === 0;
 
             if ($is_new_device && $user['email']) {
-                // Envoyer email d'alerte
-                $subject = "&#128272; Nouvelle connexion &agrave; Cadurix";
-                $html = '<!DOCTYPE html><html><body style="font-family:Arial,sans-serif;background:#f8fafc;padding:20px">
-                <div style="max-width:500px;margin:0 auto;background:#fff;border-radius:12px;padding:24px;box-shadow:0 2px 10px rgba(0,0,0,.1)">
-                <h2 style="color:#1e293b">&#128272; Nouvelle connexion d&eacute;tect&eacute;e</h2>
-                <p>Bonjour <strong>' . htmlspecialchars($user['prenom']) . '</strong>,</p>
-                <p>Une connexion &agrave; votre compte Cadurix a &eacute;t&eacute; d&eacute;tect&eacute;e depuis un nouvel appareil.</p>
-                <table style="width:100%;border-collapse:collapse;margin:16px 0">
-                  <tr><td style="padding:8px;color:#64748b">&#128197; Date</td><td style="padding:8px"><strong>' . date('d/m/Y H:i') . '</strong></td></tr>
-                  <tr style="background:#f1f5f9"><td style="padding:8px;color:#64748b">&#127760; IP</td><td style="padding:8px"><strong>' . htmlspecialchars($ip_actuel) . '</strong></td></tr>
-                </table>
-                <p style="color:#ef4444">Si ce n\'est pas vous, changez votre mot de passe imm&eacute;diatement.</p>
-                <hr style="border:none;border-top:1px solid #e2e8f0;margin:16px 0">
-                <p style="font-size:11px;color:#94a3b8">Cadurix v5 &mdash; S&eacute;curit&eacute;</p>
-                </div></body></html>';
-                $headers = "MIME-Version: 1.0\r\nContent-Type: text/html; charset=UTF-8\r\n";
-                $headers .= "From: Cadurix S&eacute;curit&eacute; <noreply@cadurix.fr>\r\n";
+                // Envoyer email d'alerte (objet en UTF-8, pas d'entités HTML)
+                $subject = "🔒 Nouvelle connexion à votre compte Cadurix";
+                $E = fn($v) => htmlspecialchars((string)$v, ENT_QUOTES, 'UTF-8');
+                $ua_court = mb_substr((string)$ua_actuel, 0, 90);
+                $rowTd = 'style="padding:10px 12px;border-bottom:1px solid #eef2f7;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#1e293b"';
+                $rowLbl = 'style="padding:10px 12px;border-bottom:1px solid #eef2f7;font-family:Arial,Helvetica,sans-serif;font-size:12.5px;color:#64748b;width:120px"';
+                $html = '<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light"><title>Nouvelle connexion</title></head>
+<body style="margin:0;padding:0;background:#eef2f9;-webkit-text-size-adjust:100%">
+<div style="display:none;max-height:0;overflow:hidden;opacity:0">Nouvelle connexion détectée sur votre compte Cadurix — ' . $E(date('d/m/Y à H:i')) . '</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#eef2f9"><tr><td align="center" style="padding:26px 12px">
+  <table role="presentation" width="560" cellpadding="0" cellspacing="0" style="width:560px;max-width:560px;background:#ffffff;border-radius:16px;overflow:hidden;border:1px solid #e6ecf5">
+    <tr><td style="background:#4f46e5;background:linear-gradient(135deg,#3b82f6,#7c4dff);padding:24px 26px;font-family:Arial,Helvetica,sans-serif" bgcolor="#4f46e5">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
+        <td width="46" valign="middle"><div style="width:44px;height:44px;background:rgba(255,255,255,.18);border-radius:12px;text-align:center;line-height:44px;font-size:22px">🔒</div></td>
+        <td valign="middle" style="padding-left:12px"><div style="color:#fff;font-size:18px;font-weight:800;line-height:1.15">Nouvelle connexion</div><div style="color:#e6ecff;font-size:12.5px;margin-top:2px">Sécurité de votre compte Cadurix</div></td>
+      </tr></table>
+    </td></tr>
+    <tr><td style="padding:22px 26px 6px 26px;font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#1e293b;line-height:1.6">
+      Bonjour <strong>' . $E($user['prenom']) . '</strong>,<br>
+      Une connexion à votre compte a été détectée depuis un <strong>nouvel appareil</strong>.
+    </td></tr>
+    <tr><td style="padding:8px 26px 4px 26px">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #eef2f7;border-radius:10px;border-collapse:separate;overflow:hidden">
+        <tr><td ' . $rowLbl . '>📅 Date</td><td ' . $rowTd . '><strong>' . $E(date('d/m/Y H:i')) . '</strong></td></tr>
+        <tr><td ' . $rowLbl . '>🌐 Adresse IP</td><td ' . $rowTd . '><strong>' . $E($ip_actuel) . '</strong></td></tr>
+        <tr><td style="padding:10px 12px;font-family:Arial,Helvetica,sans-serif;font-size:12.5px;color:#64748b;width:120px">💻 Appareil</td><td style="padding:10px 12px;font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#475569">' . $E($ua_court) . '</td></tr>
+      </table>
+    </td></tr>
+    <tr><td style="padding:14px 26px 4px 26px">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td style="background:#fef2f2;border-left:3px solid #ef4444;border-radius:0 8px 8px 0;padding:11px 14px;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#991b1b">
+        <strong>Ce n\'est pas vous ?</strong> Changez votre mot de passe immédiatement et prévenez l\'administrateur.
+      </td></tr></table>
+    </td></tr>
+    <tr><td align="center" style="padding:18px 26px 24px 26px">
+      <table role="presentation" cellpadding="0" cellspacing="0"><tr><td align="center" bgcolor="#3b82f6" style="border-radius:10px">
+        <a href="https://cadurix.fr/" style="display:inline-block;padding:12px 26px;font-family:Arial,Helvetica,sans-serif;font-size:14px;font-weight:700;color:#ffffff;text-decoration:none;border-radius:10px;background:#3b82f6">Vérifier mon compte →</a>
+      </td></tr></table>
+    </td></tr>
+    <tr><td style="padding:16px 26px;background:#f8fafc;border-top:1px solid #eef2f7;text-align:center;font-family:Arial,Helvetica,sans-serif;font-size:11px;color:#94a3b8">
+      Message de sécurité automatique · Cadurix<br>Vous recevez cet email car une connexion depuis un nouvel appareil a été détectée.
+    </td></tr>
+  </table>
+</td></tr></table>
+</body></html>';
                 cadurix_send_mail($pdo, $user['email'], $user['prenom'] ?? '', $subject, $html);
             }
         } catch(Exception $e) {} // Fail silently
