@@ -2,6 +2,17 @@
 // Cadurix — Gabarit d'email partagé (coquille "email-safe" : tableaux + inline,
 // thème clair forcé, responsive mobile, logo "en dur"). Utilisé par tous les mails.
 
+if (!function_exists('cdx_email_logo')) {
+/**
+ * Logo affiché dans l'en-tête de TOUS les mails Cadurix.
+ * 👉 POUR CHANGER LE LOGO DE TOUS LES MAILS, MODIFIE UNIQUEMENT CETTE FONCTION.
+ * (Astuce : un logo en <img> est souvent bloqué par les clients mail ; un
+ *  symbole "en dur" comme ci-dessous s'affiche toujours.)
+ */
+function cdx_email_logo(): string {
+    return '<div style="width:44px;height:44px;background:#ffffff;border-radius:12px;text-align:center;line-height:44px;font-size:24px;color:#3b82f6;font-weight:800;font-family:Arial,Helvetica,sans-serif">✚</div>';
+}}
+
 if (!function_exists('cdx_email_layout')) {
 /**
  * @param string      $preheader  Texte d'aperçu (boîte de réception)
@@ -29,7 +40,7 @@ function cdx_email_layout(string $preheader, string $sousTitre, string $content,
   <table role="presentation" width="600" cellpadding="0" cellspacing="0" class="wrap" style="width:600px;max-width:600px;background:#ffffff;border-radius:16px;overflow:hidden;border:1px solid #e6ecf5">
     <tr><td style="background:#4f46e5;background:linear-gradient(135deg,#3b82f6,#7c4dff);padding:24px 26px;font-family:Arial,Helvetica,sans-serif" bgcolor="#4f46e5">
       <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
-        <td width="48" valign="middle"><div style="width:44px;height:44px;background:#ffffff;border-radius:12px;text-align:center;line-height:44px;font-size:24px;color:#3b82f6;font-weight:800;font-family:Arial,Helvetica,sans-serif">✚</div></td>
+        <td width="48" valign="middle">'.cdx_email_logo().'</td>
         <td valign="middle" style="padding-left:12px"><div style="color:#ffffff;font-size:19px;font-weight:800;line-height:1.15">Cadurix</div><div style="color:#e6ecff;font-size:12.5px;margin-top:2px">'.$E($sousTitre).'</div></td>
       </tr></table>
     </td></tr>
