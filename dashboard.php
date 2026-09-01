@@ -507,11 +507,11 @@ $WLABEL = ['ai'=>['🤖','Copilote IA (résumé du jour)'],'todo'=>['🚨','À t
 
 // Insights du Copilote — résumé déterministe et coloré (affiché tout de suite, comme la démo)
 $aiIns = [];
-if ($expired > 0) $aiIns[] = ['r','🔴',"<b>$expired produit".($expired>1?'s':'')." périmé".($expired>1?'s':'')."</b> encore en stock — à retirer.",'Retirer','alerts.php'];
+if ($expired > 0) $aiIns[] = ['r','🔴',"<b>$expired produit".($expired>1?'s':'')." périmé".($expired>1?'s':'')."</b> — à contrôler dans le sac puis remplacer.",'Contrôler','products.php?status=expired'];
 if ($dbStup && (($stx_ctl_days!==null && $stx_ctl_days>30) || ($stx_ctl===null && $stx_solde>0))) $aiIns[] = ['v','🔒',"Le <b>coffre à stupéfiants</b> ".($stx_ctl_days!==null?"n'a pas été contrôlé depuis <b>".$stx_ctl_days." j</b>":"n'a <b>jamais</b> été contrôlé")." — contrôle recommandé.",'Contrôler','stupefiants.php'];
-if ($critical > 0) $aiIns[] = ['a','⚠️',"<b>$critical produit".($critical>1?'s':'')."</b> périme".($critical>1?'nt':'')." sous 7 jours.",'Voir','alerts.php'];
+if ($critical > 0) $aiIns[] = ['a','⚠️',"<b>$critical produit".($critical>1?'s':'')."</b> périme".($critical>1?'nt':'')." sous 7 jours.",'Voir','products.php?status=critical'];
 if ($dot_incomplets > 0) $aiIns[] = ['a','🎒',"<b>$dot_incomplets sac".($dot_incomplets>1?'s':'')."</b> sous dotation à compléter.",'Compléter','locations.php'];
-if ($lowStock > 0) $aiIns[] = ['b','📦',"<b>$lowStock produit".($lowStock>1?'s':'')."</b> en stock bas.",'Voir','alerts.php'];
+if ($lowStock > 0) $aiIns[] = ['b','📦',"<b>$lowStock produit".($lowStock>1?'s':'')."</b> en stock bas — à réapprovisionner.",'Voir','products.php?status=lowstock'];
 $aiIns = array_slice($aiIns, 0, 5);
 // Salutation personnalisée
 $__h = (int)date('G'); $salut = $__h < 18 ? 'Bonjour' : 'Bonsoir';
