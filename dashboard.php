@@ -504,6 +504,20 @@ $wGate = [
 $wShow = function($k) use ($wGate,$prefHidden){ return (($wGate[$k]??false) && !in_array($k,$prefHidden,true)); };
 $secShow = function(array $ks) use ($wShow){ foreach ($ks as $k) if ($wShow($k)) return true; return false; };
 $WLABEL = ['ai'=>['🤖','Copilote IA (résumé du jour)'],'todo'=>['🚨','À traiter maintenant'],'kpi'=>['📊','Chiffres clés'],'surv'=>['⚠️','Produits à surveiller'],'chart'=>['📅','Péremptions par mois'],'meteo'=>['🌡️','Météo des péremptions'],'conso'=>['🔥','Top consommés'],'ready'=>['🎯','Prêt à partir'],'act'=>['🕑','Activité récente'],'agenda'=>['🗓️','Échéancier des contrôles'],'stup'=>['🔒','Stupéfiants — coffre'],'biomed'=>['🩺','Biomédical']];
+
+// Insights du Copilote — résumé déterministe et coloré (affiché tout de suite, comme la démo)
+$aiIns = [];
+if ($expired > 0) $aiIns[] = ['r','🔴',"<b>$expired produit".($expired>1?'s':'')." périmé".($expired>1?'s':'')."</b> encore en stock — à retirer.",'Retirer','alerts.php'];
+if ($dbStup && (($stx_ctl_days!==null && $stx_ctl_days>30) || ($stx_ctl===null && $stx_solde>0))) $aiIns[] = ['v','🔒',"Le <b>coffre à stupéfiants</b> ".($stx_ctl_days!==null?"n'a pas été contrôlé depuis <b>".$stx_ctl_days." j</b>":"n'a <b>jamais</b> été contrôlé")." — contrôle recommandé.",'Contrôler','stupefiants.php'];
+if ($critical > 0) $aiIns[] = ['a','⚠️',"<b>$critical produit".($critical>1?'s':'')."</b> périme".($critical>1?'nt':'')." sous 7 jours.",'Voir','alerts.php'];
+if ($dot_incomplets > 0) $aiIns[] = ['a','🎒',"<b>$dot_incomplets sac".($dot_incomplets>1?'s':'')."</b> sous dotation à compléter.",'Compléter','locations.php'];
+if ($lowStock > 0) $aiIns[] = ['b','📦',"<b>$lowStock produit".($lowStock>1?'s':'')."</b> en stock bas.",'Voir','alerts.php'];
+$aiIns = array_slice($aiIns, 0, 5);
+// Salutation personnalisée
+$__h = (int)date('G'); $salut = $__h < 18 ? 'Bonjour' : 'Bonsoir';
+$prenomU = '';
+try { $pp = $pdo->prepare("SELECT prenom FROM utilisateurs WHERE id=?"); $pp->execute([currentUserId()]); $prenomU = (string)($pp->fetchColumn() ?: ''); } catch (Throwable $e) {}
+$nbTodo = count($todo);
 ?>
 <style>
 #dbx{--line:var(--border);--line2:var(--border2);--vio:#8b5cf6;--grn:#10b981;--amb:#f59e0b;--rd:#ef4444}
@@ -521,6 +535,7 @@ $WLABEL = ['ai'=>['🤖','Copilote IA (résumé du jour)'],'todo'=>['🚨','À t
 #dbx .card-b{padding:15px 17px}
 #dbx .grid{display:grid;grid-template-columns:1.55fr 1fr;gap:16px;align-items:start}
 #dbx .col{display:flex;flex-direction:column}
+#dbx .ai,#dbx .todo,#dbx .kpis,#dbx .grid{margin-top:18px}
 #dbx.compact .card-b{padding:11px 13px} #dbx.compact .sec{margin:15px 2px 9px}
 /* KPI */
 #dbx .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:13px}
@@ -542,6 +557,16 @@ $WLABEL = ['ai'=>['🤖','Copilote IA (résumé du jour)'],'todo'=>['🚨','À t
 #dbx .ai-chip{display:inline-flex;align-items:center;gap:6px;background:var(--bg2);border:1px solid var(--border2);border-radius:20px;padding:7px 13px;font-size:.78rem;font-weight:700;color:var(--text2);cursor:pointer}
 #dbx .ai-chip:hover{border-color:var(--vio);color:var(--vio)}
 #dbx .ai-body{background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:15px 16px;margin-top:12px}
+#dbx .ai-ins{margin:11px 0 0;padding:0;list-style:none;display:flex;flex-direction:column;gap:9px}
+#dbx .ai-ins li{display:flex;gap:11px;align-items:flex-start;padding:10px 12px;border-radius:11px;background:var(--bg3);border:1px solid var(--border)}
+#dbx .ai-ins li .dd{width:26px;height:26px;border-radius:8px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:.9rem}
+#dbx .ai-ins li.r .dd{background:rgba(239,68,68,.13)} #dbx .ai-ins li.v .dd{background:rgba(139,92,246,.13)} #dbx .ai-ins li.a .dd{background:rgba(245,158,11,.15)} #dbx .ai-ins li.b .dd{background:rgba(59,130,246,.13)}
+#dbx .ai-ins .ix{flex:1;font-size:.83rem;color:var(--text2);line-height:1.45} #dbx .ai-ins .ix b{color:var(--text)}
+#dbx .ai-ins .go{font-size:.72rem;font-weight:800;color:var(--primary);white-space:nowrap;align-self:center;text-decoration:none}
+#dbx .db-hello{margin:0 2px 14px}
+#dbx .db-hello .hi{font-size:1.4rem;font-weight:800;letter-spacing:-.01em}
+#dbx .db-hello .sub{font-size:.85rem;color:var(--text3);font-weight:600;margin-top:2px}
+#dbx .db-hello .sub b{color:var(--primary)}
 #dbx .ai-txt{font-size:.87rem;color:var(--text2);line-height:1.6;white-space:pre-wrap}
 #dbx .ai-thread{display:flex;flex-direction:column;gap:10px;margin-top:12px}
 #dbx .ai-thread:empty{display:none}
@@ -647,6 +672,12 @@ $WLABEL = ['ai'=>['🤖','Copilote IA (résumé du jour)'],'todo'=>['🚨','À t
 
 <div id="dbx" class="<?= $prefDensity==='compact'?'compact':'' ?>">
 
+  <!-- Salutation -->
+  <div class="db-hello">
+    <div class="hi"><?= $salut ?> <?= h($prenomU) ?> 👋</div>
+    <div class="sub"><?= $nbTodo>0 ? '<b>'.$nbTodo.' point'.($nbTodo>1?'s':'').'</b> à traiter '.($__h<12?'ce matin':'aujourd\'hui').'.' : 'Tout est en ordre — bonne journée.' ?></div>
+  </div>
+
   <!-- Barre : titre + score + personnaliser -->
   <div class="db-tools">
     <div style="font-size:1.15rem;font-weight:800"><?= $site_info ? h($site_info['org_nom'].' — '.$site_info['nom']) : '' ?></div>
@@ -660,12 +691,11 @@ $WLABEL = ['ai'=>['🤖','Copilote IA (résumé du jour)'],'todo'=>['🚨','À t
 
   <?php if ($wShow('ai')): ?>
   <!-- COPILOTE -->
-  <div class="sec vio"><span class="bar"></span><span class="t">Copilote intelligent</span><span class="line"></span></div>
   <div class="ai" data-w="ai">
     <div class="ai-head">
       <div class="ai-orb">🤖</div>
-      <div><div class="ai-title">Copilote Cadurix <span class="ai-tag">IA</span></div><div class="ai-sub">Analyse tes données du jour — clique « Générer » ou pose une question</div></div>
-      <button class="ai-refresh" onclick="dbxCopilote('')">↻ Générer le résumé</button>
+      <div><div class="ai-title">Copilote Cadurix <span class="ai-tag">IA</span></div><div class="ai-sub">Voici l'essentiel du jour — demande une analyse IA ou pose une question</div></div>
+      <button class="ai-refresh" onclick="dbxCopilote('')">🤖 Analyse IA</button>
     </div>
     <div class="ai-chips">
       <span class="ai-chip" onclick="dbxCopilote('Que dois-je commander en priorité ?')">📦 Que commander ?</span>
@@ -674,7 +704,13 @@ $WLABEL = ['ai'=>['🤖','Copilote IA (résumé du jour)'],'todo'=>['🚨','À t
       <?php if ($dbStup): ?><span class="ai-chip" onclick="dbxCopilote('Fais le point sur le coffre à stupéfiants')">🔒 État du coffre</span><?php endif; ?>
     </div>
     <div class="ai-body">
-      <div class="ai-txt" id="dbx-ai-txt" style="color:var(--text3)">Clique « Générer le résumé » pour obtenir la synthèse du jour, ou pose une question ci-dessous.</div>
+      <div class="ai-txt" id="dbx-ai-txt" style="font-weight:700;color:var(--text)"><?= $salut ?> <?= h($prenomU) ?>, voici l'essentiel aujourd'hui :</div>
+      <ul class="ai-ins">
+        <?php foreach ($aiIns as $x): ?>
+        <li class="<?= $x[0] ?>"><span class="dd"><?= $x[1] ?></span><span class="ix"><?= $x[2] ?></span><a class="go" href="<?= $x[4] ?>"><?= $x[3] ?> →</a></li>
+        <?php endforeach; ?>
+        <?php if (!$aiIns): ?><li class="b"><span class="dd">✅</span><span class="ix">Rien d'urgent — tout est en ordre aujourd'hui.</span></li><?php endif; ?>
+      </ul>
       <div class="ai-thread" id="dbx-ai-thread"></div>
       <div class="ai-ask"><input id="dbx-ai-input" placeholder="Pose une question sur ton stock, tes sacs, tes péremptions…" onkeydown="if(event.key==='Enter')dbxAsk()"><button onclick="dbxAsk()">Demander</button></div>
     </div>
@@ -682,7 +718,6 @@ $WLABEL = ['ai'=>['🤖','Copilote IA (résumé du jour)'],'todo'=>['🚨','À t
   <?php endif; ?>
 
   <?php if ($wShow('todo')): ?>
-  <div class="sec red"><span class="bar"></span><span class="t">À traiter maintenant</span><span class="line"></span></div>
   <div class="todo" data-w="todo">
     <?php foreach ($todo as $t): ?>
     <a class="todo-card <?= $t['cls'] ?>" href="<?= $t['lien'] ?>"><span class="ic"><?= $t['ic'] ?></span><div><div class="tt"><?= $t['tt'] ?></div><div class="sb"><?= $t['sb'] ?></div></div><span class="go">→</span></a>
@@ -691,7 +726,6 @@ $WLABEL = ['ai'=>['🤖','Copilote IA (résumé du jour)'],'todo'=>['🚨','À t
   <?php endif; ?>
 
   <?php if ($wShow('kpi')): ?>
-  <div class="sec"><span class="bar"></span><span class="t">Vue d'ensemble</span><span class="line"></span></div>
   <div class="kpis" data-w="kpi">
     <?php foreach ($kpis as $k): ?>
     <a class="kpi <?= $k['alert']?'alert':'' ?>" href="<?= $k['link'] ?>"><span class="ic" style="background:<?= $k['c'] ?>1f;color:<?= $k['c'] ?>"><?= $k['i'] ?></span><div class="n" style="color:<?= $k['c'] ?>"><?= $k['v'] ?></div><div class="l"><?= $k['l'] ?></div></a>
@@ -700,7 +734,6 @@ $WLABEL = ['ai'=>['🤖','Copilote IA (résumé du jour)'],'todo'=>['🚨','À t
   <?php endif; ?>
 
   <?php if ($secShow(['surv','chart','meteo','conso','biomed'])): ?>
-  <div class="sec"><span class="bar"></span><span class="t">Stock &amp; péremptions</span><span class="line"></span></div>
   <div class="grid">
     <div class="col">
       <?php if ($wShow('surv')): ?>
@@ -757,7 +790,6 @@ $WLABEL = ['ai'=>['🤖','Copilote IA (résumé du jour)'],'todo'=>['🚨','À t
   <?php endif; ?>
 
   <?php if ($secShow(['ready','act','agenda'])): ?>
-  <div class="sec grn"><span class="bar"></span><span class="t">Terrain &amp; dotation</span><span class="line"></span></div>
   <div class="grid">
     <div class="col">
       <?php if ($wShow('ready')): ?>
@@ -793,7 +825,6 @@ $WLABEL = ['ai'=>['🤖','Copilote IA (résumé du jour)'],'todo'=>['🚨','À t
   <?php endif; ?>
 
   <?php if ($wShow('stup')): ?>
-  <div class="sec vio"><span class="bar"></span><span class="t">Réglementé — Stupéfiants</span><span class="line"></span></div>
   <div class="grid">
     <div class="col" style="grid-column:1 / -1;max-width:640px">
       <div class="card stup" data-w="stup">
