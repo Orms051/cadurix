@@ -70,7 +70,7 @@ if ($site_id) {
     // ── Produits urgents ──
     $urgent = $pdo->query("
         SELECT p.nom, p.date_peremption, p.quantite, p.quantite_min,
-               e.nom AS empl_nom, ep.nom AS empl_parent,
+               e.id AS empl_id, e.nom AS empl_nom, ep.nom AS empl_parent,
                DATEDIFF(p.date_peremption, CURDATE()) AS jours
         FROM produits p
         JOIN emplacements e ON e.id=p.emplacement_id
@@ -603,6 +603,16 @@ $nbTodo = count($todo);
 #dbx th{text-align:left;font-size:.65rem;text-transform:uppercase;letter-spacing:.05em;color:var(--text3);font-weight:800;padding:9px 17px;background:var(--bg3)}
 #dbx td{padding:11px 17px;border-top:1px solid var(--border)}
 #dbx .badge{font-size:.7rem;font-weight:800;padding:3px 9px;border-radius:7px;white-space:nowrap}
+/* Liste "à surveiller" (lignes propres) */
+#dbx .surv{display:flex;flex-direction:column}
+#dbx .surv-row{display:flex;align-items:center;gap:12px;padding:10px 16px;border-top:1px solid var(--border);text-decoration:none;color:var(--text);transition:background .12s}
+#dbx .surv-row:first-child{border-top:none}
+#dbx .surv-row:hover{background:var(--bg3)}
+#dbx .surv-row .sdot{width:9px;height:9px;border-radius:50%;flex-shrink:0}
+#dbx .surv-row .info{min-width:0;flex:1}
+#dbx .surv-row .nm{font-weight:700;font-size:.85rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#dbx .surv-row .loc{font-size:.72rem;color:var(--text3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:1px}
+#dbx .surv-row .badge{margin-left:auto;flex-shrink:0}
 #dbx .b-red{background:rgba(239,68,68,.14);color:var(--rd)} #dbx .b-org{background:rgba(245,158,11,.16);color:#B4700A}
 #dbx .b-vio{background:rgba(139,92,246,.13);color:var(--vio)}
 #dbx .chart{display:flex;align-items:flex-end;gap:8px;height:120px;padding-top:10px}
@@ -756,12 +766,14 @@ $nbTodo = count($todo);
       <?php if ($wShow('surv')): ?>
       <div class="card" data-w="surv">
         <div class="card-h"><span class="cic">⚠️</span><span class="ttl">Produits à surveiller</span><a class="link" href="alerts.php">Tout voir →</a></div>
-        <table><thead><tr><th>Produit</th><th>Emplacement</th><th style="text-align:right">Statut</th></tr></thead><tbody>
+        <div class="surv">
         <?php foreach (array_slice($urgent,0,6) as $u): $j=(int)($u['jours']??0); $low=($u['quantite_min']>0 && $u['quantite']<=$u['quantite_min']);
-          $bd=$j<0?'b-red':($j<=30?'b-org':'b-org'); $lbl=$j<0?'Périmé':($j===0?'Auj.':$j.' j'); ?>
-        <tr><td style="font-weight:700"><?= h($u['nom']) ?></td><td style="color:var(--text2);font-size:.78rem"><?= $u['empl_parent']?h($u['empl_parent']).' › ':'' ?><?= h($u['empl_nom']) ?></td><td style="text-align:right"><?php if($low):?><span class="badge b-vio">Stock bas</span><?php else:?><span class="badge <?= $bd ?>"><?= $lbl ?></span><?php endif;?></td></tr>
+          $bd=$j<0?'b-red':'b-org'; $lbl=$j<0?'Périmé':($j===0?'Auj.':$j.' j');
+          $sd=$low?'var(--vio)':($j<0?'var(--rd)':'var(--amb)');
+          $href=!empty($u['empl_id'])?'locations.php?sel='.(int)$u['empl_id']:'alerts.php'; ?>
+        <a class="surv-row" href="<?= $href ?>"><span class="sdot" style="background:<?= $sd ?>"></span><span class="info"><div class="nm"><?= h($u['nom']) ?></div><div class="loc"><?= $u['empl_parent']?h($u['empl_parent']).' › ':'' ?><?= h($u['empl_nom']) ?></div></span><?php if($low):?><span class="badge b-vio">Stock bas</span><?php else:?><span class="badge <?= $bd ?>"><?= $lbl ?></span><?php endif;?></a>
         <?php endforeach; ?>
-        </tbody></table>
+        </div>
       </div>
       <?php endif; ?>
       <?php if ($wShow('chart')): ?>
