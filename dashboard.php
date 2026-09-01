@@ -192,35 +192,6 @@ if (($_GET['ajax'] ?? '') === 'copilote') {
     echo json_encode(['ok'=>true,'texte'=>$jr['content'][0]['text']], JSON_UNESCAPED_UNICODE); exit;
 }
 
-// ── Copilote — actions exécutables (l'IA agit, pas seulement conseille) ──
-// Sécurité : CSRF + permission par action + audit + traçabilité mouvements_stock.
-if (($_GET['ajax'] ?? '') === 'action' && $_SERVER['REQUEST_METHOD'] === 'POST') {
-    header('Content-Type: application/json');
-    if (!function_exists('csrf_verifier') || !csrf_verifier()) { echo json_encode(['error'=>'Session expirée, recharge la page.']); exit; }
-    $act = (string)($_POST['act'] ?? '');
-    if ($act === 'retirer_perimes') {
-        if (!action_permise('supprimer')) { echo json_encode(['error'=>"Tu n'as pas le droit de retirer des lots."]); exit; }
-        $n = 0;
-        try {
-            $st = $pdo->prepare("SELECT p.* FROM produits p JOIN emplacements e ON e.id=p.emplacement_id WHERE p.statut='actif' AND p.date_peremption < CURDATE() AND e.site_id=?");
-            $st->execute([$site_id]);
-            foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $old) {
-                $id = (int)$old['id'];
-                $pdo->prepare("UPDATE produits SET statut='retire', modifie_par=? WHERE id=?")->execute([currentUserId(), $id]);
-                audit_log($pdo, 'RETRAIT_PRODUIT', 'produits', $id, $old, ['statut'=>'retire','copilote'=>true]);
-                try {
-                    $pdo->prepare("INSERT INTO mouvements_stock (produit_id,user_id,type,quantite_avant,quantite_delta,quantite_apres,motif) VALUES(?,?,'sortie',?,?,0,'Retrait périmés — Copilote')")
-                        ->execute([$id, currentUserId(), $old['quantite'], -$old['quantite']]);
-                } catch (Throwable $e) {}
-                $n++;
-            }
-            echo json_encode(['ok'=>true,'n'=>$n,'msg'=>$n>0 ? ($n.' lot'.($n>1?'s':'').' périmé'.($n>1?'s':'').' retiré'.($n>1?'s':'')) : 'Aucun périmé à retirer.']);
-        } catch (Throwable $e) { echo json_encode(['error'=>'Erreur base de données.']); }
-        exit;
-    }
-    echo json_encode(['error'=>'Action inconnue.']); exit;
-}
-
 require_once 'includes/header.php';
 ?>
 <style>
@@ -535,9 +506,8 @@ $secShow = function(array $ks) use ($wShow){ foreach ($ks as $k) if ($wShow($k))
 $WLABEL = ['ai'=>['🤖','Copilote IA (résumé du jour)'],'todo'=>['🚨','À traiter maintenant'],'kpi'=>['📊','Chiffres clés'],'surv'=>['⚠️','Produits à surveiller'],'chart'=>['📅','Péremptions par mois'],'meteo'=>['🌡️','Météo des péremptions'],'conso'=>['🔥','Top consommés'],'ready'=>['🎯','Prêt à partir'],'act'=>['🕑','Activité récente'],'agenda'=>['🗓️','Échéancier des contrôles'],'stup'=>['🔒','Stupéfiants — coffre'],'biomed'=>['🩺','Biomédical']];
 
 // Insights du Copilote — résumé déterministe et coloré (affiché tout de suite, comme la démo)
-$canRetirer = function_exists('action_permise') ? action_permise('supprimer') : false;
 $aiIns = [];
-if ($expired > 0) $aiIns[] = ['r','🔴',"<b>$expired produit".($expired>1?'s':'')." périmé".($expired>1?'s':'')."</b> encore en stock — à retirer.",'Retirer','alerts.php', ($canRetirer?'retirer_perimes':'')];
+if ($expired > 0) $aiIns[] = ['r','🔴',"<b>$expired produit".($expired>1?'s':'')." périmé".($expired>1?'s':'')."</b> encore en stock — à retirer.",'Retirer','alerts.php'];
 if ($dbStup && (($stx_ctl_days!==null && $stx_ctl_days>30) || ($stx_ctl===null && $stx_solde>0))) $aiIns[] = ['v','🔒',"Le <b>coffre à stupéfiants</b> ".($stx_ctl_days!==null?"n'a pas été contrôlé depuis <b>".$stx_ctl_days." j</b>":"n'a <b>jamais</b> été contrôlé")." — contrôle recommandé.",'Contrôler','stupefiants.php'];
 if ($critical > 0) $aiIns[] = ['a','⚠️',"<b>$critical produit".($critical>1?'s':'')."</b> périme".($critical>1?'nt':'')." sous 7 jours.",'Voir','alerts.php'];
 if ($dot_incomplets > 0) $aiIns[] = ['a','🎒',"<b>$dot_incomplets sac".($dot_incomplets>1?'s':'')."</b> sous dotation à compléter.",'Compléter','locations.php'];
@@ -598,8 +568,6 @@ $nbTodo = count($todo);
 #dbx .ai-ins li.r .dd{background:rgba(239,68,68,.13)} #dbx .ai-ins li.v .dd{background:rgba(139,92,246,.13)} #dbx .ai-ins li.a .dd{background:rgba(245,158,11,.15)} #dbx .ai-ins li.b .dd{background:rgba(59,130,246,.13)}
 #dbx .ai-ins .ix{flex:1;font-size:.83rem;color:var(--text2);line-height:1.45} #dbx .ai-ins .ix b{color:var(--text)}
 #dbx .ai-ins .go{font-size:.72rem;font-weight:800;color:var(--primary);white-space:nowrap;align-self:center;text-decoration:none}
-#dbx .ai-ins .go-act{border:none;background:linear-gradient(135deg,#3b82f6,#8b5cf6);color:#fff;font-family:inherit;font-weight:800;font-size:.72rem;padding:6px 12px;border-radius:9px;cursor:pointer;white-space:nowrap;align-self:center}
-#dbx .ai-ins .go-act:hover{filter:brightness(1.06)} #dbx .ai-ins .go-act:disabled{opacity:.6;cursor:default}
 #dbx .db-hello{margin:0 2px 14px}
 #dbx .db-hello .hi{font-size:1.4rem;font-weight:800;letter-spacing:-.01em}
 #dbx .db-hello .sub{font-size:.85rem;color:var(--text3);font-weight:600;margin-top:2px}
@@ -766,8 +734,8 @@ $nbTodo = count($todo);
     <div class="ai-body">
       <div class="ai-txt" id="dbx-ai-txt" style="font-weight:700;color:var(--text)"><?= $salut ?> <?= h($prenomU) ?>, voici l'essentiel aujourd'hui :</div>
       <ul class="ai-ins">
-        <?php foreach ($aiIns as $x): $xa = $x[5] ?? ''; ?>
-        <li class="<?= $x[0] ?>"><span class="dd"><?= $x[1] ?></span><span class="ix"><?= $x[2] ?></span><?php if ($xa): ?><button type="button" class="go go-act" data-act="<?= h($xa) ?>"><?= $x[3] ?> ⚡</button><?php else: ?><a class="go" href="<?= $x[4] ?>"><?= $x[3] ?> →</a><?php endif; ?></li>
+        <?php foreach ($aiIns as $x): ?>
+        <li class="<?= $x[0] ?>"><span class="dd"><?= $x[1] ?></span><span class="ix"><?= $x[2] ?></span><a class="go" href="<?= $x[4] ?>"><?= $x[3] ?> →</a></li>
         <?php endforeach; ?>
         <?php if (!$aiIns): ?><li class="b"><span class="dd">✅</span><span class="ix">Rien d'urgent — tout est en ordre aujourd'hui.</span></li><?php endif; ?>
       </ul>
@@ -1006,21 +974,6 @@ $nbTodo = count($todo);
       .then(function(r){return r.json();}).then(function(d){ think.innerHTML='<span class="av">🤖</span><div class="bub">'+(d.ok?esc(d.texte):('⚠️ '+esc(d.error||'Erreur')))+'</div>'; think.scrollIntoView({block:'nearest'}); })
       .catch(function(){ think.innerHTML='<span class="av">🤖</span><div class="bub">⚠️ Erreur réseau.</div>'; });
   };
-  // Copilote — actions exécutables
-  var ACT_MSG={retirer_perimes:'Retirer tous les produits périmés du stock ?\n\nIls passeront en statut « retiré » (tracé, réversible depuis Médicaments).'};
-  window.dbxAction=function(btn){
-    var act=btn.getAttribute('data-act'); if(!act)return;
-    if(!confirm(ACT_MSG[act]||'Confirmer cette action ?'))return;
-    var lbl=btn.innerHTML; btn.disabled=true; btn.textContent='…';
-    var body='act='+encodeURIComponent(act)+'&csrf_token='+encodeURIComponent(CSRF);
-    fetch('dashboard.php?ajax=action',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded','X-CSRF-Token':CSRF},body:body})
-      .then(function(r){return r.json();}).then(function(d){
-        if(d.ok){ if(typeof showToast==='function')showToast(d.msg||'Fait','success'); setTimeout(function(){location.reload();},700); }
-        else { btn.disabled=false; btn.innerHTML=lbl; if(typeof showToast==='function')showToast(d.error||'Erreur','error'); else alert(d.error||'Erreur'); }
-      })
-      .catch(function(){ btn.disabled=false; btn.innerHTML=lbl; if(typeof showToast==='function')showToast('Erreur réseau','error'); });
-  };
-  document.addEventListener('click',function(e){ var b=e.target.closest&&e.target.closest('.go-act'); if(b)dbxAction(b); });
   // count-up + apparition
   function countUp(el){var m=(el.textContent||'').trim().match(/^(\D*)(\d+)(\D*)$/);if(!m)return;var pre=m[1],tg=parseInt(m[2],10),su=m[3],t0=null;el.textContent=pre+'0'+su;function st(ts){if(!t0)t0=ts;var p=Math.min((ts-t0)/800,1);var e=p<.5?2*p*p:1-Math.pow(-2*p+2,2)/2;el.textContent=pre+Math.round(tg*e)+su;if(p<1)requestAnimationFrame(st);}requestAnimationFrame(st);}
   window.addEventListener('load',function(){
