@@ -567,6 +567,7 @@ $nbTodo = count($todo);
 #dbx .db-hello .hi{font-size:1.4rem;font-weight:800;letter-spacing:-.01em}
 #dbx .db-hello .sub{font-size:.85rem;color:var(--text3);font-weight:600;margin-top:2px}
 #dbx .db-hello .sub b{color:var(--primary)}
+#dbx .db-lab{display:block;font-size:1rem;font-weight:800;letter-spacing:-.01em;color:var(--text);margin:26px 2px 12px}
 #dbx .ai-txt{font-size:.87rem;color:var(--text2);line-height:1.6;white-space:pre-wrap}
 #dbx .ai-thread{display:flex;flex-direction:column;gap:10px;margin-top:12px}
 #dbx .ai-thread:empty{display:none}
@@ -718,6 +719,7 @@ $nbTodo = count($todo);
   <?php endif; ?>
 
   <?php if ($wShow('todo')): ?>
+  <div class="db-lab" data-sec="todo">🚨 À traiter</div>
   <div class="todo" data-w="todo">
     <?php foreach ($todo as $t): ?>
     <a class="todo-card <?= $t['cls'] ?>" href="<?= $t['lien'] ?>"><span class="ic"><?= $t['ic'] ?></span><div><div class="tt"><?= $t['tt'] ?></div><div class="sb"><?= $t['sb'] ?></div></div><span class="go">→</span></a>
@@ -726,6 +728,7 @@ $nbTodo = count($todo);
   <?php endif; ?>
 
   <?php if ($wShow('kpi')): ?>
+  <div class="db-lab" data-sec="kpi">📊 Vue d'ensemble</div>
   <div class="kpis" data-w="kpi">
     <?php foreach ($kpis as $k): ?>
     <a class="kpi <?= $k['alert']?'alert':'' ?>" href="<?= $k['link'] ?>"><span class="ic" style="background:<?= $k['c'] ?>1f;color:<?= $k['c'] ?>"><?= $k['i'] ?></span><div class="n" style="color:<?= $k['c'] ?>"><?= $k['v'] ?></div><div class="l"><?= $k['l'] ?></div></a>
@@ -734,6 +737,7 @@ $nbTodo = count($todo);
   <?php endif; ?>
 
   <?php if ($secShow(['surv','chart','meteo','conso','biomed'])): ?>
+  <div class="db-lab" data-sec="surv,chart,meteo,conso,biomed">💊 Stock &amp; péremptions</div>
   <div class="grid">
     <div class="col">
       <?php if ($wShow('surv')): ?>
@@ -790,6 +794,7 @@ $nbTodo = count($todo);
   <?php endif; ?>
 
   <?php if ($secShow(['ready','act','agenda'])): ?>
+  <div class="db-lab" data-sec="ready,act,agenda">🎒 Terrain &amp; dotation</div>
   <div class="grid">
     <div class="col">
       <?php if ($wShow('ready')): ?>
@@ -825,6 +830,7 @@ $nbTodo = count($todo);
   <?php endif; ?>
 
   <?php if ($wShow('stup')): ?>
+  <div class="db-lab" data-sec="stup">🔒 Réglementé — Stupéfiants</div>
   <div class="grid">
     <div class="col" style="grid-column:1 / -1;max-width:640px">
       <div class="card stup" data-w="stup">
@@ -881,7 +887,16 @@ $nbTodo = count($todo);
   var density = '<?= $prefDensity ?>';
   var dbx = document.getElementById('dbx');
   function isHidden(k){return hidden.indexOf(k)>=0;}
-  function apply(){ CAT.forEach(function(w){ document.querySelectorAll('[data-w="'+w.k+'"]').forEach(function(el){ el.style.display=(!isHidden(w.k))?'':'none'; }); }); dbx.className = density==='compact'?'compact':''; }
+  function apply(){
+    CAT.forEach(function(w){ document.querySelectorAll('[data-w="'+w.k+'"]').forEach(function(el){ el.style.display=(!isHidden(w.k))?'':'none'; }); });
+    // étiquettes de section : visibles seulement si au moins un de leurs widgets l'est
+    document.querySelectorAll('#dbx .db-lab[data-sec]').forEach(function(lab){
+      var ks=(lab.getAttribute('data-sec')||'').split(',');
+      var any=ks.some(function(k){ return !isHidden(k); });
+      lab.style.display = any ? '' : 'none';
+    });
+    dbx.className = density==='compact'?'compact':'';
+  }
   window.dbxDrawer=function(o){document.getElementById('dbx-drawer').classList.toggle('open',o);document.getElementById('dbx-scrim').classList.toggle('open',o);if(o)renderList();};
   function renderList(){
     document.getElementById('dbx-wlist').innerHTML = CAT.map(function(w){
