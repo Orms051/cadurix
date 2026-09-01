@@ -618,6 +618,14 @@ $nbTodo = count($todo);
 #dbx .rt-row{display:flex;gap:11px;padding:14px 17px}
 #dbx .rt{flex:1;text-align:center;padding:11px;border-radius:11px} #dbx .rt .v{font-size:1.4rem;font-weight:800} #dbx .rt .k{font-size:.64rem;color:var(--text3);font-weight:800}
 #dbx .rt.g{background:rgba(16,185,129,.08);border:1px solid rgba(16,185,129,.2)} #dbx .rt.a{background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.2)} #dbx .rt.n{background:var(--bg3);border:1px solid var(--border)}
+/* Mini-stats compactes (météo, biomédical, prêt à partir) */
+#dbx .mini{display:flex;gap:9px}
+#dbx .mini a,#dbx .mini .t{flex:1;position:relative;display:flex;align-items:center;gap:9px;padding:10px 12px;border-radius:11px;background:var(--bg3);border:1px solid var(--border);text-decoration:none;overflow:hidden;transition:transform .12s}
+#dbx .mini a:hover{transform:translateY(-1px)}
+#dbx .mini a::before,#dbx .mini .t::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--mc,var(--primary))}
+#dbx .mini .v{font-size:1.35rem;font-weight:800;line-height:1;font-variant-numeric:tabular-nums;color:var(--mc,var(--text))}
+#dbx .mini .k{font-size:.66rem;color:var(--text3);font-weight:800;text-transform:uppercase;letter-spacing:.03em;line-height:1.2}
+#dbx.compact .mini .v{font-size:1.15rem}
 #dbx .row{display:flex;align-items:center;gap:11px;padding:10px 17px;border-top:1px solid var(--border);text-decoration:none;color:var(--text)}
 #dbx .row .nm{flex:1;min-width:0;font-size:.82rem;font-weight:600} #dbx .row .nm small{display:block;color:var(--text3);font-weight:500;font-size:.7rem}
 #dbx .pbar{width:70px;height:6px;background:var(--border);border-radius:4px;overflow:hidden} #dbx .pbar i{display:block;height:100%}
@@ -771,10 +779,10 @@ $nbTodo = count($todo);
       <?php if ($wShow('meteo')): ?>
       <div class="card" data-w="meteo">
         <div class="card-h"><span class="cic">🌡️</span><span class="ttl">Météo des péremptions</span></div>
-        <div class="card-b"><div class="meteo">
-          <a class="m-red" href="alerts.php"><div class="v"><?= $m7 ?></div><div class="k">≤ 7 j</div></a>
-          <a class="m-org" href="alerts.php"><div class="v"><?= $m30 ?></div><div class="k">≤ 30 j</div></a>
-          <a class="m-blu" href="products.php"><div class="v"><?= $m90 ?></div><div class="k">≤ 90 j</div></a>
+        <div class="card-b"><div class="mini">
+          <a href="alerts.php" style="--mc:var(--rd)"><span class="v"><?= $m7 ?></span><span class="k">≤ 7 jours</span></a>
+          <a href="alerts.php" style="--mc:var(--amb)"><span class="v"><?= $m30 ?></span><span class="k">≤ 30 jours</span></a>
+          <a href="products.php" style="--mc:var(--primary)"><span class="v"><?= $m90 ?></span><span class="k">≤ 90 jours</span></a>
         </div></div>
       </div>
       <?php endif; ?>
@@ -791,7 +799,11 @@ $nbTodo = count($todo);
       <?php if ($wShow('biomed')): ?>
       <div class="card" data-w="biomed">
         <div class="card-h"><span class="cic">🩺</span><span class="ttl">Biomédical</span><a class="link" href="biomed/dashboard.php">Voir →</a></div>
-        <div class="rt-row"><div class="rt n"><div class="v"><?= $biomed_total ?></div><div class="k">Total</div></div><div class="rt <?= $biomed_hs>0?'a':'n' ?>"><div class="v" style="color:<?= $biomed_hs>0?'var(--rd)':'inherit' ?>"><?= $biomed_hs ?></div><div class="k">HS</div></div><div class="rt n"><div class="v"><?= $biomed_maint ?></div><div class="k">Maint.</div></div></div>
+        <div class="card-b"><div class="mini">
+          <div class="t" style="--mc:var(--text3)"><span class="v" style="color:var(--text)"><?= $biomed_total ?></span><span class="k">Total</span></div>
+          <div class="t" style="--mc:<?= $biomed_hs>0?'var(--rd)':'var(--grn)' ?>"><span class="v" style="color:<?= $biomed_hs>0?'var(--rd)':'var(--text)' ?>"><?= $biomed_hs ?></span><span class="k">HS</span></div>
+          <div class="t" style="--mc:var(--amb)"><span class="v" style="color:<?= $biomed_maint>0?'var(--amb)':'var(--text)' ?>"><?= $biomed_maint ?></span><span class="k">Maint.</span></div>
+        </div></div>
       </div>
       <?php endif; ?>
     </div>
@@ -805,7 +817,10 @@ $nbTodo = count($todo);
       <?php if ($wShow('ready')): ?>
       <div class="card" data-w="ready">
         <div class="card-h"><span class="cic">🎯</span><span class="ttl">Prêt à partir</span><a class="link" href="locations.php">Emplacements →</a></div>
-        <div class="rt-row"><div class="rt g"><div class="v" style="color:var(--grn)"><?= $dot_prets ?></div><div class="k">✅ Prêts</div></div><div class="rt <?= $dot_incomplets>0?'a':'n' ?>"><div class="v" style="color:<?= $dot_incomplets>0?'var(--amb)':'inherit' ?>"><?= $dot_incomplets ?></div><div class="k">À compléter</div></div></div>
+        <div class="card-b" style="padding-bottom:8px"><div class="mini">
+          <div class="t" style="--mc:var(--grn)"><span class="v" style="color:var(--grn)"><?= $dot_prets ?></span><span class="k">✅ Prêts</span></div>
+          <div class="t" style="--mc:<?= $dot_incomplets>0?'var(--amb)':'var(--grn)' ?>"><span class="v" style="color:<?= $dot_incomplets>0?'var(--amb)':'var(--text)' ?>"><?= $dot_incomplets ?></span><span class="k">À compléter</span></div>
+        </div></div>
         <?php foreach (array_slice(array_values(array_filter($dot_sacs, fn($s)=>$s['completude']<100)),0,5) as $s): $c=$s['completude']>=70?'var(--amb)':'var(--rd)'; ?>
         <a class="row" href="locations.php?sel=<?= $s['id'] ?>"><div class="nm"><?= h($s['nom']) ?><small><?= $s['manquant'] ?> manquant<?= $s['manquant']>1?'s':'' ?><?= $s['insuffisant']>0?' · '.$s['insuffisant'].' insuff.':'' ?></small></div><div class="pbar"><i style="width:<?= $s['completude'] ?>%;background:<?= $c ?>"></i></div><div class="pc" style="color:<?= $c ?>"><?= $s['completude'] ?>%</div></a>
         <?php endforeach; ?>
@@ -945,7 +960,7 @@ $nbTodo = count($todo);
   // count-up + apparition
   function countUp(el){var m=(el.textContent||'').trim().match(/^(\D*)(\d+)(\D*)$/);if(!m)return;var pre=m[1],tg=parseInt(m[2],10),su=m[3],t0=null;el.textContent=pre+'0'+su;function st(ts){if(!t0)t0=ts;var p=Math.min((ts-t0)/800,1);var e=p<.5?2*p*p:1-Math.pow(-2*p+2,2)/2;el.textContent=pre+Math.round(tg*e)+su;if(p<1)requestAnimationFrame(st);}requestAnimationFrame(st);}
   window.addEventListener('load',function(){
-    document.querySelectorAll('#dbx .kpi .n, #dbx .meteo .v, #dbx .rt .v, #dbx .stup-tile .v').forEach(countUp);
+    document.querySelectorAll('#dbx .kpi .n, #dbx .mini .v, #dbx .stup-tile .v').forEach(countUp);
     document.querySelectorAll('#dbx .ai, #dbx .todo, #dbx .kpis, #dbx .grid').forEach(function(b,i){ b.style.animationDelay=(i*60)+'ms'; b.classList.add('rise'); });
   });
   apply();
