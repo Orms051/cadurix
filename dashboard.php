@@ -640,8 +640,12 @@ $nbTodo = count($todo);
 #dbx .row .nm{flex:1;min-width:0;font-size:.82rem;font-weight:600} #dbx .row .nm small{display:block;color:var(--text3);font-weight:500;font-size:.7rem}
 #dbx .pbar{width:70px;height:6px;background:var(--border);border-radius:4px;overflow:hidden} #dbx .pbar i{display:block;height:100%}
 #dbx .pc{width:40px;text-align:right;font-weight:800;font-size:.78rem}
-#dbx .tl{display:flex;align-items:center;gap:11px;padding:10px 17px;border-top:1px solid var(--border)}
-#dbx .tl .dot{width:9px;height:9px;border-radius:50%;flex-shrink:0} #dbx .tl .t{flex:1;min-width:0;font-size:.8rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis} #dbx .tl .t small{color:var(--text3);font-weight:500} #dbx .tl .dd{font-size:.68rem;color:var(--text3);white-space:nowrap}
+#dbx .tl{display:flex;align-items:center;gap:11px;padding:9px 16px;border-top:1px solid var(--border)}
+#dbx .tl .ic{width:30px;height:30px;border-radius:9px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:.9rem}
+#dbx .tl .info{flex:1;min-width:0}
+#dbx .tl .tt{font-size:.83rem;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#dbx .tl .sb{font-size:.71rem;color:var(--text3);font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:1px}
+#dbx .tl .dd{font-size:.68rem;color:var(--text3);white-space:nowrap;flex-shrink:0;font-weight:600}
 #dbx .agr{display:flex;align-items:center;gap:11px;padding:11px 17px;border-top:1px solid var(--border)}
 #dbx .agr .ic{width:30px;height:30px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:.9rem;background:var(--bg3)}
 #dbx .agr .t{flex:1;font-size:.82rem;font-weight:700} #dbx .agr .t small{display:block;color:var(--text3);font-weight:500;font-size:.7rem}
@@ -845,8 +849,9 @@ $nbTodo = count($todo);
       <div class="card" data-w="act">
         <div class="card-h"><span class="cic">🕑</span><span class="ttl">Activité récente</span></div>
         <?php foreach ($activite as $a): ?>
-        <div class="tl"><span class="dot" style="background:<?= $a['col'] ?>"></span><span class="t"><?= $a['ic'] ?> <?= $a['tt'] ?> <small>· <?= $a['sb'] ?></small></span><span class="dd"><?= date('d/m H:i',strtotime($a['d'])) ?></span></div>
+        <div class="tl"><span class="ic" style="background:<?= $a['col'] ?>1f;color:<?= $a['col'] ?>"><?= $a['ic'] ?></span><span class="info"><div class="tt"><?= $a['tt'] ?></div><div class="sb"><?= $a['sb'] ?></div></span><span class="dd"><?= date('d/m · H:i',strtotime($a['d'])) ?></span></div>
         <?php endforeach; ?>
+        <?php if (empty($activite)): ?><div style="padding:16px;text-align:center;color:var(--text3);font-size:.82rem">Aucune activité récente.</div><?php endif; ?>
       </div>
       <?php endif; ?>
       <?php if ($wShow('agenda')): ?>
