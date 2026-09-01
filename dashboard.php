@@ -476,12 +476,12 @@ $activite=array_slice($activite,0,6);
 // ── KPI (max 4) ──
 $kpis=[];
 if (nav_peut($nav_perms,'medicaments')) {
-  $kpis[]=['v'=>$total,'l'=>'Produits en stock','i'=>'💊','c'=>'#3b82f6','link'=>'products.php','alert'=>false];
-  $al=$expired+$critical; $kpis[]=['v'=>$al,'l'=>'Alertes péremption','i'=>'⚠️','c'=>$al>0?'#ef4444':'#10b981','link'=>'alerts.php','alert'=>$al>0];
+  $kpis[]=['v'=>$total,'l'=>'Produits en stock','i'=>'💊','c'=>'#3b82f6','link'=>'products.php','alert'=>false,'sub'=>($lowStock>0?$lowStock.' en stock bas':'niveaux OK')];
+  $al=$expired+$critical; $kpis[]=['v'=>$al,'l'=>'Alertes péremption','i'=>'⚠️','c'=>$al>0?'#ef4444':'#10b981','link'=>'alerts.php','alert'=>$al>0,'sub'=>($al>0?$expired.' périmé'.($expired>1?'s':'').' · '.$critical.' sous 7j':'rien à signaler')];
 }
-if ($dbStup) $kpis[]=['v'=>rtrim(rtrim(number_format($stx_solde,2,'.',''),'0'),'.'),'l'=>'Ampoules coffre','i'=>'🔒','c'=>'#8b5cf6','link'=>'stupefiants.php','alert'=>false];
-if (count($kpis)<4 && !empty($dot_sacs)) { $cf = count($dot_sacs)>0 ? round($dot_prets/max(count($dot_sacs),1)*100) : 0; $kpis[]=['v'=>$cf.'%','l'=>'Dotation conforme','i'=>'🎯','c'=>'#10b981','link'=>'locations.php','alert'=>false]; }
-if (count($kpis)<4 && nav_peut($nav_perms,'biomed') && $biomed_total>0) $kpis[]=['v'=>$biomed_hs,'l'=>'Biomédical HS','i'=>'🩺','c'=>$biomed_hs>0?'#ef4444':'#10b981','link'=>'materiel.php','alert'=>$biomed_hs>0];
+if ($dbStup) $kpis[]=['v'=>rtrim(rtrim(number_format($stx_solde,2,'.',''),'0'),'.'),'l'=>'Ampoules coffre','i'=>'🔒','c'=>'#8b5cf6','link'=>'stupefiants.php','alert'=>false,'sub'=>($stx_ctl_days!==null?'contrôlé il y a '.$stx_ctl_days.' j':'jamais contrôlé')];
+if (count($kpis)<4 && !empty($dot_sacs)) { $cf = count($dot_sacs)>0 ? round($dot_prets/max(count($dot_sacs),1)*100) : 0; $kpis[]=['v'=>$cf.'%','l'=>'Dotation conforme','i'=>'🎯','c'=>'#10b981','link'=>'locations.php','alert'=>false,'sub'=>$dot_prets.'/'.count($dot_sacs).' sac'.(count($dot_sacs)>1?'s':'').' prêt'.($dot_prets>1?'s':'')]; }
+if (count($kpis)<4 && nav_peut($nav_perms,'biomed') && $biomed_total>0) $kpis[]=['v'=>$biomed_hs,'l'=>'Biomédical HS','i'=>'🩺','c'=>$biomed_hs>0?'#ef4444':'#10b981','link'=>'materiel.php','alert'=>$biomed_hs>0,'sub'=>'sur '.$biomed_total.' équipement'.($biomed_total>1?'s':'')];
 $kpis=array_slice($kpis,0,4);
 
 // ── Préférences perso ──
@@ -539,12 +539,17 @@ $nbTodo = count($todo);
 #dbx.compact .card-b{padding:11px 13px} #dbx.compact .sec{margin:15px 2px 9px}
 /* KPI */
 #dbx .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:13px}
-#dbx .kpi{background:var(--bg2);border:1px solid var(--border);border-radius:16px;padding:15px 16px;box-shadow:var(--shadow);text-decoration:none;transition:transform .15s;display:block}
-#dbx .kpi:hover{transform:translateY(-2px)}
-#dbx .kpi .ic{width:34px;height:34px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:1.05rem}
-#dbx .kpi .n{font-size:1.9rem;font-weight:800;line-height:1;margin-top:12px;font-variant-numeric:tabular-nums}
-#dbx .kpi .l{font-size:.73rem;color:var(--text3);font-weight:700;margin-top:5px}
+#dbx .kpi{position:relative;display:flex;align-items:center;gap:12px;background:var(--bg2);border:1px solid var(--border);border-radius:13px;padding:11px 15px 11px 16px;box-shadow:var(--shadow);text-decoration:none;transition:transform .15s,box-shadow .15s,border-color .15s;overflow:hidden}
+#dbx .kpi::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--kc,var(--primary))}
+#dbx .kpi:hover{transform:translateY(-2px);box-shadow:0 10px 22px -14px rgba(20,30,60,.3)}
+#dbx .kpi .ic{width:36px;height:36px;border-radius:10px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:1.05rem}
+#dbx .kpi .meta{display:flex;flex-direction:column;min-width:0}
+#dbx .kpi .n{font-size:1.5rem;font-weight:800;line-height:1;font-variant-numeric:tabular-nums}
+#dbx .kpi .l{font-size:.72rem;color:var(--text2);font-weight:700;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#dbx .kpi .sub{margin-left:auto;text-align:right;font-size:.7rem;color:var(--text3);font-weight:600;line-height:1.35;max-width:44%;flex-shrink:0}
 #dbx .kpi.alert{border-color:rgba(239,68,68,.3);background:linear-gradient(180deg,rgba(239,68,68,.05),var(--bg2))}
+#dbx .kpi.alert .sub{color:var(--rd)}
+#dbx.compact .kpi{padding:8px 13px} #dbx.compact .kpi .n{font-size:1.3rem} #dbx.compact .kpi .sub{display:none}
 /* Copilote */
 #dbx .ai{position:relative;overflow:hidden;border-radius:18px;border:1px solid var(--border);background:linear-gradient(135deg,rgba(59,130,246,.09),rgba(139,92,246,.07)),var(--bg2);box-shadow:var(--shadow);padding:18px 20px}
 #dbx .ai-head{display:flex;align-items:center;gap:13px}
@@ -731,7 +736,7 @@ $nbTodo = count($todo);
   <div class="db-lab" data-sec="kpi">📊 Vue d'ensemble</div>
   <div class="kpis" data-w="kpi">
     <?php foreach ($kpis as $k): ?>
-    <a class="kpi <?= $k['alert']?'alert':'' ?>" href="<?= $k['link'] ?>"><span class="ic" style="background:<?= $k['c'] ?>1f;color:<?= $k['c'] ?>"><?= $k['i'] ?></span><div class="n" style="color:<?= $k['c'] ?>"><?= $k['v'] ?></div><div class="l"><?= $k['l'] ?></div></a>
+    <a class="kpi <?= $k['alert']?'alert':'' ?>" href="<?= $k['link'] ?>" style="--kc:<?= $k['c'] ?>"><span class="ic" style="background:<?= $k['c'] ?>1f;color:<?= $k['c'] ?>"><?= $k['i'] ?></span><span class="meta"><span class="n" style="color:<?= $k['c'] ?>"><?= $k['v'] ?></span><span class="l"><?= $k['l'] ?></span></span><?php if(!empty($k['sub'])): ?><span class="sub"><?= h($k['sub']) ?></span><?php endif; ?></a>
     <?php endforeach; ?>
   </div>
   <?php endif; ?>
