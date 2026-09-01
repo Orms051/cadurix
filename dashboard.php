@@ -476,12 +476,12 @@ $activite=array_slice($activite,0,6);
 // ── KPI (max 4) ──
 $kpis=[];
 if (nav_peut($nav_perms,'medicaments')) {
-  $kpis[]=['v'=>$total,'l'=>'Produits en stock','i'=>'💊','c'=>'#3b82f6','link'=>'products.php','alert'=>false];
-  $al=$expired+$critical; $kpis[]=['v'=>$al,'l'=>'Alertes péremption','i'=>'⚠️','c'=>$al>0?'#ef4444':'#10b981','link'=>'alerts.php','alert'=>$al>0];
+  $kpis[]=['v'=>$total,'l'=>'Produits en stock','i'=>'💊','c'=>'#3b82f6','link'=>'products.php','alert'=>false,'sub'=>($lowStock>0?$lowStock.' en stock bas':'niveaux OK')];
+  $al=$expired+$critical; $kpis[]=['v'=>$al,'l'=>'Alertes péremption','i'=>'⚠️','c'=>$al>0?'#ef4444':'#10b981','link'=>'alerts.php','alert'=>$al>0,'sub'=>($al>0?$expired.' périmé'.($expired>1?'s':'').' · '.$critical.' sous 7j':'rien à signaler')];
 }
-if ($dbStup) $kpis[]=['v'=>rtrim(rtrim(number_format($stx_solde,2,'.',''),'0'),'.'),'l'=>'Ampoules coffre','i'=>'🔒','c'=>'#8b5cf6','link'=>'stupefiants.php','alert'=>false];
-if (count($kpis)<4 && !empty($dot_sacs)) { $cf = count($dot_sacs)>0 ? round($dot_prets/max(count($dot_sacs),1)*100) : 0; $kpis[]=['v'=>$cf.'%','l'=>'Dotation conforme','i'=>'🎯','c'=>'#10b981','link'=>'locations.php','alert'=>false]; }
-if (count($kpis)<4 && nav_peut($nav_perms,'biomed') && $biomed_total>0) $kpis[]=['v'=>$biomed_hs,'l'=>'Biomédical HS','i'=>'🩺','c'=>$biomed_hs>0?'#ef4444':'#10b981','link'=>'materiel.php','alert'=>$biomed_hs>0];
+if ($dbStup) $kpis[]=['v'=>rtrim(rtrim(number_format($stx_solde,2,'.',''),'0'),'.'),'l'=>'Ampoules coffre','i'=>'🔒','c'=>'#8b5cf6','link'=>'stupefiants.php','alert'=>false,'sub'=>($stx_ctl_days!==null?'contrôlé il y a '.$stx_ctl_days.' j':'jamais contrôlé')];
+if (count($kpis)<4 && !empty($dot_sacs)) { $cf = count($dot_sacs)>0 ? round($dot_prets/max(count($dot_sacs),1)*100) : 0; $kpis[]=['v'=>$cf.'%','l'=>'Dotation conforme','i'=>'🎯','c'=>'#10b981','link'=>'locations.php','alert'=>false,'sub'=>$dot_prets.'/'.count($dot_sacs).' sac'.(count($dot_sacs)>1?'s':'').' prêt'.($dot_prets>1?'s':'')]; }
+if (count($kpis)<4 && nav_peut($nav_perms,'biomed') && $biomed_total>0) $kpis[]=['v'=>$biomed_hs,'l'=>'Biomédical HS','i'=>'🩺','c'=>$biomed_hs>0?'#ef4444':'#10b981','link'=>'materiel.php','alert'=>$biomed_hs>0,'sub'=>'sur '.$biomed_total.' équipement'.($biomed_total>1?'s':'')];
 $kpis=array_slice($kpis,0,4);
 
 // ── Préférences perso ──
@@ -518,6 +518,19 @@ $__h = (int)date('G'); $salut = $__h < 18 ? 'Bonjour' : 'Bonsoir';
 $prenomU = '';
 try { $pp = $pdo->prepare("SELECT prenom FROM utilisateurs WHERE id=?"); $pp->execute([currentUserId()]); $prenomU = (string)($pp->fetchColumn() ?: ''); } catch (Throwable $e) {}
 $nbTodo = count($todo);
+// Dernière connexion = l'AVANT-DERNIÈRE ligne réussie (la session en cours est la 1re)
+$lastCo = '';
+try {
+  $lc = $pdo->prepare("SELECT cree_le FROM connexions_historique WHERE user_id=? AND succes=1 ORDER BY id DESC LIMIT 1 OFFSET 1");
+  $lc->execute([currentUserId()]);
+  $lcv = $lc->fetchColumn();
+  if ($lcv) {
+    $ts = strtotime((string)$lcv); $d = date('Y-m-d', $ts); $hm = date('H:i', $ts);
+    if ($d === date('Y-m-d')) $lastCo = "aujourd'hui à $hm";
+    elseif ($d === date('Y-m-d', strtotime('-1 day'))) $lastCo = "hier à $hm";
+    else $lastCo = 'le '.date('d/m', $ts)." à $hm";
+  }
+} catch (Throwable $e) {}
 ?>
 <style>
 #dbx{--line:var(--border);--line2:var(--border2);--vio:#8b5cf6;--grn:#10b981;--amb:#f59e0b;--rd:#ef4444}
@@ -539,12 +552,18 @@ $nbTodo = count($todo);
 #dbx.compact .card-b{padding:11px 13px} #dbx.compact .sec{margin:15px 2px 9px}
 /* KPI */
 #dbx .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:13px}
-#dbx .kpi{background:var(--bg2);border:1px solid var(--border);border-radius:16px;padding:15px 16px;box-shadow:var(--shadow);text-decoration:none;transition:transform .15s;display:block}
-#dbx .kpi:hover{transform:translateY(-2px)}
-#dbx .kpi .ic{width:34px;height:34px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:1.05rem}
-#dbx .kpi .n{font-size:1.9rem;font-weight:800;line-height:1;margin-top:12px;font-variant-numeric:tabular-nums}
-#dbx .kpi .l{font-size:.73rem;color:var(--text3);font-weight:700;margin-top:5px}
+#dbx .kpi{position:relative;background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:14px 15px 13px 17px;box-shadow:var(--shadow);text-decoration:none;transition:transform .15s,box-shadow .15s,border-color .15s;display:block;overflow:hidden}
+#dbx .kpi::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--kc,var(--primary))}
+#dbx .kpi:hover{transform:translateY(-2px);box-shadow:0 12px 26px -14px rgba(20,30,60,.32);border-color:color-mix(in srgb,var(--kc,var(--primary)) 40%,var(--border))}
+#dbx .kpi .top{display:flex;align-items:center;justify-content:space-between}
+#dbx .kpi .ic{width:30px;height:30px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:.98rem}
+#dbx .kpi .go{font-size:.85rem;font-weight:800;color:var(--kc,var(--primary));opacity:0;transform:translateX(-4px);transition:opacity .15s,transform .15s}
+#dbx .kpi:hover .go{opacity:1;transform:translateX(0)}
+#dbx .kpi .n{font-size:1.65rem;font-weight:800;line-height:1;margin-top:13px;font-variant-numeric:tabular-nums}
+#dbx .kpi .l{font-size:.74rem;color:var(--text2);font-weight:700;margin-top:6px}
+#dbx .kpi .sub{font-size:.68rem;color:var(--text3);font-weight:600;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #dbx .kpi.alert{border-color:rgba(239,68,68,.3);background:linear-gradient(180deg,rgba(239,68,68,.05),var(--bg2))}
+#dbx.compact .kpi .n{font-size:1.45rem;margin-top:9px} #dbx.compact .kpi .sub{display:none}
 /* Copilote */
 #dbx .ai{position:relative;overflow:hidden;border-radius:18px;border:1px solid var(--border);background:linear-gradient(135deg,rgba(59,130,246,.09),rgba(139,92,246,.07)),var(--bg2);box-shadow:var(--shadow);padding:18px 20px}
 #dbx .ai-head{display:flex;align-items:center;gap:13px}
@@ -567,6 +586,7 @@ $nbTodo = count($todo);
 #dbx .db-hello .hi{font-size:1.4rem;font-weight:800;letter-spacing:-.01em}
 #dbx .db-hello .sub{font-size:.85rem;color:var(--text3);font-weight:600;margin-top:2px}
 #dbx .db-hello .sub b{color:var(--primary)}
+#dbx .db-hello .sub .dot{color:var(--text3);margin:0 2px} #dbx .db-hello .sub .co{color:var(--text3)}
 #dbx .db-lab{display:block;font-size:1rem;font-weight:800;letter-spacing:-.01em;color:var(--text);margin:26px 2px 12px}
 #dbx .ai-txt{font-size:.87rem;color:var(--text2);line-height:1.6;white-space:pre-wrap}
 #dbx .ai-thread{display:flex;flex-direction:column;gap:10px;margin-top:12px}
@@ -676,7 +696,7 @@ $nbTodo = count($todo);
   <!-- Salutation -->
   <div class="db-hello">
     <div class="hi"><?= $salut ?> <?= h($prenomU) ?> 👋</div>
-    <div class="sub"><?= $nbTodo>0 ? '<b>'.$nbTodo.' point'.($nbTodo>1?'s':'').'</b> à traiter '.($__h<12?'ce matin':'aujourd\'hui').'.' : 'Tout est en ordre — bonne journée.' ?></div>
+    <div class="sub"><?= $nbTodo>0 ? '<b>'.$nbTodo.' point'.($nbTodo>1?'s':'').'</b> à traiter '.($__h<12?'ce matin':'aujourd\'hui').'.' : 'Tout est en ordre — bonne journée.' ?><?php if($lastCo): ?> <span class="dot">·</span> <span class="co">dernière connexion <?= $lastCo ?></span><?php endif; ?></div>
   </div>
 
   <!-- Barre : titre + score + personnaliser -->
@@ -731,7 +751,7 @@ $nbTodo = count($todo);
   <div class="db-lab" data-sec="kpi">📊 Vue d'ensemble</div>
   <div class="kpis" data-w="kpi">
     <?php foreach ($kpis as $k): ?>
-    <a class="kpi <?= $k['alert']?'alert':'' ?>" href="<?= $k['link'] ?>"><span class="ic" style="background:<?= $k['c'] ?>1f;color:<?= $k['c'] ?>"><?= $k['i'] ?></span><div class="n" style="color:<?= $k['c'] ?>"><?= $k['v'] ?></div><div class="l"><?= $k['l'] ?></div></a>
+    <a class="kpi <?= $k['alert']?'alert':'' ?>" href="<?= $k['link'] ?>" style="--kc:<?= $k['c'] ?>"><div class="top"><span class="ic" style="background:<?= $k['c'] ?>1f;color:<?= $k['c'] ?>"><?= $k['i'] ?></span><span class="go">→</span></div><div class="n" style="color:<?= $k['c'] ?>"><?= $k['v'] ?></div><div class="l"><?= $k['l'] ?></div><?php if(!empty($k['sub'])): ?><div class="sub"><?= h($k['sub']) ?></div><?php endif; ?></a>
     <?php endforeach; ?>
   </div>
   <?php endif; ?>
