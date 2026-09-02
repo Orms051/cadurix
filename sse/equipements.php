@@ -152,6 +152,7 @@ $sse_statuts = [
   </div>
   <div class="page-actions">
     <a href="/sse.php" class="btn btn-sm btn-ghost">← Dashboard</a>
+    <a href="/sse/export.php?type=equipements" class="btn btn-sm btn-ghost">⬇️ Export</a>
     <a href="/qrcodes.php?type=sse" class="btn btn-sm btn-ghost">🏷️ QR Codes</a>
     <button onclick="document.getElementById('modal-add').style.display='flex'" class="btn btn-sm btn-primary">+ Ajouter</button>
   </div>

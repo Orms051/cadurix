@@ -13,10 +13,14 @@ $pre_eq = isset($_GET['equipement']) ? (int)$_GET['equipement'] : 0;
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     csrf_check();
     $eq_id    = (int)($_POST['equipement_id']??0);
-    $resultat = $_POST['resultat'] ?? 'ok';
-    $obs      = trim($_POST['observations']??'')?:null;
-    $actions  = trim($_POST['actions_menees']??'')?:null;
+    $resultat = in_array($_POST['resultat'] ?? '', ['ok','anomalie','hors_service'], true) ? $_POST['resultat'] : 'ok';
+    $obs      = trim($_POST['observations']??'');
+    $actions  = trim($_POST['actions_menees']??'');
     $prochain = $_POST['prochain_ctrl']?:null;
+    // Observations + actions menées vont dans notes (colonne prévue pour) ; type_controle reste un vrai type.
+    $notes = $obs;
+    if ($actions !== '') $notes = ($notes !== '' ? $notes."\n" : '')."Actions menées : ".$actions;
+    $notes = ($notes !== '') ? $notes : null;
 
     // Vérifier que l'équipement appartient au site
     $chk = $pdo->prepare("SELECT id,frequence_ctrl_jours FROM sse_equipements WHERE id=? AND site_id=? AND actif=1");
@@ -24,8 +28,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $eq_row = $chk->fetch(PDO::FETCH_ASSOC);
     if (!$eq_row) { header('Location: /sse/controles.php'); exit; }
 
-    $pdo->prepare("INSERT INTO sse_controles (equipement_id,site_id,operateur_id,resultat,notes,type_controle,prochain_controle) VALUES (?,?,?,?,?,?,?)")
-        ->execute([$eq_id,$site_id,currentUserId(),$resultat,$obs,$actions,$prochain]);
+    $pdo->prepare("INSERT INTO sse_controles (equipement_id,site_id,operateur_id,resultat,notes,type_controle,date_controle,prochain_controle) VALUES (?,?,?,?,?,?,CURDATE(),?)")
+        ->execute([$eq_id,$site_id,currentUserId(),$resultat,$notes,'periodique',$prochain]);
 
     // Mettre à jour le prochain contrôle sur l'équipement
     if ($prochain) {
