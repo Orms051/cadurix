@@ -5,6 +5,87 @@ $pageTitle = 'Traçabilité des lots';
 $site_id   = site_actif();
 if (!$site_id) { header('Location: dashboard.php'); exit; }
 
+// ── Construit le WHERE de l'historique (partagé endpoints + rendu) ──
+function tr_activite_where(PDO $pdo, string $cat, string $search, int $site_id, bool $isSuper): string {
+    $wa = [];
+    if     ($cat === 'produits')     $wa[] = "a.table_cible='produits'";
+    elseif ($cat === 'emplacements') $wa[] = "a.table_cible='emplacements'";
+    elseif ($cat === 'materiels')    $wa[] = "a.table_cible='materiels'";
+    elseif ($cat === 'admin')        $wa[] = "a.table_cible IN ('role_permissions','site_role_permissions','utilisateurs','sites','organisations','parametres','ai_settings','modules')";
+    else                             $wa[] = "a.action NOT IN ('CONNEXION_REUSSIE','CONNEXION_ECHEC','DECONNEXION')";
+    if (!$isSuper) $wa[] = "(a.table_cible<>'produits' OR e.site_id=".(int)$site_id." OR pr.id IS NULL)";
+    if ($search !== '') { $s = $pdo->quote('%'.$search.'%'); $wa[] = "(pr.nom LIKE $s OR a.action LIKE $s OR a.valeur_avant LIKE $s OR a.valeur_apres LIKE $s)"; }
+    return "FROM audit_log a
+            LEFT JOIN utilisateurs u ON u.id=a.user_id
+            LEFT JOIN produits pr ON (a.table_cible='produits' AND pr.id=a.enregistrement_id)
+            LEFT JOIN emplacements e ON e.id=pr.emplacement_id
+            ".($wa ? 'WHERE '.implode(' AND ', $wa) : '');
+}
+
+// ── Export CSV de l'historique (archive réglementaire) ──
+if (($_GET['export'] ?? '') === 'csv') {
+    $cat    = in_array($_GET['cat'] ?? '', ['produits','emplacements','materiels','admin','tous'], true) ? $_GET['cat'] : 'produits';
+    $search = trim($_GET['q'] ?? '');
+    $base   = tr_activite_where($pdo, $cat, $search, (int)$site_id, !empty($_SESSION['super_admin']));
+    $rows   = $pdo->query("SELECT a.action, a.cree_le, a.valeur_avant, a.valeur_apres, u.prenom, u.nom AS unom, pr.nom AS prod_nom, a.enregistrement_id, a.table_cible $base ORDER BY a.cree_le DESC LIMIT 5000")->fetchAll(PDO::FETCH_ASSOC);
+    header('Content-Type: text/csv; charset=utf-8');
+    header('Content-Disposition: attachment; filename="tracabilite_'.$cat.'_'.date('Y-m-d').'.csv"');
+    echo "\xEF\xBB\xBF"; // BOM UTF-8 (Excel)
+    $out = fopen('php://output', 'w');
+    fputcsv($out, ['Date', 'Utilisateur', 'Action', 'Cible', 'Changements (avant → après)'], ';');
+    foreach ($rows as $r) {
+        $who   = trim(($r['prenom'] ?? '').' '.($r['unom'] ?? '')) ?: 'Système';
+        $cible = $r['prod_nom'] ?: '';
+        if (!$cible) { $d = json_decode((string)$r['valeur_apres'], true) ?: json_decode((string)$r['valeur_avant'], true); if (is_array($d) && !empty($d['nom'])) $cible = $d['nom']; }
+        if (!$cible && $r['enregistrement_id']) $cible = ($r['table_cible'] ? $r['table_cible'].' #' : '#').$r['enregistrement_id'];
+        $a = json_decode((string)$r['valeur_avant'], true); $b = json_decode((string)$r['valeur_apres'], true);
+        $ch = [];
+        if (is_array($b)) foreach ($b as $k => $nv) {
+            if (is_array($nv) || in_array($k, ['masse','copilote','saisie_rapide'], true)) continue;
+            $ov = (is_array($a) && array_key_exists($k, $a)) ? $a[$k] : null;
+            if (is_array($ov) || (string)$ov === (string)$nv) continue;
+            $ch[] = $k.' : '.($ov ?? '∅').' → '.($nv ?? '∅');
+        }
+        fputcsv($out, [date('d/m/Y H:i', strtotime($r['cree_le'])), $who, $r['action'], $cible, implode(' | ', $ch)], ';');
+    }
+    fclose($out); exit;
+}
+
+// ── Analyse IA de l'activité récente ──
+if (($_GET['ajax'] ?? '') === 'ia_activite' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    header('Content-Type: application/json');
+    if (!function_exists('csrf_verifier') || !csrf_verifier()) { echo json_encode(['error' => 'Session expirée, recharge la page.']); exit; }
+    $ai_actif = $pdo->query("SELECT valeur FROM ai_settings WHERE cle='actif'")->fetchColumn();
+    $api_key  = $pdo->query("SELECT valeur FROM ai_settings WHERE cle='api_key'")->fetchColumn();
+    $model    = $pdo->query("SELECT valeur FROM ai_settings WHERE cle='model'")->fetchColumn() ?: 'claude-haiku-4-5-20251001';
+    if ($ai_actif !== '1' || !$api_key) { echo json_encode(['error' => 'IA non configurée (Admin → IA).']); exit; }
+    $cat    = in_array($_POST['cat'] ?? '', ['produits','emplacements','materiels','admin','tous'], true) ? $_POST['cat'] : 'produits';
+    $search = trim($_POST['q'] ?? '');
+    $base   = tr_activite_where($pdo, $cat, $search, (int)$site_id, !empty($_SESSION['super_admin']));
+    $rows   = $pdo->query("SELECT a.action, a.cree_le, a.valeur_avant, a.valeur_apres, u.prenom, u.nom AS unom, pr.nom AS prod_nom $base ORDER BY a.cree_le DESC LIMIT 60")->fetchAll(PDO::FETCH_ASSOC);
+    if (!$rows) { echo json_encode(['ok' => true, 'texte' => "Aucune activité à analyser sur ce filtre."]); exit; }
+    $ctx = '';
+    foreach ($rows as $r) {
+        $who = trim(($r['prenom'] ?? '').' '.($r['unom'] ?? '')) ?: 'Systeme';
+        $line = '- '.date('d/m H:i', strtotime($r['cree_le'])).' | '.$who.' | '.$r['action'].($r['prod_nom'] ? ' | '.$r['prod_nom'] : '');
+        $a = json_decode((string)$r['valeur_avant'], true); $b = json_decode((string)$r['valeur_apres'], true);
+        if (is_array($b)) { $ch = []; foreach ($b as $k => $nv) { if (is_array($nv) || in_array($k, ['masse','copilote','saisie_rapide'], true)) continue; $ov = (is_array($a) && array_key_exists($k, $a)) ? $a[$k] : null; if (is_array($ov) || (string)$ov === (string)$nv) continue; $ch[] = "$k: ".($ov ?? 'vide').'->'.($nv ?? 'vide'); } if ($ch) $line .= ' ['.implode(', ', array_slice($ch, 0, 6)).']'; }
+        $ctx .= $line."\n";
+    }
+    $prompt = "Tu es le copilote de Cadurix (gestion de materiel medical SDIS/SSSM). Analyse le JOURNAL D'ACTIVITE ci-dessous (traçabilité). En francais, court et factuel, SANS markdown, SANS rien inventer : 1) une phrase de synthese (periode, volume, qui est actif), 2) 3 a 5 points concrets = changements notables (retraits, renouvellements, corrections de fiche, ajustements) et toute anomalie (retraits repetes, modifs suspectes). Pas de conseil medical.\n\nJOURNAL :\n$ctx";
+    $is_prod = str_contains($_SERVER['HTTP_HOST'] ?? '', 'cadurix.fr');
+    $ch = curl_init('https://api.anthropic.com/v1/messages');
+    curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER=>true, CURLOPT_POST=>true,
+        CURLOPT_POSTFIELDS=>json_encode(['model'=>$model,'max_tokens'=>500,'messages'=>[['role'=>'user','content'=>$prompt]]]),
+        CURLOPT_HTTPHEADER=>['Content-Type: application/json','x-api-key: '.$api_key,'anthropic-version: 2023-06-01'],
+        CURLOPT_TIMEOUT=>40, CURLOPT_SSL_VERIFYPEER=>$is_prod, CURLOPT_SSL_VERIFYHOST=>$is_prod?2:0]);
+    $resp = curl_exec($ch); $http = curl_getinfo($ch, CURLINFO_HTTP_CODE); $cerr = curl_error($ch); curl_close($ch);
+    if ($resp === false || $cerr) { echo json_encode(['error' => "Reseau IA : $cerr"]); exit; }
+    $jr = json_decode($resp, true);
+    if ($http !== 200 || empty($jr['content'][0]['text'])) { echo json_encode(['error' => ($jr['error']['message'] ?? "Erreur IA HTTP $http")]); exit; }
+    echo json_encode(['ok' => true, 'texte' => $jr['content'][0]['text']], JSON_UNESCAPED_UNICODE); exit;
+}
+
 $success = $error = '';
 
 // ── POST ────────────────────────────────────────────────────
@@ -244,6 +325,12 @@ require_once 'includes/header.php';
 .tr-diff .o { color:var(--text3); text-decoration:line-through; }
 .tr-diff .arr { color:var(--text3); }
 .tr-diff .n { font-weight:700; color:var(--text); }
+
+/* ── Analyse IA ── */
+.tr-ia { border:1px solid var(--border); border-radius:14px; background:linear-gradient(135deg,rgba(59,130,246,.09),rgba(139,92,246,.07)),var(--bg2); padding:16px 18px; margin-bottom:16px; }
+.tr-ia-h { display:flex; align-items:center; gap:10px; font-size:.95rem; margin-bottom:8px; }
+.tr-ia-orb { width:34px; height:34px; border-radius:10px; display:flex; align-items:center; justify-content:center; background:linear-gradient(135deg,#3b82f6,#8b5cf6); font-size:1rem; }
+.tr-ia-b { font-size:.87rem; color:var(--text2); line-height:1.6; white-space:pre-wrap; }
 </style>
 
 <!-- Header -->
@@ -397,7 +484,8 @@ require_once 'includes/header.php';
       <span style="padding:2px 9px;border-radius:20px;font-size:.72rem;font-weight:600;background:<?= $sc[1] ?>;color:<?= $sc[0] ?>"><?= h($r['statut']) ?></span>
     </td>
     <td style="font-size:.78rem;color:var(--text3);max-width:150px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><?= h($r['emplacement'] ?: '—') ?></td>
-    <td>
+    <td style="white-space:nowrap">
+      <a href="?vue=activite&q=<?= urlencode($r['nom']) ?>" class="btn btn-ghost btn-xs" title="Voir l'historique de ce produit">🕓</a>
       <button onclick="openRappel('<?= h($r['lot']) ?>','<?= $r['source'] ?>')" class="btn btn-ghost btn-xs" title="Créer alerte rappel" style="<?= $is_rappel?'color:#f87171':'' ?>">⚠️</button>
     </td>
   </tr>
@@ -436,6 +524,13 @@ require_once 'includes/header.php';
   <?php endforeach; ?>
   <span style="margin-left:auto;font-size:.78rem;color:var(--text3);align-self:center"><?= (int)$act_total ?> événement<?= $act_total!=1?'s':'' ?></span>
 </div>
+
+<!-- Actions IA + export -->
+<div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
+  <button type="button" id="tr-ia-btn" onclick="trIA()" class="btn" style="background:linear-gradient(135deg,#3b82f6,#8b5cf6);color:#fff;border:none">🤖 Analyser l'activité (IA)</button>
+  <a href="?export=csv&cat=<?= h($cat) ?><?= $search?'&q='.urlencode($search):'' ?>" class="btn btn-ghost">⬇️ Exporter CSV</a>
+</div>
+<div id="tr-ia-panel" style="display:none"></div>
 
 <?php if (empty($acts)): ?>
 <div style="text-align:center;padding:3rem;background:var(--bg2);border:1px solid var(--border);border-radius:12px;color:var(--text3)">
@@ -539,6 +634,21 @@ function openRappel(lot, source) {
   document.getElementById('rappel-lot').value    = lot;
   document.getElementById('rappel-source').value = source;
   document.getElementById('modal-rappel').classList.add('on');
+}
+var TR_CAT  = <?= json_encode($cat) ?>;
+var TR_Q    = <?= json_encode($search) ?>;
+var TR_CSRF = <?= json_encode(csrf_token()) ?>;
+function trIA() {
+  var btn = document.getElementById('tr-ia-btn'), panel = document.getElementById('tr-ia-panel');
+  if (!panel) return;
+  panel.style.display = 'block';
+  panel.innerHTML = '<div class="tr-ia"><div class="tr-ia-h"><span class="tr-ia-orb">🤖</span><b>Analyse de l\'activité</b></div><div class="tr-ia-b">⏳ Analyse en cours…</div></div>';
+  if (btn) btn.disabled = true;
+  var body = 'cat=' + encodeURIComponent(TR_CAT) + '&q=' + encodeURIComponent(TR_Q) + '&csrf_token=' + encodeURIComponent(TR_CSRF);
+  fetch('tracabilite.php?ajax=ia_activite', { method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded','X-CSRF-Token':TR_CSRF}, body:body })
+    .then(function(r){ return r.json(); })
+    .then(function(d){ if (btn) btn.disabled = false; var b = panel.querySelector('.tr-ia-b'); if (d.ok) { b.textContent = d.texte; } else { b.innerHTML = '<span style="color:#ef4444">⚠️ ' + (d.error || 'Erreur') + '</span>'; } })
+    .catch(function(){ if (btn) btn.disabled = false; var b = panel.querySelector('.tr-ia-b'); if (b) b.innerHTML = '<span style="color:#ef4444">⚠️ Erreur réseau.</span>'; });
 }
 </script>
 
