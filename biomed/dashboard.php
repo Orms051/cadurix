@@ -66,13 +66,20 @@ require_once '../includes/header.php';
 <style>
 .bio-section-title {
   display:flex; align-items:center; justify-content:space-between;
-  margin:24px 0 12px; padding-bottom:8px;
-  border-bottom:2px solid var(--border);
+  margin:22px 2px 12px;
 }
 .bio-section-title h2 {
-  font-size:.75rem; font-weight:800; text-transform:uppercase;
-  letter-spacing:2px; color:var(--text3);
+  font-size:1rem; font-weight:800; letter-spacing:-.01em; color:var(--text); text-transform:none;
 }
+/* KPI compacts (style commun) */
+.bio-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:8px}
+.bio-kpi{position:relative;display:flex;align-items:center;gap:12px;background:var(--bg2);border:1px solid var(--border);border-radius:13px;padding:12px 15px;overflow:hidden;box-shadow:0 1px 2px rgba(20,30,60,.04)}
+.bio-kpi::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--kc,var(--primary))}
+.bio-kpi .ic{width:36px;height:36px;border-radius:10px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:1.05rem}
+.bio-kpi .n{font-size:1.5rem;font-weight:800;line-height:1;font-variant-numeric:tabular-nums}
+.bio-kpi .l{font-size:.68rem;color:var(--text3);font-weight:700;text-transform:uppercase;letter-spacing:.04em;margin-top:3px}
+.bio-kpi .f{font-size:.68rem;color:var(--text3);margin-top:1px}
+@media(max-width:800px){.bio-kpis{grid-template-columns:repeat(2,1fr)}}
 .bio-empty {
   text-align:center; padding:2rem; color:var(--text3);
   background:var(--glass); border:1px solid var(--border);
@@ -138,27 +145,18 @@ require_once '../includes/header.php';
 </div>
 
 <!-- KPIs du jour -->
-<div class="grid-4" style="margin-bottom:8px">
-  <div class="kpi-card" style="border-top:3px solid <?= $nb_rev_en_retard>0?'#9ca3af':'var(--border)' ?>">
-    <div class="kpi-label">Révisions en retard</div>
-    <div class="kpi-value" style="color:<?= $nb_rev_en_retard>0?'#9ca3af':'var(--text3)' ?>"><?= $nb_rev_en_retard ?></div>
-    <div class="kpi-foot">à régulariser</div>
+<div class="bio-kpis">
+  <?php foreach ([
+    ['⏰', $nb_rev_en_retard, 'Révisions en retard', 'à régulariser',   $nb_rev_en_retard>0?'#9ca3af':'#10b981'],
+    ['⚠️', $nb_rev_urgentes,  'Révisions urgentes',  'dans 7 jours',    $nb_rev_urgentes>0?'#ef4444':'#10b981'],
+    ['📩', $nb_demandes,      'Demandes en attente', 'à traiter',       $nb_demandes>0?'#f59e0b':'#10b981'],
+    ['🔴', $nb_alertes,       'Équipements indispo.', 'HS + maintenance', $nb_alertes>0?'#ef4444':'#10b981'],
+  ] as [$ic,$val,$lbl,$foot,$c]): ?>
+  <div class="bio-kpi" style="--kc:<?= $c ?>">
+    <span class="ic" style="background:<?= $c ?>1f;color:<?= $c ?>"><?= $ic ?></span>
+    <div><div class="n" style="color:<?= $c ?>"><?= $val ?></div><div class="l"><?= $lbl ?></div><div class="f"><?= $foot ?></div></div>
   </div>
-  <div class="kpi-card" style="border-top:3px solid <?= $nb_rev_urgentes>0?'#ef4444':'#10b981' ?>">
-    <div class="kpi-label">Révisions urgentes</div>
-    <div class="kpi-value" style="color:<?= $nb_rev_urgentes>0?'#ef4444':'#10b981' ?>"><?= $nb_rev_urgentes ?></div>
-    <div class="kpi-foot">dans 7 jours</div>
-  </div>
-  <div class="kpi-card" style="border-top:3px solid <?= $nb_demandes>0?'#f59e0b':'#10b981' ?>">
-    <div class="kpi-label">Demandes en attente</div>
-    <div class="kpi-value" style="color:<?= $nb_demandes>0?'#f59e0b':'#10b981' ?>"><?= $nb_demandes ?></div>
-    <div class="kpi-foot">à traiter</div>
-  </div>
-  <div class="kpi-card" style="border-top:3px solid <?= $nb_alertes>0?'#ef4444':'#10b981' ?>">
-    <div class="kpi-label">Équipements indisponibles</div>
-    <div class="kpi-value" style="color:<?= $nb_alertes>0?'#ef4444':'#10b981' ?>"><?= $nb_alertes ?></div>
-    <div class="kpi-foot">HS + maintenance</div>
-  </div>
+  <?php endforeach; ?>
 </div>
 
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
