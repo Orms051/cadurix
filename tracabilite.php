@@ -41,6 +41,46 @@ $page     = max(1, (int)($_GET['p'] ?? 1));
 $per_page = 25;
 $offset   = ($page - 1) * $per_page;
 
+// ── Vue : historique d'activité (défaut) ou catalogue des lots ──
+$vue = in_array($_GET['vue'] ?? '', ['lots','activite'], true) ? $_GET['vue'] : 'activite';
+$cat = in_array($_GET['cat'] ?? '', ['produits','emplacements','materiels','admin','tous'], true) ? $_GET['cat'] : 'produits';
+
+// Libellés des champs pour afficher un changement (avant → après)
+$TR_FIELD_LBL = ['nom'=>'Nom','dci'=>'DCI','dosage'=>'Dosage','forme'=>'Forme','numero_lot'=>'N° lot','quantite'=>'Quantité','quantite_min'=>'Seuil mini','unite'=>'Unité','date_peremption'=>'Péremption','alerte_jours'=>'Alerte (j)','statut'=>'Statut','chaine_froid'=>'Chaîne du froid','emplacement_id'=>'Emplacement (id)','ean'=>'EAN','gtin'=>'GTIN','reference'=>'Référence','prix'=>'Prix'];
+// Métadonnées d'action : [icône, libellé, couleur]
+$TR_ACT = [
+  'CREATION_PRODUIT'=>['➕','Médicament créé','#10b981'], 'MODIF_PRODUIT'=>['✏️','Médicament modifié','#3b82f6'],
+  'MODIF_PEREMPTION'=>['📅','Péremption modifiée','#f59e0b'], 'ARCHIVAGE_PRODUIT'=>['📦','Médicament archivé','#94a3b8'],
+  'RETRAIT_PRODUIT'=>['🗑️','Médicament retiré','#ef4444'], 'SUPPRESSION_PRODUIT'=>['❌','Médicament supprimé','#ef4444'],
+  'RENOUVELLEMENT_LOT'=>['♻️','Lot renouvelé','#10b981'], 'REMPOTAGE'=>['🔄','Rempotage','#10b981'],
+  'REMPOTAGE_VOCAL_IA'=>['🎤','Rempotage (vocal IA)','#8b5cf6'],
+  'CREATION_EMPLACEMENT'=>['📍','Emplacement créé','#10b981'], 'MODIF_EMPLACEMENT'=>['📍','Emplacement modifié','#3b82f6'],
+  'CREATION_MATERIEL'=>['🩺','Matériel créé','#10b981'], 'MODIF_MATERIEL'=>['🩺','Matériel modifié','#3b82f6'],
+  'INTERVENTION_MATERIEL'=>['🔧','Intervention matériel','#f59e0b'], 'FICHE_VALIDEE'=>['📋','Fiche validée','#10b981'],
+  'DOTATION_COMPLETION_PUI'=>['🎒','Dotation complétée (PUI)','#10b981'],
+  'STUP_CASSE'=>['💔','Stupéfiant cassé / détruit','#ef4444'], 'STUP_ENTREE'=>['🔒','Stupéfiant — entrée','#10b981'], 'STUP_SORTIE'=>['🔒','Stupéfiant — sortie','#f59e0b'],
+  'MODIF_ORGANISATION'=>['🏢','Organisation modifiée','#3b82f6'], 'MODIF_SETTINGS'=>['⚙️','Réglages modifiés','#94a3b8'], 'MODIF_PROFIL'=>['👤','Profil modifié','#94a3b8'],
+  'MODIF_ROLE_PERMISSIONS'=>['🔐','Permissions de rôle modifiées','#8b5cf6'], 'MODIF_PERMISSIONS'=>['🔐','Permissions modifiées','#8b5cf6'],
+  'MODIF_SITE_PERMISSIONS'=>['🔐','Permissions site modifiées','#8b5cf6'], 'MODIF_ACCES'=>['🔐','Accès modifié','#8b5cf6'], 'CREATION_UTILISATEUR'=>['👥','Utilisateur créé','#10b981'],
+];
+function tr_diff($avant, $apres, array $labels): array {
+    $a = is_string($avant) ? json_decode($avant, true) : $avant;
+    $b = is_string($apres) ? json_decode($apres, true) : $apres;
+    if (!is_array($b)) return [];
+    $out = [];
+    foreach ($b as $k => $nv) {
+        if (in_array($k, ['masse','copilote','saisie_rapide'], true) || is_array($nv)) continue;
+        $ov = (is_array($a) && array_key_exists($k, $a)) ? $a[$k] : null;
+        if (is_array($ov) || (string)$ov === (string)$nv) continue;
+        $out[] = [$labels[$k] ?? $k, $ov, $nv];
+    }
+    return $out;
+}
+function tr_json_nom($j): string {
+    $d = is_string($j) ? json_decode($j, true) : $j;
+    return is_array($d) && !empty($d['nom']) ? (string)$d['nom'] : '';
+}
+
 // ── Rappels actifs ─────────────────────────────────────────
 $rappels = $pdo->prepare("SELECT * FROM lots_rappels WHERE site_id=? AND actif=1 ORDER BY date_rappel DESC");
 $rappels->execute([$site_id]);
@@ -49,6 +89,8 @@ $lots_rappeles = array_column($rappels, 'numero_lot');
 
 // ── Vue unifiée des lots ───────────────────────────────────
 // On construit une UNION des 3 tables
+$rows = []; $total_row = 0; $total_pages = 0; $stats = ['expires'=>0,'bientot'=>0];
+if ($vue === 'lots') {
 $where_prod = "e.site_id = $site_id AND p.numero_lot IS NOT NULL AND p.numero_lot != ''";
 $where_sse  = "sc.site_id = $site_id AND sc.numero_lot IS NOT NULL AND sc.numero_lot != ''";
 $where_mat  = "m.site_id = $site_id AND m.numero_serie IS NOT NULL AND m.numero_serie != ''";
@@ -114,6 +156,30 @@ $stats = $pdo->query("
         SUM(CASE WHEN date_fin BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 30 DAY) THEN 1 ELSE 0 END) AS bientot
     FROM ($union_sql) t
 ")->fetch(PDO::FETCH_ASSOC);
+} // ── fin vue 'lots' ──
+
+// ── Historique d'activité (audit_log) ──
+$acts = []; $act_total = 0; $act_pages = 0;
+if ($vue === 'activite') {
+    $wa = [];
+    if     ($cat === 'produits')     $wa[] = "a.table_cible='produits'";
+    elseif ($cat === 'emplacements') $wa[] = "a.table_cible='emplacements'";
+    elseif ($cat === 'materiels')    $wa[] = "a.table_cible='materiels'";
+    elseif ($cat === 'admin')        $wa[] = "a.table_cible IN ('role_permissions','site_role_permissions','utilisateurs','sites','organisations','parametres','ai_settings','modules')";
+    else /* tous */                  $wa[] = "a.action NOT IN ('CONNEXION_REUSSIE','CONNEXION_ECHEC','DECONNEXION')";
+    // Périmètre : non-super-admin ne voit que les produits de son site (les produits disparus restent visibles)
+    if (empty($_SESSION['super_admin'])) $wa[] = "(a.table_cible<>'produits' OR e.site_id=".(int)$site_id." OR pr.id IS NULL)";
+    if ($search) { $s = $pdo->quote('%'.$search.'%'); $wa[] = "(pr.nom LIKE $s OR a.action LIKE $s OR a.valeur_avant LIKE $s OR a.valeur_apres LIKE $s)"; }
+    $wsql = $wa ? ('WHERE '.implode(' AND ', $wa)) : '';
+    $base = "FROM audit_log a
+             LEFT JOIN utilisateurs u ON u.id=a.user_id
+             LEFT JOIN produits pr ON (a.table_cible='produits' AND pr.id=a.enregistrement_id)
+             LEFT JOIN emplacements e ON e.id=pr.emplacement_id
+             $wsql";
+    $act_total = (int)$pdo->query("SELECT COUNT(*) $base")->fetchColumn();
+    $act_pages = (int)ceil($act_total / $per_page);
+    $acts = $pdo->query("SELECT a.*, u.prenom, u.nom AS unom, pr.nom AS prod_nom, e.nom AS empl_nom $base ORDER BY a.cree_le DESC LIMIT $per_page OFFSET $offset")->fetchAll(PDO::FETCH_ASSOC);
+}
 
 require_once 'includes/header.php';
 ?>
@@ -161,22 +227,46 @@ require_once 'includes/header.php';
 .tr-pagination { display:flex; gap:6px; justify-content:center; align-items:center; margin-top:16px; flex-wrap:wrap; }
 .tr-page { padding:5px 12px; border-radius:7px; border:1px solid var(--border); background:var(--glass); color:var(--text2); font-size:.82rem; text-decoration:none; transition:.15s; }
 .tr-page:hover, .tr-page.on { background:var(--primary); border-color:var(--primary); color:white; }
+
+/* ── Historique d'activité ── */
+.tr-timeline { display:flex; flex-direction:column; gap:10px; }
+.tr-ev { display:flex; gap:13px; background:var(--bg2); border:1px solid var(--border); border-radius:12px; padding:13px 15px; }
+.tr-ev-ic { width:38px; height:38px; border-radius:11px; flex-shrink:0; display:flex; align-items:center; justify-content:center; font-size:1.05rem; }
+.tr-ev-body { flex:1; min-width:0; }
+.tr-ev-head { display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; }
+.tr-ev-act { font-weight:800; font-size:.9rem; }
+.tr-ev-cible { font-weight:600; font-size:.85rem; color:var(--text); }
+.tr-ev-when { margin-left:auto; font-size:.72rem; color:var(--text3); white-space:nowrap; }
+.tr-ev-who { font-size:.75rem; color:var(--text3); margin-top:2px; }
+.tr-diffs { margin-top:9px; display:flex; flex-direction:column; gap:5px; }
+.tr-diff { display:flex; align-items:center; gap:8px; flex-wrap:wrap; font-size:.8rem; background:var(--bg3); border:1px solid var(--border); border-radius:8px; padding:5px 10px; }
+.tr-diff .k { font-weight:700; color:var(--text2); min-width:92px; }
+.tr-diff .o { color:var(--text3); text-decoration:line-through; }
+.tr-diff .arr { color:var(--text3); }
+.tr-diff .n { font-weight:700; color:var(--text); }
 </style>
 
 <!-- Header -->
 <div class="page-header" style="margin-bottom:20px">
   <div class="page-title-group">
-    <div class="page-title">🔍 Traçabilité des lots</div>
-    <div class="page-sub">Médicaments · SSE/NRBC · Matériel — <?= h($site_actif_nom ?? '') ?></div>
+    <div class="page-title">🔍 Traçabilité</div>
+    <div class="page-sub"><?= $vue==='activite' ? "Journal de tout ce qui est fait — qui, quoi, quand" : 'Catalogue des lots — Médicaments · SSE/NRBC · Matériel' ?> — <?= h($site_actif_nom ?? '') ?></div>
   </div>
   <div class="page-actions">
-    <button onclick="document.getElementById('modal-rappel').classList.add('on')" class="btn btn-danger">⚠️ Créer alerte rappel</button>
+    <?php if ($vue==='lots'): ?><button onclick="document.getElementById('modal-rappel').classList.add('on')" class="btn btn-danger">⚠️ Créer alerte rappel</button><?php endif; ?>
   </div>
 </div>
 
 <?php if ($success): ?><div class="flash flash-success" style="margin-bottom:16px">✅ <?= h($success) ?></div><?php endif; ?>
 <?php if ($error):   ?><div class="flash flash-error"   style="margin-bottom:16px">⚠️ <?= h($error) ?></div><?php endif; ?>
 
+<!-- Bascule de vue -->
+<div style="display:flex;gap:8px;margin-bottom:18px;flex-wrap:wrap">
+  <a href="?vue=activite" class="tr-filter <?= $vue==='activite'?'on':'' ?>">📜 Historique d'activité</a>
+  <a href="?vue=lots" class="tr-filter <?= $vue==='lots'?'on':'' ?>">📦 Catalogue des lots</a>
+</div>
+
+<?php if ($vue === 'lots'): ?>
 <!-- Rappels actifs -->
 <?php if (!empty($rappels)): ?>
 <div class="rappel-banner">
@@ -327,6 +417,81 @@ require_once 'includes/header.php';
 </div>
 <?php endif; ?>
 <?php endif; ?>
+<?php endif; /* fin vue 'lots' */ ?>
+
+<?php if ($vue === 'activite'): ?>
+<!-- Filtres catégorie + recherche -->
+<form method="get" class="tr-toolbar">
+  <input type="hidden" name="vue" value="activite">
+  <div class="tr-search">
+    <span style="color:var(--text3)">🔍</span>
+    <input type="text" name="q" value="<?= h($search) ?>" placeholder="Rechercher (médicament, action…)" oninput="if(this.value.length>2||this.value.length===0)this.form.submit()">
+    <?php if ($search): ?><a href="?vue=activite&type=<?= h($filtre) ?>&cat=<?= h($cat) ?>" style="color:var(--text3);text-decoration:none;font-size:.85rem">✕</a><?php endif; ?>
+  </div>
+  <input type="hidden" name="cat" value="<?= h($cat) ?>">
+</form>
+<div style="display:flex;gap:6px;margin-bottom:16px;flex-wrap:wrap">
+  <?php foreach (['produits'=>'💊 Médicaments','emplacements'=>'📍 Emplacements','materiels'=>'🩺 Matériel','admin'=>'🔐 Accès / Réglages','tous'=>'🔎 Tout'] as $k=>$v): ?>
+  <a href="?vue=activite&cat=<?= $k ?><?= $search?'&q='.urlencode($search):'' ?>" class="tr-filter <?= $cat===$k?'on':'' ?>"><?= $v ?></a>
+  <?php endforeach; ?>
+  <span style="margin-left:auto;font-size:.78rem;color:var(--text3);align-self:center"><?= (int)$act_total ?> événement<?= $act_total!=1?'s':'' ?></span>
+</div>
+
+<?php if (empty($acts)): ?>
+<div style="text-align:center;padding:3rem;background:var(--bg2);border:1px solid var(--border);border-radius:12px;color:var(--text3)">
+  <div style="font-size:2.5rem;margin-bottom:12px">📜</div>
+  <div style="font-weight:700;margin-bottom:6px">Aucune activité enregistrée</div>
+  <div style="font-size:.85rem">Les créations, modifications et retraits apparaîtront ici.</div>
+</div>
+<?php else: ?>
+<div class="tr-timeline">
+  <?php foreach ($acts as $a):
+    $meta   = $TR_ACT[$a['action']] ?? ['•', ucfirst(strtolower(str_replace('_',' ',$a['action']))), '#64748b'];
+    $who    = trim(($a['prenom'] ?? '').' '.($a['unom'] ?? '')) ?: 'Système';
+    $cible  = $a['prod_nom'] ?: (tr_json_nom($a['valeur_apres']) ?: tr_json_nom($a['valeur_avant']));
+    if (!$cible && $a['enregistrement_id']) $cible = '#'.$a['enregistrement_id'];
+    $isCreate = str_starts_with($a['action'], 'CREATION');
+    $isDelete = str_starts_with($a['action'], 'SUPPRESSION');
+    $diffs = (!$isCreate && !$isDelete) ? tr_diff($a['valeur_avant'], $a['valeur_apres'], $TR_FIELD_LBL) : [];
+  ?>
+  <div class="tr-ev">
+    <span class="tr-ev-ic" style="background:<?= $meta[2] ?>1f;color:<?= $meta[2] ?>"><?= $meta[0] ?></span>
+    <div class="tr-ev-body">
+      <div class="tr-ev-head">
+        <span class="tr-ev-act" style="color:<?= $meta[2] ?>"><?= h($meta[1]) ?></span>
+        <?php if ($cible): ?><span class="tr-ev-cible"><?= h($cible) ?></span><?php endif; ?>
+        <span class="tr-ev-when"><?= date('d/m/Y à H:i', strtotime($a['cree_le'])) ?></span>
+      </div>
+      <div class="tr-ev-who">par <b><?= h($who) ?></b><?= $a['empl_nom'] ? ' · '.h($a['empl_nom']) : '' ?></div>
+      <?php if ($diffs): ?>
+      <div class="tr-diffs">
+        <?php foreach ($diffs as $d): ?>
+        <div class="tr-diff"><span class="k"><?= h($d[0]) ?></span><span class="o"><?= h(($d[1]!==null && $d[1]!=='') ? $d[1] : '—') ?></span><span class="arr">→</span><span class="n"><?= h(($d[2]!==null && $d[2]!=='') ? $d[2] : '—') ?></span></div>
+        <?php endforeach; ?>
+      </div>
+      <?php elseif ($isCreate): ?>
+      <div class="tr-diffs"><div class="tr-diff"><span class="n">✔️ Création enregistrée</span></div></div>
+      <?php elseif ($isDelete): ?>
+      <div class="tr-diffs"><div class="tr-diff"><span class="o">Supprimé définitivement</span></div></div>
+      <?php endif; ?>
+    </div>
+  </div>
+  <?php endforeach; ?>
+</div>
+
+<?php if ($act_pages > 1): ?>
+<div class="tr-pagination">
+  <?php $qp = ($search?'&q='.urlencode($search):'').'&cat='.$cat; ?>
+  <?php if ($page > 1): ?><a href="?vue=activite&p=<?= $page-1 ?><?= $qp ?>" class="tr-page">←</a><?php endif; ?>
+  <?php for ($i = max(1,$page-2); $i <= min($act_pages,$page+2); $i++): ?>
+  <a href="?vue=activite&p=<?= $i ?><?= $qp ?>" class="tr-page <?= $i===$page?'on':'' ?>"><?= $i ?></a>
+  <?php endfor; ?>
+  <?php if ($page < $act_pages): ?><a href="?vue=activite&p=<?= $page+1 ?><?= $qp ?>" class="tr-page">→</a><?php endif; ?>
+  <span style="font-size:.75rem;color:var(--text3);align-self:center">Page <?= $page ?>/<?= $act_pages ?></span>
+</div>
+<?php endif; ?>
+<?php endif; ?>
+<?php endif; /* fin vue 'activite' */ ?>
 
 <!-- Modal rappel -->
 <div class="tr-modal" id="modal-rappel" onclick="if(event.target===this)this.classList.remove('on')">
