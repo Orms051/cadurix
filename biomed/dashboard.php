@@ -128,6 +128,8 @@ require_once '../includes/header.php';
 .bio-ia-h{display:flex;align-items:center;gap:10px;font-size:.95rem;margin-bottom:8px}
 .bio-ia-orb{width:34px;height:34px;border-radius:10px;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#3b82f6,#8b5cf6);font-size:1rem}
 .bio-ia-b{font-size:.87rem;color:var(--text2);line-height:1.6;white-space:pre-wrap}
+.bio-chip{display:inline-flex;align-items:center;gap:5px;background:var(--bg2);border:1px solid var(--border);border-radius:20px;padding:8px 13px;font-size:.8rem;font-weight:700;color:var(--text2);cursor:pointer}
+.bio-chip:hover{border-color:#8b5cf6;color:#8b5cf6}
 .bio-gar{display:flex;align-items:center;gap:12px;padding:10px 16px;border-top:1px solid var(--border)}
 .bio-gar:first-of-type{border-top:none}
 .bio-gar .due{margin-left:auto;font-size:.72rem;font-weight:800;padding:3px 9px;border-radius:20px}
@@ -213,9 +215,12 @@ require_once '../includes/header.php';
   <?php endforeach; ?>
 </div>
 
-<!-- Analyse IA -->
-<div style="display:flex;gap:8px;margin:4px 0 16px;flex-wrap:wrap">
+<!-- IA biomédical : analyse + questions à l'assistant -->
+<div style="display:flex;gap:8px;margin:4px 0 10px;flex-wrap:wrap;align-items:center">
   <button type="button" id="bio-ia-btn" onclick="bioIA()" class="btn" style="background:linear-gradient(135deg,#3b82f6,#8b5cf6);color:#fff;border:none">🤖 Analyser l'état (IA)</button>
+  <span class="bio-chip" onclick="bioAsk('Quelles révisions dois-je planifier en priorité ?')">📅 Révisions à planifier</span>
+  <span class="bio-chip" onclick="bioAsk('Quels équipements sont hors service et à réparer ?')">🔴 Équipements à réparer</span>
+  <span class="bio-chip" onclick="bioAsk('Quelles garanties ou contrats expirent bientôt ?')">🛡️ Contrats à renouveler</span>
 </div>
 <div id="bio-ia-panel" style="display:none;margin-bottom:16px"></div>
 
@@ -376,6 +381,12 @@ require_once '../includes/header.php';
 
 <script>
 var BIO_CSRF = <?= json_encode(function_exists('csrf_token') ? csrf_token() : '') ?>;
+// Questions à l'assistant complet (outils biomed + action signaler, avec confirmation)
+function bioAsk(q){
+  if(window.MedAI && typeof MedAI.open==='function' && typeof MedAI.send==='function'){
+    MedAI.open(); setTimeout(function(){ MedAI.send(q); }, 150);
+  } else { bioIA(); }
+}
 function bioIA(){
   var b=document.getElementById('bio-ia-btn'), p=document.getElementById('bio-ia-panel');
   if(!p)return;
