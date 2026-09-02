@@ -6,7 +6,8 @@ $site_id   = site_actif();
 if (!$site_id) { header('Location: dashboard.php'); exit; }
 
 // ── Construit le WHERE de l'historique (partagé endpoints + rendu) ──
-function tr_activite_where(PDO $pdo, string $cat, string $search, int $site_id, bool $isSuper): string {
+// $opt : ['from'=>'YYYY-MM-DD','to'=>'YYYY-MM-DD','user'=>int]
+function tr_activite_where(PDO $pdo, string $cat, string $search, int $site_id, bool $isSuper, array $opt = []): string {
     $wa = [];
     if     ($cat === 'produits')     $wa[] = "a.table_cible='produits'";
     elseif ($cat === 'emplacements') $wa[] = "a.table_cible='emplacements'";
@@ -14,20 +15,35 @@ function tr_activite_where(PDO $pdo, string $cat, string $search, int $site_id, 
     elseif ($cat === 'admin')        $wa[] = "a.table_cible IN ('role_permissions','site_role_permissions','utilisateurs','sites','organisations','parametres','ai_settings','modules')";
     else                             $wa[] = "a.action NOT IN ('CONNEXION_REUSSIE','CONNEXION_ECHEC','DECONNEXION')";
     if (!$isSuper) $wa[] = "(a.table_cible<>'produits' OR e.site_id=".(int)$site_id." OR pr.id IS NULL)";
-    if ($search !== '') { $s = $pdo->quote('%'.$search.'%'); $wa[] = "(pr.nom LIKE $s OR a.action LIKE $s OR a.valeur_avant LIKE $s OR a.valeur_apres LIKE $s)"; }
+    if ($search !== '') { $s = $pdo->quote('%'.$search.'%'); $wa[] = "(pr.nom LIKE $s OR em.nom LIKE $s OR mt.nom LIKE $s OR a.action LIKE $s OR a.valeur_avant LIKE $s OR a.valeur_apres LIKE $s)"; }
+    if (!empty($opt['from']) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $opt['from'])) $wa[] = "a.cree_le >= ".$pdo->quote($opt['from'].' 00:00:00');
+    if (!empty($opt['to'])   && preg_match('/^\d{4}-\d{2}-\d{2}$/', $opt['to']))   $wa[] = "a.cree_le <= ".$pdo->quote($opt['to'].' 23:59:59');
+    if (!empty($opt['user'])) $wa[] = "a.user_id = ".(int)$opt['user'];
     return "FROM audit_log a
             LEFT JOIN utilisateurs u ON u.id=a.user_id
             LEFT JOIN produits pr ON (a.table_cible='produits' AND pr.id=a.enregistrement_id)
             LEFT JOIN emplacements e ON e.id=pr.emplacement_id
+            LEFT JOIN emplacements em ON (a.table_cible='emplacements' AND em.id=a.enregistrement_id)
+            LEFT JOIN materiels mt ON (a.table_cible='materiels' AND mt.id=a.enregistrement_id)
             ".($wa ? 'WHERE '.implode(' AND ', $wa) : '');
+}
+// Nom lisible de la cible d'un événement (produit/emplacement/matériel/JSON/#id)
+function tr_cible(array $r): string {
+    $c = $r['prod_nom'] ?? '';
+    if (!$c) $c = $r['empl_cible_nom'] ?? '';
+    if (!$c) $c = $r['mat_cible_nom'] ?? '';
+    if (!$c) { $d = json_decode((string)($r['valeur_apres'] ?? ''), true) ?: json_decode((string)($r['valeur_avant'] ?? ''), true); if (is_array($d) && !empty($d['nom'])) $c = (string)$d['nom']; }
+    if (!$c && !empty($r['enregistrement_id'])) $c = (!empty($r['table_cible']) ? $r['table_cible'].' #' : '#').$r['enregistrement_id'];
+    return $c;
 }
 
 // ── Export CSV de l'historique (archive réglementaire) ──
 if (($_GET['export'] ?? '') === 'csv') {
     $cat    = in_array($_GET['cat'] ?? '', ['produits','emplacements','materiels','admin','tous'], true) ? $_GET['cat'] : 'produits';
     $search = trim($_GET['q'] ?? '');
-    $base   = tr_activite_where($pdo, $cat, $search, (int)$site_id, !empty($_SESSION['super_admin']));
-    $rows   = $pdo->query("SELECT a.action, a.cree_le, a.valeur_avant, a.valeur_apres, u.prenom, u.nom AS unom, pr.nom AS prod_nom, a.enregistrement_id, a.table_cible $base ORDER BY a.cree_le DESC LIMIT 5000")->fetchAll(PDO::FETCH_ASSOC);
+    $opt    = ['from'=>$_GET['from'] ?? '', 'to'=>$_GET['to'] ?? '', 'user'=>(int)($_GET['user'] ?? 0)];
+    $base   = tr_activite_where($pdo, $cat, $search, (int)$site_id, !empty($_SESSION['super_admin']), $opt);
+    $rows   = $pdo->query("SELECT a.action, a.cree_le, a.valeur_avant, a.valeur_apres, u.prenom, u.nom AS unom, pr.nom AS prod_nom, em.nom AS empl_cible_nom, mt.nom AS mat_cible_nom, a.enregistrement_id, a.table_cible $base ORDER BY a.cree_le DESC LIMIT 5000")->fetchAll(PDO::FETCH_ASSOC);
     header('Content-Type: text/csv; charset=utf-8');
     header('Content-Disposition: attachment; filename="tracabilite_'.$cat.'_'.date('Y-m-d').'.csv"');
     echo "\xEF\xBB\xBF"; // BOM UTF-8 (Excel)
@@ -35,9 +51,7 @@ if (($_GET['export'] ?? '') === 'csv') {
     fputcsv($out, ['Date', 'Utilisateur', 'Action', 'Cible', 'Changements (avant → après)'], ';');
     foreach ($rows as $r) {
         $who   = trim(($r['prenom'] ?? '').' '.($r['unom'] ?? '')) ?: 'Système';
-        $cible = $r['prod_nom'] ?: '';
-        if (!$cible) { $d = json_decode((string)$r['valeur_apres'], true) ?: json_decode((string)$r['valeur_avant'], true); if (is_array($d) && !empty($d['nom'])) $cible = $d['nom']; }
-        if (!$cible && $r['enregistrement_id']) $cible = ($r['table_cible'] ? $r['table_cible'].' #' : '#').$r['enregistrement_id'];
+        $cible = tr_cible($r);
         $a = json_decode((string)$r['valeur_avant'], true); $b = json_decode((string)$r['valeur_apres'], true);
         $ch = [];
         if (is_array($b)) foreach ($b as $k => $nv) {
@@ -61,13 +75,15 @@ if (($_GET['ajax'] ?? '') === 'ia_activite' && $_SERVER['REQUEST_METHOD'] === 'P
     if ($ai_actif !== '1' || !$api_key) { echo json_encode(['error' => 'IA non configurée (Admin → IA).']); exit; }
     $cat    = in_array($_POST['cat'] ?? '', ['produits','emplacements','materiels','admin','tous'], true) ? $_POST['cat'] : 'produits';
     $search = trim($_POST['q'] ?? '');
-    $base   = tr_activite_where($pdo, $cat, $search, (int)$site_id, !empty($_SESSION['super_admin']));
-    $rows   = $pdo->query("SELECT a.action, a.cree_le, a.valeur_avant, a.valeur_apres, u.prenom, u.nom AS unom, pr.nom AS prod_nom $base ORDER BY a.cree_le DESC LIMIT 60")->fetchAll(PDO::FETCH_ASSOC);
+    $opt    = ['from'=>$_POST['from'] ?? '', 'to'=>$_POST['to'] ?? '', 'user'=>(int)($_POST['user'] ?? 0)];
+    $base   = tr_activite_where($pdo, $cat, $search, (int)$site_id, !empty($_SESSION['super_admin']), $opt);
+    $rows   = $pdo->query("SELECT a.action, a.cree_le, a.valeur_avant, a.valeur_apres, u.prenom, u.nom AS unom, pr.nom AS prod_nom, em.nom AS empl_cible_nom, mt.nom AS mat_cible_nom $base ORDER BY a.cree_le DESC LIMIT 60")->fetchAll(PDO::FETCH_ASSOC);
     if (!$rows) { echo json_encode(['ok' => true, 'texte' => "Aucune activité à analyser sur ce filtre."]); exit; }
     $ctx = '';
     foreach ($rows as $r) {
         $who = trim(($r['prenom'] ?? '').' '.($r['unom'] ?? '')) ?: 'Systeme';
-        $line = '- '.date('d/m H:i', strtotime($r['cree_le'])).' | '.$who.' | '.$r['action'].($r['prod_nom'] ? ' | '.$r['prod_nom'] : '');
+        $tcib = tr_cible($r);
+        $line = '- '.date('d/m H:i', strtotime($r['cree_le'])).' | '.$who.' | '.$r['action'].($tcib ? ' | '.$tcib : '');
         $a = json_decode((string)$r['valeur_avant'], true); $b = json_decode((string)$r['valeur_apres'], true);
         if (is_array($b)) { $ch = []; foreach ($b as $k => $nv) { if (is_array($nv) || in_array($k, ['masse','copilote','saisie_rapide'], true)) continue; $ov = (is_array($a) && array_key_exists($k, $a)) ? $a[$k] : null; if (is_array($ov) || (string)$ov === (string)$nv) continue; $ch[] = "$k: ".($ov ?? 'vide').'->'.($nv ?? 'vide'); } if ($ch) $line .= ' ['.implode(', ', array_slice($ch, 0, 6)).']'; }
         $ctx .= $line."\n";
@@ -240,26 +256,17 @@ $stats = $pdo->query("
 } // ── fin vue 'lots' ──
 
 // ── Historique d'activité (audit_log) ──
-$acts = []; $act_total = 0; $act_pages = 0;
+$acts = []; $act_total = 0; $act_pages = 0; $usersOpt = [];
+$fFrom = preg_match('/^\d{4}-\d{2}-\d{2}$/', $_GET['from'] ?? '') ? $_GET['from'] : '';
+$fTo   = preg_match('/^\d{4}-\d{2}-\d{2}$/', $_GET['to'] ?? '')   ? $_GET['to']   : '';
+$fUser = (int)($_GET['user'] ?? 0);
 if ($vue === 'activite') {
-    $wa = [];
-    if     ($cat === 'produits')     $wa[] = "a.table_cible='produits'";
-    elseif ($cat === 'emplacements') $wa[] = "a.table_cible='emplacements'";
-    elseif ($cat === 'materiels')    $wa[] = "a.table_cible='materiels'";
-    elseif ($cat === 'admin')        $wa[] = "a.table_cible IN ('role_permissions','site_role_permissions','utilisateurs','sites','organisations','parametres','ai_settings','modules')";
-    else /* tous */                  $wa[] = "a.action NOT IN ('CONNEXION_REUSSIE','CONNEXION_ECHEC','DECONNEXION')";
-    // Périmètre : non-super-admin ne voit que les produits de son site (les produits disparus restent visibles)
-    if (empty($_SESSION['super_admin'])) $wa[] = "(a.table_cible<>'produits' OR e.site_id=".(int)$site_id." OR pr.id IS NULL)";
-    if ($search) { $s = $pdo->quote('%'.$search.'%'); $wa[] = "(pr.nom LIKE $s OR a.action LIKE $s OR a.valeur_avant LIKE $s OR a.valeur_apres LIKE $s)"; }
-    $wsql = $wa ? ('WHERE '.implode(' AND ', $wa)) : '';
-    $base = "FROM audit_log a
-             LEFT JOIN utilisateurs u ON u.id=a.user_id
-             LEFT JOIN produits pr ON (a.table_cible='produits' AND pr.id=a.enregistrement_id)
-             LEFT JOIN emplacements e ON e.id=pr.emplacement_id
-             $wsql";
+    $base = tr_activite_where($pdo, $cat, $search, (int)$site_id, !empty($_SESSION['super_admin']), ['from'=>$fFrom,'to'=>$fTo,'user'=>$fUser]);
     $act_total = (int)$pdo->query("SELECT COUNT(*) $base")->fetchColumn();
     $act_pages = (int)ceil($act_total / $per_page);
-    $acts = $pdo->query("SELECT a.*, u.prenom, u.nom AS unom, pr.nom AS prod_nom, e.nom AS empl_nom $base ORDER BY a.cree_le DESC LIMIT $per_page OFFSET $offset")->fetchAll(PDO::FETCH_ASSOC);
+    $acts = $pdo->query("SELECT a.*, u.prenom, u.nom AS unom, pr.nom AS prod_nom, e.nom AS empl_nom, em.nom AS empl_cible_nom, mt.nom AS mat_cible_nom $base ORDER BY a.cree_le DESC LIMIT $per_page OFFSET $offset")->fetchAll(PDO::FETCH_ASSOC);
+    // Liste des acteurs (pour le filtre) — ceux qui ont laissé une trace
+    $usersOpt = $pdo->query("SELECT DISTINCT u.id, TRIM(CONCAT(COALESCE(u.prenom,''),' ',COALESCE(u.nom,''))) AS nom FROM audit_log a JOIN utilisateurs u ON u.id=a.user_id ORDER BY nom")->fetchAll(PDO::FETCH_ASSOC);
 }
 
 require_once 'includes/header.php';
@@ -333,6 +340,7 @@ require_once 'includes/header.php';
 .tr-ia-h { display:flex; align-items:center; gap:10px; font-size:.95rem; margin-bottom:8px; }
 .tr-ia-orb { width:34px; height:34px; border-radius:10px; display:flex; align-items:center; justify-content:center; background:linear-gradient(135deg,#3b82f6,#8b5cf6); font-size:1rem; }
 .tr-ia-b { font-size:.87rem; color:var(--text2); line-height:1.6; white-space:pre-wrap; }
+.tr-mini-l { display:block; font-size:.64rem; text-transform:uppercase; letter-spacing:.05em; color:var(--text3); font-weight:700; margin-bottom:3px; }
 </style>
 
 <!-- Header -->
@@ -510,28 +518,42 @@ require_once 'includes/header.php';
 <?php endif; ?>
 <?php endif; /* fin vue 'lots' */ ?>
 
-<?php if ($vue === 'activite'): ?>
-<!-- Filtres catégorie + recherche -->
-<form method="get" class="tr-toolbar">
-  <input type="hidden" name="vue" value="activite">
-  <div class="tr-search">
-    <span style="color:var(--text3)">🔍</span>
-    <input type="text" name="q" value="<?= h($search) ?>" placeholder="Rechercher (médicament, action…)" oninput="if(this.value.length>2||this.value.length===0)this.form.submit()">
-    <?php if ($search): ?><a href="?vue=activite&type=<?= h($filtre) ?>&cat=<?= h($cat) ?>" style="color:var(--text3);text-decoration:none;font-size:.85rem">✕</a><?php endif; ?>
-  </div>
-  <input type="hidden" name="cat" value="<?= h($cat) ?>">
-</form>
-<div style="display:flex;gap:6px;margin-bottom:16px;flex-wrap:wrap">
+<?php if ($vue === 'activite'):
+  // Suffixe de querystring (hors cat) pour propager les filtres sur tous les liens
+  $actExtra = '';
+  foreach (['q'=>$search, 'from'=>$fFrom, 'to'=>$fTo, 'user'=>($fUser?:'')] as $k=>$v) if ($v !== '' && $v !== 0) $actExtra .= '&'.$k.'='.urlencode((string)$v);
+?>
+<!-- Filtres : catégorie -->
+<div style="display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap">
   <?php foreach (['produits'=>'💊 Médicaments','emplacements'=>'📍 Emplacements','materiels'=>'🩺 Matériel','admin'=>'🔐 Accès / Réglages','tous'=>'🔎 Tout'] as $k=>$v): ?>
-  <a href="?vue=activite&cat=<?= $k ?><?= $search?'&q='.urlencode($search):'' ?>" class="tr-filter <?= $cat===$k?'on':'' ?>"><?= $v ?></a>
+  <a href="?vue=activite&cat=<?= $k ?><?= $actExtra ?>" class="tr-filter <?= $cat===$k?'on':'' ?>"><?= $v ?></a>
   <?php endforeach; ?>
   <span style="margin-left:auto;font-size:.78rem;color:var(--text3);align-self:center"><?= (int)$act_total ?> événement<?= $act_total!=1?'s':'' ?></span>
 </div>
+<!-- Filtres : recherche + période + utilisateur -->
+<form method="get" class="tr-toolbar" style="align-items:flex-end;margin-bottom:14px">
+  <input type="hidden" name="vue" value="activite">
+  <input type="hidden" name="cat" value="<?= h($cat) ?>">
+  <div class="tr-search" style="flex:1;min-width:180px">
+    <span style="color:var(--text3)">🔍</span>
+    <input type="text" name="q" value="<?= h($search) ?>" placeholder="Médicament, action…">
+  </div>
+  <div><label class="tr-mini-l">Du</label><input type="date" name="from" value="<?= h($fFrom) ?>" class="tr-input" style="width:auto"></div>
+  <div><label class="tr-mini-l">Au</label><input type="date" name="to" value="<?= h($fTo) ?>" class="tr-input" style="width:auto"></div>
+  <div><label class="tr-mini-l">Utilisateur</label>
+    <select name="user" class="tr-input" style="width:auto">
+      <option value="0">Tous</option>
+      <?php foreach ($usersOpt as $uo): ?><option value="<?= (int)$uo['id'] ?>" <?= $fUser===(int)$uo['id']?'selected':'' ?>><?= h($uo['nom'] ?: ('#'.$uo['id'])) ?></option><?php endforeach; ?>
+    </select>
+  </div>
+  <button type="submit" class="btn" style="background:var(--primary);color:#fff;border:none">Filtrer</button>
+  <?php if ($search || $fFrom || $fTo || $fUser): ?><a href="?vue=activite&cat=<?= h($cat) ?>" class="btn btn-ghost">↺ Réinitialiser</a><?php endif; ?>
+</form>
 
 <!-- Actions IA + export -->
 <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
   <button type="button" id="tr-ia-btn" onclick="trIA()" class="btn" style="background:linear-gradient(135deg,#3b82f6,#8b5cf6);color:#fff;border:none">🤖 Analyser l'activité (IA)</button>
-  <a href="?export=csv&cat=<?= h($cat) ?><?= $search?'&q='.urlencode($search):'' ?>" class="btn btn-ghost">⬇️ Exporter CSV</a>
+  <a href="?export=csv&cat=<?= h($cat) ?><?= $actExtra ?>" class="btn btn-ghost">⬇️ Exporter CSV</a>
 </div>
 <div id="tr-ia-panel" style="display:none"></div>
 
@@ -546,8 +568,7 @@ require_once 'includes/header.php';
   <?php foreach ($acts as $a):
     $meta   = $TR_ACT[$a['action']] ?? ['•', ucfirst(strtolower(str_replace('_',' ',$a['action']))), '#64748b'];
     $who    = trim(($a['prenom'] ?? '').' '.($a['unom'] ?? '')) ?: 'Système';
-    $cible  = $a['prod_nom'] ?: (tr_json_nom($a['valeur_apres']) ?: tr_json_nom($a['valeur_avant']));
-    if (!$cible && $a['enregistrement_id']) $cible = '#'.$a['enregistrement_id'];
+    $cible  = tr_cible($a);
     $isCreate = str_starts_with($a['action'], 'CREATION');
     $isDelete = str_starts_with($a['action'], 'SUPPRESSION');
     $diffs = (!$isCreate && !$isDelete) ? tr_diff($a['valeur_avant'], $a['valeur_apres'], $TR_FIELD_LBL) : [];
@@ -579,7 +600,7 @@ require_once 'includes/header.php';
 
 <?php if ($act_pages > 1): ?>
 <div class="tr-pagination">
-  <?php $qp = ($search?'&q='.urlencode($search):'').'&cat='.$cat; ?>
+  <?php $qp = '&cat='.$cat.$actExtra; ?>
   <?php if ($page > 1): ?><a href="?vue=activite&p=<?= $page-1 ?><?= $qp ?>" class="tr-page">←</a><?php endif; ?>
   <?php for ($i = max(1,$page-2); $i <= min($act_pages,$page+2); $i++): ?>
   <a href="?vue=activite&p=<?= $i ?><?= $qp ?>" class="tr-page <?= $i===$page?'on':'' ?>"><?= $i ?></a>
@@ -640,6 +661,9 @@ function openRappel(lot, source) {
 }
 var TR_CAT  = <?= json_encode($cat) ?>;
 var TR_Q    = <?= json_encode($search) ?>;
+var TR_FROM = <?= json_encode($fFrom ?? '') ?>;
+var TR_TO   = <?= json_encode($fTo ?? '') ?>;
+var TR_USER = <?= json_encode((string)($fUser ?? '')) ?>;
 var TR_CSRF = <?= json_encode(csrf_token()) ?>;
 function trIA() {
   var btn = document.getElementById('tr-ia-btn'), panel = document.getElementById('tr-ia-panel');
@@ -647,7 +671,7 @@ function trIA() {
   panel.style.display = 'block';
   panel.innerHTML = '<div class="tr-ia"><div class="tr-ia-h"><span class="tr-ia-orb">🤖</span><b>Analyse de l\'activité</b></div><div class="tr-ia-b">⏳ Analyse en cours…</div></div>';
   if (btn) btn.disabled = true;
-  var body = 'cat=' + encodeURIComponent(TR_CAT) + '&q=' + encodeURIComponent(TR_Q) + '&csrf_token=' + encodeURIComponent(TR_CSRF);
+  var body = 'cat=' + encodeURIComponent(TR_CAT) + '&q=' + encodeURIComponent(TR_Q) + '&from=' + encodeURIComponent(TR_FROM) + '&to=' + encodeURIComponent(TR_TO) + '&user=' + encodeURIComponent(TR_USER) + '&csrf_token=' + encodeURIComponent(TR_CSRF);
   fetch('tracabilite.php?ajax=ia_activite', { method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded','X-CSRF-Token':TR_CSRF}, body:body })
     .then(function(r){ return r.json(); })
     .then(function(d){ if (btn) btn.disabled = false; var b = panel.querySelector('.tr-ia-b'); if (d.ok) { b.textContent = d.texte; } else { b.innerHTML = '<span style="color:#ef4444">⚠️ ' + (d.error || 'Erreur') + '</span>'; } })
