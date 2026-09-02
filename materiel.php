@@ -8,6 +8,23 @@ $pageTitle = 'Matériel biomédical';
 $site_id = site_actif();
 if (!$site_id) { header('Location: dashboard.php'); exit; }
 
+// ── Export Excel du parc ──
+if (($_GET['export'] ?? '') === 'xls') {
+    header('Content-Type: application/vnd.ms-excel; charset=UTF-8');
+    header('Content-Disposition: attachment; filename="biomedical_' . date('Y-m-d') . '.xls"');
+    header('Cache-Control: max-age=0');
+    echo "\xEF\xBB\xBF";
+    $L = function (array $v) { echo implode("\t", array_map(fn($x) => str_replace(["\t","\r","\n"], ' ', (string)($x ?? '---')), $v)) . "\r\n"; };
+    $L(['Nom','Type','Marque','Modèle','N° Série','Emplacement','Statut','Mise en service','Fin garantie','Contrat','Fin contrat','Coût/an','Prochaine révision']);
+    $q = $pdo->prepare("SELECT m.nom,mt.nom AS type_nom,m.marque,m.modele,m.numero_serie,e.nom AS empl,m.statut,m.date_mise_en_service,m.date_fin_garantie,m.contrat_maintenance,m.contrat_fin,m.contrat_cout_annuel,
+        (SELECT MIN(r.prochaine_revision) FROM materiel_revisions r WHERE r.materiel_id=m.id AND r.actif=1 AND r.prochaine_revision IS NOT NULL) AS proch
+        FROM materiels m LEFT JOIN materiel_types mt ON mt.id=m.type_id LEFT JOIN emplacements e ON e.id=m.emplacement_id
+        WHERE m.site_id=? AND m.statut NOT IN('reforme','archive') ORDER BY m.nom");
+    $q->execute([$site_id]);
+    foreach ($q->fetchAll(PDO::FETCH_ASSOC) as $r) $L(array_values($r));
+    exit;
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     csrf_check();
     $type = $_POST['type_form'] ?? '';
@@ -195,6 +212,7 @@ require_once 'includes/header.php';
     <div class="page-sub">Équipements, révisions et maintenance</div>
   </div>
   <div style="display:flex;gap:8px">
+    <a href="/materiel.php?export=xls" class="btn btn-ghost">⬇️ Export</a>
     <a href="/qrcodes.php?type=biomed" class="btn btn-ghost">🏷️ QR Codes</a>
     <?php if (peut_faire(ROLE_GESTIONNAIRE)): ?>
     <button class="btn btn-primary" onclick="toggleForm()">➕ Ajouter</button>
