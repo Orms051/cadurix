@@ -152,6 +152,7 @@ if (!nav_peut($nav_perms, 'sse')) { ob_end_clean(); accessDenied(); exit; }
   </div>
   <div class="page-actions">
     <a href="/sse.php" class="btn btn-sm btn-ghost">← Dashboard</a>
+    <a href="/sse/export.php?type=consommables" class="btn btn-sm btn-ghost">⬇️ Export</a>
     <button onclick="document.getElementById('modal-add').style.display='flex'" class="btn btn-sm btn-primary">+ Ajouter</button>
   </div>
 </div>
