@@ -76,6 +76,22 @@ $cout_contrats = (float)$pdo->query("SELECT COALESCE(SUM(contrat_cout_annuel),0)
 $cout_inter_an = 0.0;
 try { $cout_inter_an = (float)$pdo->query("SELECT COALESCE(SUM(i.cout),0) FROM materiel_interventions i JOIN materiels m ON m.id=i.materiel_id WHERE m.site_id=$site_id AND YEAR(i.date_intervention)=YEAR(NOW())")->fetchColumn(); } catch(Throwable $e){}
 
+// ── Coût de possession par équipement (déterministe, sans IA) ──
+$couteux = $pdo->query("
+    SELECT m.id, m.nom, mt.icone, m.date_mise_en_service, COALESCE(m.contrat_cout_annuel,0) AS contrat,
+           COUNT(i.id) AS nb_inter,
+           SUM(CASE WHEN i.type='reparation' THEN 1 ELSE 0 END) AS nb_pannes,
+           COALESCE(SUM(i.cout),0) AS cout_inter
+    FROM materiels m
+    LEFT JOIN materiel_types mt ON mt.id=m.type_id
+    LEFT JOIN materiel_interventions i ON i.materiel_id=m.id
+    WHERE m.site_id=$site_id AND m.statut NOT IN('reforme','archive')
+    GROUP BY m.id
+    HAVING cout_inter > 0 OR contrat > 0 OR nb_pannes > 0
+    ORDER BY (cout_inter + contrat) DESC
+    LIMIT 8
+")->fetchAll(PDO::FETCH_ASSOC);
+
 // ── Analyse IA de l'état biomédical ──
 if (($_GET['ajax'] ?? '') === 'ia') {
     header('Content-Type: application/json');
@@ -84,19 +100,6 @@ if (($_GET['ajax'] ?? '') === 'ia') {
     $api_key  = $pdo->query("SELECT valeur FROM ai_settings WHERE cle='api_key'")->fetchColumn();
     $model    = $pdo->query("SELECT valeur FROM ai_settings WHERE cle='model'")->fetchColumn() ?: 'claude-haiku-4-5-20251001';
     if ($ai_actif !== '1' || !$api_key) { echo json_encode(['error'=>'IA non configurée (Admin → IA).']); exit; }
-    // Coût de maintenance par équipement (réparations + contrat) + pannes + âge → rentabilité
-    $couteux = $pdo->query("
-        SELECT m.nom, m.date_mise_en_service, COALESCE(m.contrat_cout_annuel,0) AS contrat,
-               COUNT(i.id) AS nb_inter,
-               SUM(CASE WHEN i.type='reparation' THEN 1 ELSE 0 END) AS nb_pannes,
-               COALESCE(SUM(i.cout),0) AS cout_inter
-        FROM materiels m LEFT JOIN materiel_interventions i ON i.materiel_id=m.id
-        WHERE m.site_id=$site_id AND m.statut NOT IN('reforme','archive')
-        GROUP BY m.id
-        HAVING cout_inter > 0 OR contrat > 0 OR nb_pannes > 0
-        ORDER BY (cout_inter + contrat) DESC
-        LIMIT 12
-    ")->fetchAll(PDO::FETCH_ASSOC);
     $ctx  = "Module biomedical (SDIS/SSSM).\n";
     $ctx .= "Revisions a 30j : ".count($revisions)." (en retard : $nb_rev_en_retard, urgentes 7j : $nb_rev_urgentes).\n";
     $ctx .= "Demandes d'intervention en attente : $nb_demandes. Equipements HS/maintenance : $nb_alertes.\n";
@@ -239,7 +242,6 @@ require_once '../includes/header.php';
   <span class="bio-chip" onclick="bioAsk('Quelles révisions dois-je planifier en priorité ?')">📅 Révisions à planifier</span>
   <span class="bio-chip" onclick="bioAsk('Quels équipements sont hors service et à réparer ?')">🔴 Équipements à réparer</span>
   <span class="bio-chip" onclick="bioAsk('Quelles garanties ou contrats expirent bientôt ?')">🛡️ Contrats à renouveler</span>
-  <span class="bio-chip" onclick="bioIA()">💶 Équipements coûteux / à remplacer</span>
 </div>
 <div id="bio-ia-panel" style="display:none;margin-bottom:16px"></div>
 
@@ -368,6 +370,40 @@ require_once '../includes/header.php';
 
 </div>
 </div>
+
+<!-- Coût de possession — équipements les plus coûteux (déterministe, sans IA) -->
+<?php if (!empty($couteux)): ?>
+<div class="card" style="margin-top:16px">
+  <div class="card-header" style="display:flex;justify-content:space-between;align-items:center">
+    <span class="card-title">💶 Équipements les plus coûteux</span>
+    <span style="font-size:.74rem;color:var(--text3)">réparations cumulées · pannes · contrat/an · âge</span>
+  </div>
+  <?php foreach ($couteux as $m):
+    $age      = $m['date_mise_en_service'] ? (int)floor((time()-strtotime($m['date_mise_en_service']))/31536000) : null;
+    $examiner = ((int)$m['nb_pannes'] >= 3) || ($age !== null && $age >= 10);
+    $raison   = [];
+    if ((int)$m['nb_pannes'] >= 3) $raison[] = $m['nb_pannes'].' pannes';
+    if ($age !== null && $age >= 10) $raison[] = $age.' ans';
+  ?>
+  <div class="bio-gar">
+    <span style="font-size:1.3rem"><?= h($m['icone']??'🔧') ?></span>
+    <div style="flex:1;min-width:0">
+      <div style="font-weight:600;font-size:.88rem"><?= h($m['nom']) ?></div>
+      <div style="font-size:.74rem;color:var(--text3)">
+        🔧 <?= number_format((float)$m['cout_inter'],0,',',' ') ?> € de réparations<?php if((int)$m['nb_pannes']>0): ?> · <?= (int)$m['nb_pannes'] ?> panne<?= $m['nb_pannes']>1?'s':'' ?><?php endif; ?>
+        <?php if ((float)$m['contrat']>0): ?> · 📄 <?= number_format((float)$m['contrat'],0,',',' ') ?> €/an<?php endif; ?>
+        <?php if ($age !== null): ?> · 🗓️ <?= $age ?> an<?= $age>1?'s':'' ?><?php endif; ?>
+      </div>
+    </div>
+    <?php if ($examiner): ?>
+    <a href="/materiel_fiche.php?id=<?= (int)$m['id'] ?>" class="due" style="background:rgba(239,68,68,.14);color:#ef4444;text-decoration:none" title="<?= h('À examiner — '.implode(', ',$raison)) ?>">🔴 À examiner</a>
+    <?php else: ?>
+    <a href="/materiel_fiche.php?id=<?= (int)$m['id'] ?>" class="btn btn-ghost btn-xs" title="Voir la fiche">📋</a>
+    <?php endif; ?>
+  </div>
+  <?php endforeach; ?>
+</div>
+<?php endif; ?>
 
 <!-- Garanties & contrats à échéance -->
 <?php if (!empty($garanties)): ?>
