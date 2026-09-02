@@ -78,7 +78,8 @@ try { $cout_inter_an = (float)$pdo->query("SELECT COALESCE(SUM(i.cout),0) FROM m
 
 // ── Coût de possession par équipement (déterministe, sans IA) ──
 $couteux = $pdo->query("
-    SELECT m.id, m.nom, mt.icone, m.date_mise_en_service, COALESCE(m.contrat_cout_annuel,0) AS contrat,
+    SELECT m.id, m.nom, mt.icone, m.date_mise_en_service,
+           COALESCE(MAX(m.contrat_cout_annuel),0) AS contrat,
            COUNT(i.id) AS nb_inter,
            SUM(CASE WHEN i.type='reparation' THEN 1 ELSE 0 END) AS nb_pannes,
            COALESCE(SUM(i.cout),0) AS cout_inter
@@ -86,9 +87,9 @@ $couteux = $pdo->query("
     LEFT JOIN materiel_types mt ON mt.id=m.type_id
     LEFT JOIN materiel_interventions i ON i.materiel_id=m.id
     WHERE m.site_id=$site_id AND m.statut NOT IN('reforme','archive')
-    GROUP BY m.id
-    HAVING cout_inter > 0 OR contrat > 0 OR nb_pannes > 0
-    ORDER BY (cout_inter + contrat) DESC
+    GROUP BY m.id, m.nom, mt.icone, m.date_mise_en_service
+    HAVING COALESCE(SUM(i.cout),0) > 0 OR COALESCE(MAX(m.contrat_cout_annuel),0) > 0 OR SUM(CASE WHEN i.type='reparation' THEN 1 ELSE 0 END) > 0
+    ORDER BY (COALESCE(SUM(i.cout),0) + COALESCE(MAX(m.contrat_cout_annuel),0)) DESC
     LIMIT 8
 ")->fetchAll(PDO::FETCH_ASSOC);
 
