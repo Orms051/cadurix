@@ -61,6 +61,50 @@ $nb_rev_urgentes  = count(array_filter($revisions, fn($r) => (int)$r['jours'] >=
 $nb_demandes      = count($demandes);
 $nb_alertes       = count($alertes);
 
+// ── Garanties & contrats à échéance (≤ 60 j) ──
+$garanties = $pdo->query("
+    SELECT m.id, m.nom, mt.icone, m.date_fin_garantie, m.contrat_fin, m.contrat_maintenance,
+           LEAST(COALESCE(m.date_fin_garantie,'9999-12-31'), COALESCE(m.contrat_fin,'9999-12-31')) AS echeance
+    FROM materiels m LEFT JOIN materiel_types mt ON mt.id=m.type_id
+    WHERE m.site_id=$site_id AND m.statut NOT IN('reforme','archive')
+      AND ((m.date_fin_garantie IS NOT NULL AND m.date_fin_garantie <= DATE_ADD(CURDATE(), INTERVAL 60 DAY))
+        OR (m.contrat_fin IS NOT NULL AND m.contrat_fin <= DATE_ADD(CURDATE(), INTERVAL 60 DAY)))
+    ORDER BY echeance ASC LIMIT 10
+")->fetchAll(PDO::FETCH_ASSOC);
+$nb_garanties  = count($garanties);
+$cout_contrats = (float)$pdo->query("SELECT COALESCE(SUM(contrat_cout_annuel),0) FROM materiels WHERE site_id=$site_id AND statut NOT IN('reforme','archive')")->fetchColumn();
+$cout_inter_an = 0.0;
+try { $cout_inter_an = (float)$pdo->query("SELECT COALESCE(SUM(i.cout),0) FROM materiel_interventions i JOIN materiels m ON m.id=i.materiel_id WHERE m.site_id=$site_id AND YEAR(i.date_intervention)=YEAR(NOW())")->fetchColumn(); } catch(Throwable $e){}
+
+// ── Analyse IA de l'état biomédical ──
+if (($_GET['ajax'] ?? '') === 'ia') {
+    header('Content-Type: application/json');
+    if (!function_exists('csrf_verifier') || !csrf_verifier()) { echo json_encode(['error'=>'Session expirée, recharge la page.']); exit; }
+    $ai_actif = $pdo->query("SELECT valeur FROM ai_settings WHERE cle='actif'")->fetchColumn();
+    $api_key  = $pdo->query("SELECT valeur FROM ai_settings WHERE cle='api_key'")->fetchColumn();
+    $model    = $pdo->query("SELECT valeur FROM ai_settings WHERE cle='model'")->fetchColumn() ?: 'claude-haiku-4-5-20251001';
+    if ($ai_actif !== '1' || !$api_key) { echo json_encode(['error'=>'IA non configurée (Admin → IA).']); exit; }
+    $ctx  = "Module biomedical (SDIS/SSSM).\n";
+    $ctx .= "Revisions a 30j : ".count($revisions)." (en retard : $nb_rev_en_retard, urgentes 7j : $nb_rev_urgentes).\n";
+    $ctx .= "Demandes d'intervention en attente : $nb_demandes. Equipements HS/maintenance : $nb_alertes.\n";
+    $ctx .= "Garanties/contrats a echeance (<=60j) : $nb_garanties. Cout contrats/an : ".round($cout_contrats)." EUR. Cout interventions ".date('Y')." : ".round($cout_inter_an)." EUR.\n";
+    if ($revisions){ $ctx.="Revisions a planifier :\n"; foreach(array_slice($revisions,0,8) as $r){ $j=(int)$r['jours']; $ctx.="- ".$r['mat_nom']." (".($j<0?'retard '.abs($j).'j':'J-'.$j).(!empty($r['obligatoire'])?', reglementaire':'').").\n"; } }
+    if ($alertes){ $ctx.="Equipements indisponibles :\n"; foreach($alertes as $a){ $ctx.="- ".$a['nom']." (".$a['statut'].").\n"; } }
+    if ($garanties){ $ctx.="Echeances garanties/contrats :\n"; foreach($garanties as $g){ $ctx.="- ".$g['nom']." (echeance ".$g['echeance'].").\n"; } }
+    $prompt = "Tu es le copilote de Cadurix, module biomedical (SDIS/SSSM). A partir des donnees ci-dessous, redige en francais un point clair et priorise : 1 phrase de synthese puis 3 a 5 actions concretes a mener en priorite (revisions a planifier, surtout reglementaires ; equipements HS a reparer ; demandes a traiter ; garanties/contrats a renouveler). Court, professionnel, sans markdown, sans rien inventer, pas de conseil medical.\n\nDONNEES :\n$ctx";
+    $is_prod = str_contains($_SERVER['HTTP_HOST'] ?? '', 'cadurix.fr');
+    $ch = curl_init('https://api.anthropic.com/v1/messages');
+    curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER=>true, CURLOPT_POST=>true,
+        CURLOPT_POSTFIELDS=>json_encode(['model'=>$model,'max_tokens'=>500,'messages'=>[['role'=>'user','content'=>$prompt]]]),
+        CURLOPT_HTTPHEADER=>['Content-Type: application/json','x-api-key: '.$api_key,'anthropic-version: 2023-06-01'],
+        CURLOPT_TIMEOUT=>40, CURLOPT_SSL_VERIFYPEER=>$is_prod, CURLOPT_SSL_VERIFYHOST=>$is_prod?2:0]);
+    $resp=curl_exec($ch); $http=curl_getinfo($ch,CURLINFO_HTTP_CODE); $cerr=curl_error($ch); curl_close($ch);
+    if ($resp===false||$cerr){ echo json_encode(['error'=>"Reseau IA : $cerr"]); exit; }
+    $jr=json_decode($resp,true);
+    if ($http!==200||empty($jr['content'][0]['text'])){ echo json_encode(['error'=>($jr['error']['message']??"Erreur IA HTTP $http")]); exit; }
+    echo json_encode(['ok'=>true,'texte'=>$jr['content'][0]['text']], JSON_UNESCAPED_UNICODE); exit;
+}
+
 require_once '../includes/header.php';
 ?>
 <style>
@@ -72,7 +116,7 @@ require_once '../includes/header.php';
   font-size:1rem; font-weight:800; letter-spacing:-.01em; color:var(--text); text-transform:none;
 }
 /* KPI compacts (style commun) */
-.bio-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:8px}
+.bio-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:8px}
 .bio-kpi{position:relative;display:flex;align-items:center;gap:12px;background:var(--bg2);border:1px solid var(--border);border-radius:13px;padding:12px 15px;overflow:hidden;box-shadow:0 1px 2px rgba(20,30,60,.04)}
 .bio-kpi::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--kc,var(--primary))}
 .bio-kpi .ic{width:36px;height:36px;border-radius:10px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:1.05rem}
@@ -80,6 +124,13 @@ require_once '../includes/header.php';
 .bio-kpi .l{font-size:.68rem;color:var(--text3);font-weight:700;text-transform:uppercase;letter-spacing:.04em;margin-top:3px}
 .bio-kpi .f{font-size:.68rem;color:var(--text3);margin-top:1px}
 @media(max-width:800px){.bio-kpis{grid-template-columns:repeat(2,1fr)}}
+.bio-ia{border:1px solid var(--border);border-radius:14px;background:linear-gradient(135deg,rgba(59,130,246,.09),rgba(139,92,246,.07)),var(--bg2);padding:16px 18px}
+.bio-ia-h{display:flex;align-items:center;gap:10px;font-size:.95rem;margin-bottom:8px}
+.bio-ia-orb{width:34px;height:34px;border-radius:10px;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#3b82f6,#8b5cf6);font-size:1rem}
+.bio-ia-b{font-size:.87rem;color:var(--text2);line-height:1.6;white-space:pre-wrap}
+.bio-gar{display:flex;align-items:center;gap:12px;padding:10px 16px;border-top:1px solid var(--border)}
+.bio-gar:first-of-type{border-top:none}
+.bio-gar .due{margin-left:auto;font-size:.72rem;font-weight:800;padding:3px 9px;border-radius:20px}
 .bio-empty {
   text-align:center; padding:2rem; color:var(--text3);
   background:var(--glass); border:1px solid var(--border);
@@ -152,6 +203,8 @@ require_once '../includes/header.php';
     ['⚠️', $nb_rev_urgentes,  'Révisions urgentes',  'dans 7 jours',    $nb_rev_urgentes>0?'#ef4444':'#10b981'],
     ['📩', $nb_demandes,      'Demandes en attente', 'à traiter',       $nb_demandes>0?'#f59e0b':'#10b981'],
     ['🔴', $nb_alertes,       'Équipements indispo.', 'HS + maintenance', $nb_alertes>0?'#ef4444':'#10b981'],
+    ['🛡️', $nb_garanties,     'Garanties / contrats', 'échéance ≤ 60 j', $nb_garanties>0?'#f59e0b':'#10b981'],
+    ['💶', number_format($cout_contrats,0,',',' ').'€', 'Contrats / an', 'coût maintenance', '#3b82f6'],
   ] as [$ic,$val,$lbl,$foot,$c]): ?>
   <div class="bio-kpi" style="--kc:<?= $c ?>">
     <span class="ic" style="background:<?= $c ?>1f;color:<?= $c ?>"><?= $ic ?></span>
@@ -159,6 +212,12 @@ require_once '../includes/header.php';
   </div>
   <?php endforeach; ?>
 </div>
+
+<!-- Analyse IA -->
+<div style="display:flex;gap:8px;margin:4px 0 16px;flex-wrap:wrap">
+  <button type="button" id="bio-ia-btn" onclick="bioIA()" class="btn" style="background:linear-gradient(135deg,#3b82f6,#8b5cf6);color:#fff;border:none">🤖 Analyser l'état (IA)</button>
+</div>
+<div id="bio-ia-panel" style="display:none;margin-bottom:16px"></div>
 
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
 
@@ -286,4 +345,47 @@ require_once '../includes/header.php';
 </div>
 </div>
 
+<!-- Garanties & contrats à échéance -->
+<?php if (!empty($garanties)): ?>
+<div class="card" style="margin-top:16px">
+  <div class="card-header" style="display:flex;justify-content:space-between;align-items:center">
+    <span class="card-title">🛡️ Garanties & contrats à échéance (≤ 60 j)</span>
+    <span style="font-size:.78rem;color:var(--text3)"><?= number_format($cout_contrats,0,',',' ') ?>€/an · interventions <?= date('Y') ?> : <?= number_format($cout_inter_an,0,',',' ') ?>€</span>
+  </div>
+  <?php foreach ($garanties as $g):
+    $ech = ($g['echeance'] && $g['echeance']!=='9999-12-31') ? $g['echeance'] : null;
+    $j   = $ech ? (int)floor((strtotime($ech)-time())/86400) : null;
+    $col = ($j!==null && $j<0) ? '#ef4444' : '#f59e0b';
+    $isGar = $g['date_fin_garantie'] && $ech===$g['date_fin_garantie'];
+  ?>
+  <div class="bio-gar">
+    <span style="font-size:1.3rem"><?= h($g['icone']??'🔧') ?></span>
+    <div style="flex:1;min-width:0">
+      <div style="font-weight:600;font-size:.88rem"><?= h($g['nom']) ?></div>
+      <div style="font-size:.74rem;color:var(--text3)">
+        <?= $isGar ? '🛡️ Fin de garantie' : '📄 Fin de contrat'.($g['contrat_maintenance']?' — '.h($g['contrat_maintenance']):'') ?>
+        <?php if ($ech): ?> · <?= date('d/m/Y', strtotime($ech)) ?><?php endif; ?>
+      </div>
+    </div>
+    <span class="due" style="background:<?= $col ?>1f;color:<?= $col ?>"><?= $j===null?'—':($j<0?'expiré':($j===0?'aujourd\'hui':'J-'.$j)) ?></span>
+    <a href="/materiel.php" class="btn btn-ghost btn-xs" title="Voir">📋</a>
+  </div>
+  <?php endforeach; ?>
+</div>
+<?php endif; ?>
+
+<script>
+var BIO_CSRF = <?= json_encode(function_exists('csrf_token') ? csrf_token() : '') ?>;
+function bioIA(){
+  var b=document.getElementById('bio-ia-btn'), p=document.getElementById('bio-ia-panel');
+  if(!p)return;
+  p.style.display='block';
+  p.innerHTML='<div class="bio-ia"><div class="bio-ia-h"><span class="bio-ia-orb">🤖</span><b>Analyse de l\'état biomédical</b></div><div class="bio-ia-b">⏳ Analyse en cours…</div></div>';
+  if(b)b.disabled=true;
+  fetch('/biomed/dashboard.php?ajax=ia',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded','X-CSRF-Token':BIO_CSRF},body:'csrf_token='+encodeURIComponent(BIO_CSRF)})
+    .then(function(r){return r.json();})
+    .then(function(d){ if(b)b.disabled=false; var x=p.querySelector('.bio-ia-b'); if(d.ok){x.textContent=d.texte;}else{x.innerHTML='<span style="color:#ef4444">⚠️ '+(d.error||'Erreur')+'</span>';} })
+    .catch(function(){ if(b)b.disabled=false; var x=p.querySelector('.bio-ia-b'); if(x)x.innerHTML='<span style="color:#ef4444">⚠️ Erreur réseau.</span>'; });
+}
+</script>
 <?php require_once '../includes/footer.php'; ?>
