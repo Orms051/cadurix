@@ -48,19 +48,69 @@ $historique = $pdo->prepare("SELECT ct.*,e.nom AS eq_nom,CONCAT(u.prenom,' ',u.n
 $historique->execute([$site_id]);
 $historique = $historique->fetchAll(PDO::FETCH_ASSOC);
 
+// Équipements à contrôler (en retard, dus, ou HS/révision)
+$a_controler = $pdo->prepare("
+    SELECT e.id, e.nom, c.icone, e.statut, e.date_prochain_ctrl,
+           DATEDIFF(e.date_prochain_ctrl, CURDATE()) AS j
+    FROM sse_equipements e LEFT JOIN sse_categories c ON c.id=e.categorie_id
+    WHERE e.site_id=? AND e.actif=1
+      AND (e.date_prochain_ctrl IS NULL OR e.date_prochain_ctrl<=CURDATE() OR e.statut IN('hs','revision'))
+    ORDER BY (e.date_prochain_ctrl IS NULL), e.date_prochain_ctrl ASC LIMIT 12");
+$a_controler->execute([$site_id]);
+$a_controler = $a_controler->fetchAll(PDO::FETCH_ASSOC);
+
+// Stats du mois
+$ctrl_mois = (int)$pdo->query("SELECT COUNT(*) FROM sse_controles WHERE site_id=".intval($site_id)." AND MONTH(date_controle)=MONTH(NOW()) AND YEAR(date_controle)=YEAR(NOW())")->fetchColumn();
+$ctrl_anom = (int)$pdo->query("SELECT COUNT(*) FROM sse_controles WHERE site_id=".intval($site_id)." AND resultat<>'ok' AND date_controle>=DATE_SUB(NOW(),INTERVAL 30 DAY)")->fetchColumn();
+
 require_once '../includes/header.php';
 if (!nav_peut($nav_perms, 'sse')) { ob_end_clean(); accessDenied(); exit; }
 ?>
+<style>
+.ctl-kpi{position:relative;display:flex;align-items:center;gap:11px;background:var(--bg2);border:1px solid var(--border);border-radius:13px;padding:11px 15px;min-width:170px;overflow:hidden;box-shadow:0 1px 2px rgba(20,30,60,.04)}
+.ctl-kpi::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--kc,var(--primary))}
+.ctl-kpi .ic{width:34px;height:34px;border-radius:10px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:1rem}
+.ctl-kpi .n{font-size:1.4rem;font-weight:800;line-height:1;font-variant-numeric:tabular-nums}
+.ctl-kpi .l{font-size:.68rem;color:var(--text3);text-transform:uppercase;letter-spacing:.04em;font-weight:700;margin-top:2px}
+.ctl-chip{display:inline-flex;align-items:center;gap:5px;background:var(--bg2);border:1px solid var(--border);border-radius:20px;padding:6px 12px;font-size:.8rem;font-weight:600;color:var(--text);cursor:pointer;font-family:inherit}
+.ctl-chip:hover{background:var(--glass)}
+@media(max-width:800px){.ctl-cols{grid-template-columns:1fr !important}}
+</style>
 <div class="page-header">
   <div class="page-title-group"><div class="page-title">📋 Contrôles SSE / NRBC</div></div>
   <div class="page-actions"><a href="/sse.php" class="btn btn-sm btn-ghost">← Dashboard</a></div>
 </div>
 <?php if ($success): ?><div class="flash flash-success">✅ <?= h($success) ?></div><?php endif; ?>
 
-<div style="display:grid;grid-template-columns:400px 1fr;gap:20px">
+<!-- Stats -->
+<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px">
+  <div class="ctl-kpi" style="--kc:#f59e0b"><span class="ic" style="background:#f59e0b1f;color:#f59e0b">⏰</span><div><div class="n"><?= count($a_controler) ?></div><div class="l">À contrôler</div></div></div>
+  <div class="ctl-kpi" style="--kc:#10b981"><span class="ic" style="background:#10b9811f;color:#10b981">✅</span><div><div class="n"><?= $ctrl_mois ?></div><div class="l">Contrôles ce mois</div></div></div>
+  <div class="ctl-kpi" style="--kc:<?= $ctrl_anom>0?'#ef4444':'#10b981' ?>"><span class="ic" style="background:<?= $ctrl_anom>0?'#ef4444':'#10b981' ?>1f;color:<?= $ctrl_anom>0?'#ef4444':'#10b981' ?>">⚠️</span><div><div class="n"><?= $ctrl_anom ?></div><div class="l">Anomalies (30j)</div></div></div>
+</div>
+
+<?php if (!empty($a_controler)): ?>
+<div class="card" style="margin-bottom:16px">
+  <div class="card-header"><span class="card-title">⏰ Équipements à contrôler</span></div>
+  <div style="display:flex;flex-wrap:wrap;gap:8px;padding:12px 16px">
+    <?php foreach ($a_controler as $ac):
+      $late = $ac['date_prochain_ctrl'] && (int)$ac['j']<0;
+      $col  = ($late || $ac['statut']==='hs') ? '#ef4444' : '#f59e0b';
+      $tag  = $ac['statut']==='hs' ? 'HS' : ($ac['statut']==='revision' ? 'Révision' : ($ac['date_prochain_ctrl'] ? ($late ? 'retard '.abs((int)$ac['j']).'j' : 'dû') : 'jamais contrôlé'));
+    ?>
+    <button type="button" class="ctl-chip" onclick="preselect(<?= $ac['id'] ?>)" style="border-color:<?= $col ?>55">
+      <?= h($ac['icone']??'⚙️') ?> <?= h($ac['nom']) ?>
+      <span style="color:<?= $col ?>;font-weight:800;font-size:.7rem">· <?= $tag ?></span>
+    </button>
+    <?php endforeach; ?>
+  </div>
+</div>
+<?php endif; ?>
+
+<div class="ctl-cols" style="display:grid;grid-template-columns:400px 1fr;gap:20px">
 
   <!-- Formulaire contrôle -->
-  <div class="card" style="padding:20px">
+  <div class="card" id="ctl-form" style="padding:20px">
     <div style="font-weight:700;font-size:.95rem;margin-bottom:16px">✅ Nouveau contrôle</div>
     <form method="post">
       <?= csrf_field() ?>
@@ -69,7 +119,7 @@ if (!nav_peut($nav_perms, 'sse')) { ob_end_clean(); accessDenied(); exit; }
         <select name="equipement_id" required style="width:100%;background:var(--glass);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px 12px">
           <option value="">— Choisir un équipement —</option>
           <?php foreach ($equipements as $eq): ?>
-          <option value="<?= $eq['id'] ?>" <?= $eq['id']===$pre_eq?'selected':'' ?>><?= h($eq['icone']??'⚙️'.' '.$eq['nom']) ?></option>
+          <option value="<?= $eq['id'] ?>" <?= $eq['id']===$pre_eq?'selected':'' ?>><?= h(($eq['icone']??'⚙️').' '.$eq['nom']) ?></option>
           <?php endforeach; ?>
         </select>
       </div>
@@ -118,7 +168,10 @@ if (!nav_peut($nav_perms, 'sse')) { ob_end_clean(); accessDenied(); exit; }
       <tbody>
       <?php foreach ($historique as $ct): ?>
       <tr style="border-bottom:1px solid var(--border)">
-        <td style="padding:10px 14px;font-weight:600;font-size:.88rem"><?= h($ct['eq_nom']) ?></td>
+        <td style="padding:10px 14px;font-size:.88rem">
+          <div style="font-weight:600"><?= h($ct['eq_nom']) ?></div>
+          <?php if (!empty($ct['notes'])): ?><div style="font-size:.72rem;color:var(--text3);margin-top:2px"><?= h(mb_substr($ct['notes'],0,70)) ?><?= mb_strlen($ct['notes'])>70?'…':'' ?></div><?php endif; ?>
+        </td>
         <td style="padding:10px 14px;font-size:.85rem"><?= date('d/m/Y H:i',strtotime($ct['date_controle'])) ?></td>
         <td style="padding:10px 14px;font-size:.85rem;color:var(--text2)"><?= h($ct['agent']) ?></td>
         <td style="padding:10px 14px">
@@ -133,4 +186,12 @@ if (!nav_peut($nav_perms, 'sse')) { ob_end_clean(); accessDenied(); exit; }
     <?php endif; ?>
   </div>
 </div>
+<script>
+function preselect(id){
+  var s=document.querySelector('[name=equipement_id]'); if(!s)return;
+  s.value=id;
+  var f=document.getElementById('ctl-form'); if(f)f.scrollIntoView({behavior:'smooth',block:'center'});
+  s.focus();
+}
+</script>
 <?php require_once '../includes/footer.php'; ?>

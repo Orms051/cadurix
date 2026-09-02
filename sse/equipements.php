@@ -46,6 +46,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $id = (int)($_POST['id'] ?? 0);
         $pdo->prepare("UPDATE sse_equipements SET actif=0 WHERE id=? AND site_id=?")->execute([$id,$site_id]);
         $success = 'Équipement archivé.';
+    } elseif ($action === 'set_statut') {
+        $id  = (int)($_POST['id'] ?? 0);
+        $new = in_array($_POST['statut'] ?? '', ['operationnel','revision','hs','reforme'], true) ? $_POST['statut'] : 'operationnel';
+        $old = $pdo->prepare("SELECT statut FROM sse_equipements WHERE id=? AND site_id=?"); $old->execute([$id,$site_id]); $old = $old->fetchColumn();
+        if ($old !== false && $old !== $new) {
+            $pdo->prepare("UPDATE sse_equipements SET statut=? WHERE id=? AND site_id=?")->execute([$new,$id,$site_id]);
+            audit_log($pdo,'SSE_EQUIPEMENT_STATUT','sse_equipements',$id,['statut'=>$old],['statut'=>$new]);
+            $success = 'Statut mis à jour.';
+        }
     }
 }
 
@@ -132,6 +141,8 @@ $sse_statuts = [
   padding:3px 10px; border-radius:20px; font-size:.72rem; font-weight:600; white-space:nowrap;
 }
 .sse-actions { display:flex; gap:4px; }
+.sse-statut-sel { padding:4px 9px; border-radius:20px; font-size:.72rem; font-weight:700; font-family:inherit; cursor:pointer; outline:none; -webkit-appearance:none; appearance:none; }
+.sse-statut-sel:hover { filter:brightness(1.04); }
 </style>
 
 <div class="page-header">
@@ -194,9 +205,14 @@ $sse_statuts = [
       <td style="font-size:.82rem;color:var(--text2)"><?= h($eq['cat_nom']??'—') ?></td>
       <td><span style="font-family:monospace;font-size:.78rem"><?= $eq['numero_serie'] ? h($eq['numero_serie']) : '—' ?></span></td>
       <td>
-        <span class="sse-badge" style="background:<?= $col ?>22;color:<?= $col ?>;border:1px solid <?= $col ?>44">
-          <?= $ico ?> <?= $lbl ?>
-        </span>
+        <form method="post" style="margin:0" title="Changer le statut">
+          <?= csrf_field() ?><input type="hidden" name="action" value="set_statut"><input type="hidden" name="id" value="<?= $eq['id'] ?>">
+          <select name="statut" onchange="this.form.submit()" class="sse-statut-sel" style="background:<?= $col ?>18;color:<?= $col ?>;border:1px solid <?= $col ?>44">
+            <?php foreach ($sse_statuts as $sk=>[$si,$sl,$scc]): ?>
+            <option value="<?= $sk ?>" <?= $eq['statut']===$sk?'selected':'' ?>><?= $si ?> <?= $sl ?></option>
+            <?php endforeach; ?>
+          </select>
+        </form>
       </td>
       <td>
         <?php if ($jours_per !== null): ?>
