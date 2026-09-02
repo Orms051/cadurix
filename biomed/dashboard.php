@@ -84,6 +84,19 @@ if (($_GET['ajax'] ?? '') === 'ia') {
     $api_key  = $pdo->query("SELECT valeur FROM ai_settings WHERE cle='api_key'")->fetchColumn();
     $model    = $pdo->query("SELECT valeur FROM ai_settings WHERE cle='model'")->fetchColumn() ?: 'claude-haiku-4-5-20251001';
     if ($ai_actif !== '1' || !$api_key) { echo json_encode(['error'=>'IA non configurée (Admin → IA).']); exit; }
+    // Coût de maintenance par équipement (réparations + contrat) + pannes + âge → rentabilité
+    $couteux = $pdo->query("
+        SELECT m.nom, m.date_mise_en_service, COALESCE(m.contrat_cout_annuel,0) AS contrat,
+               COUNT(i.id) AS nb_inter,
+               SUM(CASE WHEN i.type='reparation' THEN 1 ELSE 0 END) AS nb_pannes,
+               COALESCE(SUM(i.cout),0) AS cout_inter
+        FROM materiels m LEFT JOIN materiel_interventions i ON i.materiel_id=m.id
+        WHERE m.site_id=$site_id AND m.statut NOT IN('reforme','archive')
+        GROUP BY m.id
+        HAVING cout_inter > 0 OR contrat > 0 OR nb_pannes > 0
+        ORDER BY (cout_inter + contrat) DESC
+        LIMIT 12
+    ")->fetchAll(PDO::FETCH_ASSOC);
     $ctx  = "Module biomedical (SDIS/SSSM).\n";
     $ctx .= "Revisions a 30j : ".count($revisions)." (en retard : $nb_rev_en_retard, urgentes 7j : $nb_rev_urgentes).\n";
     $ctx .= "Demandes d'intervention en attente : $nb_demandes. Equipements HS/maintenance : $nb_alertes.\n";
@@ -91,7 +104,12 @@ if (($_GET['ajax'] ?? '') === 'ia') {
     if ($revisions){ $ctx.="Revisions a planifier :\n"; foreach(array_slice($revisions,0,8) as $r){ $j=(int)$r['jours']; $ctx.="- ".$r['mat_nom']." (".($j<0?'retard '.abs($j).'j':'J-'.$j).(!empty($r['obligatoire'])?', reglementaire':'').").\n"; } }
     if ($alertes){ $ctx.="Equipements indisponibles :\n"; foreach($alertes as $a){ $ctx.="- ".$a['nom']." (".$a['statut'].").\n"; } }
     if ($garanties){ $ctx.="Echeances garanties/contrats :\n"; foreach($garanties as $g){ $ctx.="- ".$g['nom']." (echeance ".$g['echeance'].").\n"; } }
-    $prompt = "Tu es le copilote de Cadurix, module biomedical (SDIS/SSSM). A partir des donnees ci-dessous, redige en francais un point clair et priorise : 1 phrase de synthese puis 3 a 5 actions concretes a mener en priorite (revisions a planifier, surtout reglementaires ; equipements HS a reparer ; demandes a traiter ; garanties/contrats a renouveler). Court, professionnel, sans markdown, sans rien inventer, pas de conseil medical.\n\nDONNEES :\n$ctx";
+    if ($couteux){ $ctx.="Cout de possession par equipement (le plus cher d'abord) :\n"; foreach($couteux as $m){ $age=$m['date_mise_en_service']?floor((time()-strtotime($m['date_mise_en_service']))/31536000):null; $ctx.="- ".$m['nom']." : reparations ".round($m['cout_inter'])." EUR sur ".(int)$m['nb_pannes']." panne(s), contrat ".round($m['contrat'])." EUR/an".($age!==null?", age ".$age." ans":"").".\n"; } }
+    $prompt = "Tu es le copilote de Cadurix, module biomedical (SDIS/SSSM). A partir des donnees ci-dessous, redige en francais un point clair et priorise, sans markdown, sans rien inventer, pas de conseil medical :\n"
+        . "1) 1 phrase de synthese.\n"
+        . "2) 3 a 5 actions a mener en priorite (revisions a planifier surtout reglementaires ; equipements HS a reparer ; demandes a traiter ; garanties/contrats a renouveler).\n"
+        . "3) RENTABILITE : identifie les equipements qui COUTENT TROP CHER (cout de reparations eleve, pannes repetees, contrat cher, age eleve) et indique clairement lesquels envisager de REFORMER ou REMPLACER, avec la raison chiffree. Si aucun n'est problematique, dis-le.\n\n"
+        . "DONNEES :\n$ctx";
     $is_prod = str_contains($_SERVER['HTTP_HOST'] ?? '', 'cadurix.fr');
     $ch = curl_init('https://api.anthropic.com/v1/messages');
     curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER=>true, CURLOPT_POST=>true,
@@ -221,6 +239,7 @@ require_once '../includes/header.php';
   <span class="bio-chip" onclick="bioAsk('Quelles révisions dois-je planifier en priorité ?')">📅 Révisions à planifier</span>
   <span class="bio-chip" onclick="bioAsk('Quels équipements sont hors service et à réparer ?')">🔴 Équipements à réparer</span>
   <span class="bio-chip" onclick="bioAsk('Quelles garanties ou contrats expirent bientôt ?')">🛡️ Contrats à renouveler</span>
+  <span class="bio-chip" onclick="bioIA()">💶 Équipements coûteux / à remplacer</span>
 </div>
 <div id="bio-ia-panel" style="display:none;margin-bottom:16px"></div>
 
