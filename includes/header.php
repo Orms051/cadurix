@@ -830,14 +830,16 @@ window.VAPID_PUBLIC_KEY = <?php
       <span class="nav-icon">🔄</span> Rempotage
     </a>
     <?php endif; ?>
+    <?php endif; ?>
+
+    <!-- ── Équipements : SSE / NRBC + Biomédical ── -->
+    <?php if (nav_peut($nav_perms,'sse') || nav_peut($nav_perms,'equipements') || nav_peut($nav_perms,'biomed') || (isAdmin() && module_actif('biomedical'))): ?>
+    <div class="nav-label">Équipements</div>
     <?php if (nav_peut($nav_perms,'sse')): ?>
     <a href="/sse.php" class="nav-link <?= $currentPage==='sse' ?'active':'' ?>" onclick="closeSidebar()">
       <span class="nav-icon">☣️</span> SSE / NRBC
     </a>
     <?php endif; ?>
-
-    <?php endif; ?>
-    <!-- ── Biomédical (entrée unique, la barre d'onglets gère Portail ↔ Équipements) ── -->
     <?php if (nav_peut($nav_perms,'equipements') || nav_peut($nav_perms,'biomed') || (isAdmin() && module_actif('biomedical'))):
       $bioHref   = nav_peut($nav_perms,'biomed') ? '/biomed/dashboard.php' : '/materiel.php';
       $bioActive = str_contains($_SERVER['PHP_SELF'],'biomed') || ($currentPage==='materiel' && !str_contains($_SERVER['PHP_SELF'],'admin'));
@@ -849,6 +851,7 @@ window.VAPID_PUBLIC_KEY = <?php
         if ($nb_hs > 0): ?><span class="nav-badge" style="background:#ef4444"><?= $nb_hs ?></span><?php endif;
       } catch(Exception $e) {} ?>
     </a>
+    <?php endif; ?>
     <?php endif; ?>
     <!-- ── IA — accessible via widget flottant uniquement ── -->
     <!-- ── Messagerie ── -->
