@@ -96,8 +96,6 @@ if (!nav_peut($nav_perms, 'sse')) { ob_end_clean(); accessDenied(); exit; }
     <div class="page-sub">Gestion des équipements et consommables de protection</div>
   </div>
   <div class="page-actions">
-    <a href="/sse/equipements.php" class="btn btn-sm btn-ghost">⚙️ Équipements</a>
-    <a href="/sse/consommables.php" class="btn btn-sm btn-ghost">📦 Consommables</a>
     <a href="/sse/controles.php" class="btn btn-sm btn-primary">✅ Nouveau contrôle</a>
   </div>
 </div>
