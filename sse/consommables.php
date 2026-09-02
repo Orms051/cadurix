@@ -156,31 +156,17 @@ if (!nav_peut($nav_perms, 'sse')) { ob_end_clean(); accessDenied(); exit; }
   </div>
 </div>
 
+<?php $sse_active = 'consommables'; include __DIR__.'/_nav.php'; ?>
+
 <?php if ($success): ?><div class="flash flash-success">✅ <?= h($success) ?></div><?php endif; ?>
 <?php if ($error):   ?><div class="flash flash-error">⚠️ <?= h($error) ?></div><?php endif; ?>
 
 <!-- KPIs -->
-<div class="grid-4" style="margin-bottom:20px">
-  <div class="kpi-card" style="border-top:3px solid #10b981">
-    <div class="kpi-label">Total</div>
-    <div class="kpi-value" style="color:#10b981"><?= $nb_total ?></div>
-    <div class="kpi-foot">Produits actifs</div>
-  </div>
-  <div class="kpi-card" style="border-top:3px solid <?= $nb_perimes>0?'#9ca3af':'#10b981' ?>">
-    <div class="kpi-label">Périmés</div>
-    <div class="kpi-value" style="color:<?= $nb_perimes>0?'#9ca3af':'var(--text3)' ?>"><?= $nb_perimes ?></div>
-    <div class="kpi-foot">À retirer</div>
-  </div>
-  <div class="kpi-card" style="border-top:3px solid <?= $nb_alerte>0?'#f59e0b':'#10b981' ?>">
-    <div class="kpi-label">Alertes</div>
-    <div class="kpi-value" style="color:<?= $nb_alerte>0?'#f59e0b':'#10b981' ?>"><?= $nb_alerte ?></div>
-    <div class="kpi-foot">30j ou stock bas</div>
-  </div>
-  <div class="kpi-card" style="border-top:3px solid <?= $nb_stock>0?'#ef4444':'#10b981' ?>">
-    <div class="kpi-label">Stock bas</div>
-    <div class="kpi-value" style="color:<?= $nb_stock>0?'#ef4444':'#10b981' ?>"><?= $nb_stock ?></div>
-    <div class="kpi-foot">Sous le minimum</div>
-  </div>
+<div class="sse-ck">
+  <div class="sse-ck-card" style="--kc:#10b981"><span class="ic" style="background:#10b9811f;color:#10b981">📦</span><div><div class="n" style="color:#10b981"><?= $nb_total ?></div><div class="l">Total</div><div class="f">Produits actifs</div></div></div>
+  <div class="sse-ck-card" style="--kc:<?= $nb_perimes>0?'#ef4444':'#10b981' ?>"><span class="ic" style="background:<?= $nb_perimes>0?'#ef4444':'#10b981' ?>1f;color:<?= $nb_perimes>0?'#ef4444':'#10b981' ?>">💀</span><div><div class="n" style="color:<?= $nb_perimes>0?'#ef4444':'#10b981' ?>"><?= $nb_perimes ?></div><div class="l">Périmés</div><div class="f">À retirer</div></div></div>
+  <div class="sse-ck-card" style="--kc:<?= $nb_alerte>0?'#f59e0b':'#10b981' ?>"><span class="ic" style="background:<?= $nb_alerte>0?'#f59e0b':'#10b981' ?>1f;color:<?= $nb_alerte>0?'#f59e0b':'#10b981' ?>">⚠️</span><div><div class="n" style="color:<?= $nb_alerte>0?'#f59e0b':'#10b981' ?>"><?= $nb_alerte ?></div><div class="l">Alertes</div><div class="f">30j ou stock bas</div></div></div>
+  <div class="sse-ck-card" style="--kc:<?= $nb_stock>0?'#ef4444':'#10b981' ?>"><span class="ic" style="background:<?= $nb_stock>0?'#ef4444':'#10b981' ?>1f;color:<?= $nb_stock>0?'#ef4444':'#10b981' ?>">📉</span><div><div class="n" style="color:<?= $nb_stock>0?'#ef4444':'#10b981' ?>"><?= $nb_stock ?></div><div class="l">Stock bas</div><div class="f">Sous le minimum</div></div></div>
 </div>
 
 <div class="conso-layout">

@@ -88,9 +88,6 @@ if (!nav_peut($nav_perms, 'sse')) { ob_end_clean(); accessDenied(); exit; }
 .sse-badge.warning { background:rgba(245,158,11,.15); color:#fbbf24; }
 .sse-badge.ok      { background:rgba(16,185,129,.15); color:#34d399; }
 .sse-badge.info    { background:rgba(99,102,241,.15);  color:#818cf8; }
-.sse-nav { display:flex; gap:8px; margin-bottom:20px; flex-wrap:wrap; }
-.sse-nav a { padding:8px 16px; border-radius:8px; font-size:.88rem; font-weight:600; text-decoration:none; background:var(--glass); border:1px solid var(--border); color:var(--text2); transition:.15s; }
-.sse-nav a:hover, .sse-nav a.active { background:var(--primary); border-color:var(--primary); color:white; }
 </style>
 
 <div class="page-header">
@@ -105,14 +102,8 @@ if (!nav_peut($nav_perms, 'sse')) { ob_end_clean(); accessDenied(); exit; }
   </div>
 </div>
 
-<!-- Navigation rapide -->
-<div class="sse-nav">
-  <a href="/sse.php" class="active">📊 Dashboard</a>
-  <a href="/sse/equipements.php">⚙️ Équipements (<?= $kpi['eq_total'] ?>)</a>
-  <a href="/sse/consommables.php">📦 Consommables (<?= $kpi['conso_total'] ?>)</a>
-  <a href="/sse/controles.php">📋 Contrôles</a>
-  <a href="/sse/categories.php">🏷️ Catégories</a>
-</div>
+<!-- Navigation rapide SSE -->
+<?php $sse_active = 'dashboard'; include __DIR__.'/sse/_nav.php'; ?>
 
 <!-- KPIs -->
 <div class="sse-kpi">
