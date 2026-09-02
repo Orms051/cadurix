@@ -67,9 +67,46 @@ $activite = $pdo->query("
     ORDER BY al.cree_le DESC LIMIT 15
 ")->fetchAll(PDO::FETCH_ASSOC);
 
+$SAG_ACT = [
+  'CREATION_PRODUIT'=>['➕','#10b981'],'MODIF_PRODUIT'=>['✏️','#3b82f6'],'MODIF_PEREMPTION'=>['📅','#f59e0b'],
+  'RETRAIT_PRODUIT'=>['🗑️','#ef4444'],'SUPPRESSION_PRODUIT'=>['❌','#ef4444'],'ARCHIVAGE_PRODUIT'=>['📦','#94a3b8'],
+  'RENOUVELLEMENT_LOT'=>['♻️','#10b981'],'REMPOTAGE'=>['🔄','#10b981'],
+  'CREATION_EMPLACEMENT'=>['📍','#10b981'],'MODIF_EMPLACEMENT'=>['📍','#3b82f6'],
+  'CREATION_MATERIEL'=>['🩺','#10b981'],'MODIF_MATERIEL'=>['🩺','#3b82f6'],'INTERVENTION_MATERIEL'=>['🔧','#f59e0b'],
+  'CONNEXION_REUSSIE'=>['🔑','#94a3b8'],'DECONNEXION'=>['🚪','#94a3b8'],'FICHE_VALIDEE'=>['📋','#10b981'],
+];
 require_once 'includes/header.php';
 ?>
-
+<style>
+.sag-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:22px}
+.sag-kpi{position:relative;display:flex;align-items:center;gap:12px;background:var(--bg2);border:1px solid var(--border);border-radius:13px;padding:12px 15px;overflow:hidden;box-shadow:0 1px 2px rgba(20,30,60,.04)}
+.sag-kpi::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--kc,var(--primary))}
+.sag-kpi .ic{width:36px;height:36px;border-radius:10px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:1.05rem}
+.sag-kpi .n{font-size:1.5rem;font-weight:800;line-height:1;font-variant-numeric:tabular-nums}
+.sag-kpi .l{font-size:.68rem;color:var(--text3);font-weight:700;text-transform:uppercase;letter-spacing:.04em;margin-top:3px}
+.sag-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px}
+.sag-card{background:var(--bg2);border:1px solid var(--border);border-radius:16px;overflow:hidden;box-shadow:0 1px 2px rgba(20,30,60,.04)}
+.sag-card-h{display:flex;align-items:center;gap:9px;padding:13px 16px;border-bottom:1px solid var(--border);font-weight:800;font-size:.9rem}
+.sag-row{display:flex;align-items:center;gap:12px;padding:10px 16px;border-top:1px solid var(--border)}
+.sag-row:first-of-type{border-top:none}
+.sag-row .nm{font-weight:700;font-size:.86rem}
+.sag-row .sub{font-size:.74rem;color:var(--text3);margin-top:1px}
+.sag-badges{margin-left:auto;display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+.sag-b{padding:2px 9px;border-radius:20px;font-size:.72rem;font-weight:700}
+.sag-b.red{background:rgba(239,68,68,.14);color:#ef4444}.sag-b.amb{background:rgba(245,158,11,.16);color:#b4700a}
+.sag-tl{display:flex;flex-direction:column}
+.sag-tl .ev{display:flex;align-items:center;gap:11px;padding:9px 16px;border-top:1px solid var(--border)}
+.sag-tl .ev:first-child{border-top:none}
+.sag-tl .evic{width:30px;height:30px;border-radius:9px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:.9rem}
+.sag-tl .tt{flex:1;min-width:0;font-size:.83rem;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sag-tl .mt{font-size:.72rem;color:var(--text3);white-space:nowrap;flex-shrink:0}
+.sag-tbl{width:100%;border-collapse:collapse}
+.sag-tbl th{padding:8px 14px;text-align:left;font-size:.66rem;color:var(--text3);text-transform:uppercase;letter-spacing:.05em;font-weight:800;background:var(--bg3);border-bottom:1px solid var(--border)}
+.sag-tbl td{padding:9px 14px;border-bottom:1px solid var(--border);font-size:.85rem}
+.sag-tbl tr:last-child td{border-bottom:none}
+@media(max-width:800px){.sag-grid{grid-template-columns:1fr}.sag-tl .mt{display:none}}
+</style>
+<div class="sag">
 <div class="page-header">
   <div class="page-title-group">
     <div class="page-title">🌐 Vue globale — Super Admin</div>
@@ -144,78 +181,56 @@ document.getElementById('modal-rapport').addEventListener('click', function(e) {
 </script>
 
 <!-- KPIs globaux -->
-<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px;margin-bottom:24px">
+<div class="sag-kpis">
   <?php foreach ([
-    ['🏢', $total_sites,  'Sites actifs',    'ok'],
-    ['👥', $total_users,  'Utilisateurs',    'ok'],
-    ['💊', $total_prod,   'Produits',        'ok'],
-    ['💀', $total_perime, 'Périmés',         $total_perime>0?'danger':'ok'],
-    ['⚠️', $total_crit,   'Critiques (7j)',  $total_crit>0?'warning':'ok'],
-    ['🔄', $total_remp,   'Rempotages/mois', 'ok'],
-  ] as [$ico,$val,$lbl,$type]): ?>
-  <div style="background:var(--bg2);border:1px solid <?= $type==='danger'?'rgba(239,68,68,.4)':($type==='warning'?'rgba(245,158,11,.4)':'var(--border)') ?>;border-radius:12px;padding:16px;text-align:center">
-    <div style="font-size:1.5rem;margin-bottom:4px"><?= $ico ?></div>
-    <div style="font-size:1.8rem;font-weight:800;color:<?= $type==='danger'?'#f87171':($type==='warning'?'#fbbf24':'var(--text)') ?>"><?= $val ?></div>
-    <div style="font-size:.72rem;color:var(--text3);text-transform:uppercase;letter-spacing:.05em"><?= $lbl ?></div>
+    ['🏢', $total_sites,  'Sites actifs',    '#3b82f6'],
+    ['👥', $total_users,  'Utilisateurs',    '#8b5cf6'],
+    ['💊', $total_prod,   'Produits',        '#3b82f6'],
+    ['💀', $total_perime, 'Périmés',         $total_perime>0?'#ef4444':'#10b981'],
+    ['⚠️', $total_crit,   'Critiques (7j)',  $total_crit>0?'#f59e0b':'#10b981'],
+    ['🔄', $total_remp,   'Rempotages/mois', '#10b981'],
+    ['🤖', number_format($cout_ia,2).'€', 'Coût IA/mois', '#8b5cf6'],
+  ] as [$ico,$val,$lbl,$c]): ?>
+  <div class="sag-kpi" style="--kc:<?= $c ?>">
+    <span class="ic" style="background:<?= $c ?>1f;color:<?= $c ?>"><?= $ico ?></span>
+    <div><div class="n" style="color:<?= $c ?>"><?= $val ?></div><div class="l"><?= $lbl ?></div></div>
   </div>
   <?php endforeach; ?>
-  <div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:16px;text-align:center">
-    <div style="font-size:1.5rem;margin-bottom:4px">🤖</div>
-    <div style="font-size:1.8rem;font-weight:800"><?= number_format($cout_ia,2) ?>€</div>
-    <div style="font-size:.72rem;color:var(--text3);text-transform:uppercase;letter-spacing:.05em">Coût IA/mois</div>
-  </div>
 </div>
 
-<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px">
+<div class="sag-grid">
 
   <!-- Sites critiques -->
-  <div class="card">
-    <div class="card-header"><span class="card-title">🚨 Sites les plus critiques</span></div>
+  <div class="sag-card">
+    <div class="sag-card-h">🚨 Sites les plus critiques</div>
     <?php if (empty($sites_crit)): ?>
     <div style="text-align:center;padding:2rem;color:var(--text3)">✅ Aucun site critique</div>
-    <?php else: ?>
-    <?php foreach ($sites_crit as $s): ?>
-    <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 16px;border-bottom:1px solid var(--border)">
+    <?php else: foreach ($sites_crit as $s): ?>
+    <div class="sag-row">
       <div>
-        <div style="font-weight:600;font-size:.88rem"><?= htmlspecialchars($s['nom']) ?></div>
-        <div style="font-size:.75rem;color:var(--text3)"><?= htmlspecialchars($s['org_nom']) ?></div>
+        <div class="nm"><?= htmlspecialchars($s['nom']) ?></div>
+        <div class="sub"><?= htmlspecialchars($s['org_nom']) ?><?= $s['inactifs']>0 ? ' · '.$s['inactifs'].' inactif'.($s['inactifs']>1?'s':'').' 30j' : '' ?></div>
       </div>
-      <div style="display:flex;gap:6px">
-        <?php if ($s['perime']>0): ?>
-        <span style="background:rgba(239,68,68,.15);color:#f87171;padding:2px 8px;border-radius:20px;font-size:.75rem;font-weight:600"><?= $s['perime'] ?> périmés</span>
-        <?php endif; ?>
-        <?php if ($s['critique']>0): ?>
-        <span style="background:rgba(245,158,11,.15);color:#fbbf24;padding:2px 8px;border-radius:20px;font-size:.75rem;font-weight:600"><?= $s['critique'] ?> critiques</span>
-        <?php endif; ?>
+      <div class="sag-badges">
+        <?php if ($s['perime']>0): ?><span class="sag-b red"><?= $s['perime'] ?> périmés</span><?php endif; ?>
+        <?php if ($s['critique']>0): ?><span class="sag-b amb"><?= $s['critique'] ?> &lt; 7j</span><?php endif; ?>
       </div>
     </div>
-    <?php endforeach; ?>
-    <?php endif; ?>
+    <?php endforeach; endif; ?>
   </div>
 
   <!-- Par organisation -->
-  <div class="card">
-    <div class="card-header"><span class="card-title">🏢 Par organisation</span></div>
-    <table style="width:100%;border-collapse:collapse">
-      <thead><tr style="border-bottom:1px solid var(--border)">
-        <th style="padding:8px 14px;text-align:left;font-size:.72rem;color:var(--text3);text-transform:uppercase">Organisation</th>
-        <th style="padding:8px 14px;text-align:center;font-size:.72rem;color:var(--text3);text-transform:uppercase">Sites</th>
-        <th style="padding:8px 14px;text-align:center;font-size:.72rem;color:var(--text3);text-transform:uppercase">Prod.</th>
-        <th style="padding:8px 14px;text-align:center;font-size:.72rem;color:var(--text3);text-transform:uppercase">Périmés</th>
-      </tr></thead>
+  <div class="sag-card">
+    <div class="sag-card-h">🏢 Par organisation</div>
+    <table class="sag-tbl">
+      <thead><tr><th>Organisation</th><th style="text-align:center">Sites</th><th style="text-align:center">Prod.</th><th style="text-align:center">Périmés</th></tr></thead>
       <tbody>
       <?php foreach ($orgs as $org): ?>
-      <tr style="border-bottom:1px solid var(--border)">
-        <td style="padding:8px 14px;font-weight:600;font-size:.88rem"><?= htmlspecialchars($org['nom']) ?></td>
-        <td style="padding:8px 14px;text-align:center;font-size:.85rem"><?= $org['nb_sites'] ?></td>
-        <td style="padding:8px 14px;text-align:center;font-size:.85rem"><?= $org['nb_prod'] ?></td>
-        <td style="padding:8px 14px;text-align:center">
-          <?php if ($org['nb_perime']>0): ?>
-          <span style="background:rgba(239,68,68,.15);color:#f87171;padding:2px 8px;border-radius:20px;font-size:.75rem;font-weight:600"><?= $org['nb_perime'] ?></span>
-          <?php else: ?>
-          <span style="color:#34d399;font-size:.85rem">✅</span>
-          <?php endif; ?>
-        </td>
+      <tr>
+        <td style="font-weight:700"><?= htmlspecialchars($org['nom']) ?></td>
+        <td style="text-align:center"><?= $org['nb_sites'] ?></td>
+        <td style="text-align:center"><?= $org['nb_prod'] ?></td>
+        <td style="text-align:center"><?php if ($org['nb_perime']>0): ?><span class="sag-b red"><?= $org['nb_perime'] ?></span><?php else: ?><span style="color:#10b981">✅</span><?php endif; ?></td>
       </tr>
       <?php endforeach; ?>
       </tbody>
@@ -224,26 +239,21 @@ document.getElementById('modal-rapport').addEventListener('click', function(e) {
 </div>
 
 <!-- Activité récente globale -->
-<div class="card">
-  <div class="card-header"><span class="card-title">📋 Activité récente — tous sites</span></div>
-  <table style="width:100%;border-collapse:collapse">
-    <thead><tr style="border-bottom:1px solid var(--border)">
-      <th style="padding:8px 14px;text-align:left;font-size:.72rem;color:var(--text3);text-transform:uppercase">Action</th>
-      <th style="padding:8px 14px;text-align:left;font-size:.72rem;color:var(--text3);text-transform:uppercase">Agent</th>
-      <th style="padding:8px 14px;text-align:left;font-size:.72rem;color:var(--text3);text-transform:uppercase">Site</th>
-      <th style="padding:8px 14px;text-align:left;font-size:.72rem;color:var(--text3);text-transform:uppercase">Date</th>
-    </tr></thead>
-    <tbody>
-    <?php foreach ($activite as $a): ?>
-    <tr style="border-bottom:1px solid var(--border)">
-      <td style="padding:8px 14px;font-size:.85rem;font-weight:600"><?= htmlspecialchars($a['action']) ?><?php if ($a['table_cible']): ?> <span style="font-size:.75rem;color:var(--text3);font-weight:400">(<?= htmlspecialchars($a['table_cible']) ?>)</span><?php endif; ?></td>
-      <td style="padding:8px 14px;font-size:.82rem;color:var(--text2)"><?= htmlspecialchars($a['user_nom'] ?? '—') ?></td>
-      <td style="padding:8px 14px;font-size:.82rem;color:var(--text2)"><?= htmlspecialchars($a['site_nom'] ?? 'Global') ?></td>
-      <td style="padding:8px 14px;font-size:.8rem;color:var(--text3)"><?= date('d/m H:i', strtotime($a['cree_le'])) ?></td>
-    </tr>
-    <?php endforeach; ?>
-    </tbody>
-  </table>
+<div class="sag-card">
+  <div class="sag-card-h">📋 Activité récente — tous sites</div>
+  <div class="sag-tl">
+    <?php if (empty($activite)): ?>
+    <div style="text-align:center;padding:2rem;color:var(--text3)">Aucune activité récente.</div>
+    <?php else: foreach ($activite as $a): $m = $SAG_ACT[$a['action']] ?? ['•','#64748b']; $lbl = ucfirst(strtolower(str_replace('_',' ',$a['action']))); ?>
+    <div class="ev">
+      <span class="evic" style="background:<?= $m[1] ?>1f;color:<?= $m[1] ?>"><?= $m[0] ?></span>
+      <span class="tt"><?= htmlspecialchars($lbl) ?><?php if ($a['table_cible']): ?> <span style="color:var(--text3);font-weight:500;font-size:.74rem">(<?= htmlspecialchars($a['table_cible']) ?>)</span><?php endif; ?></span>
+      <span class="mt"><?= htmlspecialchars($a['user_nom'] ?? '—') ?> · <?= htmlspecialchars($a['site_nom'] ?? 'Global') ?> · <?= date('d/m H:i', strtotime($a['cree_le'])) ?></span>
+    </div>
+    <?php endforeach; endif; ?>
+  </div>
 </div>
+
+</div><!-- /.sag -->
 
 <?php require_once 'includes/footer.php'; ?>
