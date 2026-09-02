@@ -36,7 +36,10 @@ try {
     require_once $BASE . '/config/db.php';
     require_once $BASE . '/config/permissions.php';
     require_once $BASE . '/config/modules.php';
-    $api_key = $pdo->query("SELECT valeur FROM parametres WHERE cle='anthropic_api_key' LIMIT 1")->fetchColumn();
+    // Source unique de la clé/modèle : ai_settings (repli parametres pour compat).
+    $api_key = $pdo->query("SELECT valeur FROM ai_settings WHERE cle='api_key'")->fetchColumn();
+    if (!$api_key) { try { $api_key = $pdo->query("SELECT valeur FROM parametres WHERE cle='anthropic_api_key' LIMIT 1")->fetchColumn(); } catch (Throwable $e) {} }
+    $model = $pdo->query("SELECT valeur FROM ai_settings WHERE cle='model'")->fetchColumn() ?: 'claude-haiku-4-5-20251001';
 } catch (Exception $e) {
     die(json_encode(['ok' => false, 'error' => 'BDD : ' . $e->getMessage()]));
 }
@@ -53,7 +56,7 @@ if (!$api_key) {
 
 // Appel Claude Haiku
 $payload = json_encode([
-    'model'      => 'claude-haiku-4-5-20251001',
+    'model'      => $model ?? 'claude-haiku-4-5-20251001',
     'max_tokens' => 200,
     'messages'   => [['role' => 'user', 'content' => $prompt]],
 ]);
