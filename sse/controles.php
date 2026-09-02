@@ -82,7 +82,7 @@ if (!nav_peut($nav_perms, 'sse')) { ob_end_clean(); accessDenied(); exit; }
 </style>
 <div class="page-header">
   <div class="page-title-group"><div class="page-title">📋 Contrôles SSE / NRBC</div></div>
-  <div class="page-actions"><a href="/sse.php" class="btn btn-sm btn-ghost">← Dashboard</a></div>
+  <div class="page-actions"></div>
 </div>
 <?php $sse_active = 'controles'; include __DIR__.'/_nav.php'; ?>
 <?php if ($success): ?><div class="flash flash-success">✅ <?= h($success) ?></div><?php endif; ?>
