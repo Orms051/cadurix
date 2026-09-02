@@ -726,10 +726,10 @@ $nbTodo = count($todo);
       <button class="ai-refresh" onclick="dbxCopilote('')">🤖 Analyse IA</button>
     </div>
     <div class="ai-chips">
-      <span class="ai-chip" onclick="dbxCopilote('Que dois-je commander en priorité ?')">📦 Que commander ?</span>
-      <span class="ai-chip" onclick="dbxCopilote('Quels sacs sont à compléter ?')">🎒 Sacs à compléter</span>
-      <span class="ai-chip" onclick="dbxCopilote('Quels produits périment bientôt ?')">💀 Périmés à venir</span>
-      <?php if ($dbStup): ?><span class="ai-chip" onclick="dbxCopilote('Fais le point sur le coffre à stupéfiants')">🔒 État du coffre</span><?php endif; ?>
+      <span class="ai-chip" onclick="dbxAsk('Que dois-je commander en priorité ?')">📦 Que commander ?</span>
+      <span class="ai-chip" onclick="dbxAsk('Quels sacs sont à compléter ?')">🎒 Sacs à compléter</span>
+      <span class="ai-chip" onclick="dbxAsk('Quels produits périment bientôt ?')">💀 Périmés à venir</span>
+      <?php if ($dbStup): ?><span class="ai-chip" onclick="dbxAsk('Fais le point sur le coffre à stupéfiants')">🔒 État du coffre</span><?php endif; ?>
     </div>
     <div class="ai-body">
       <div class="ai-txt" id="dbx-ai-txt" style="font-weight:700;color:var(--text)"><?= $salut ?> <?= h($prenomU) ?>, voici l'essentiel aujourd'hui :</div>
@@ -740,7 +740,7 @@ $nbTodo = count($todo);
         <?php if (!$aiIns): ?><li class="b"><span class="dd">✅</span><span class="ix">Rien d'urgent — tout est en ordre aujourd'hui.</span></li><?php endif; ?>
       </ul>
       <div class="ai-thread" id="dbx-ai-thread"></div>
-      <div class="ai-ask"><input id="dbx-ai-input" placeholder="Pose une question sur ton stock, tes sacs, tes péremptions…" onkeydown="if(event.key==='Enter')dbxAsk()"><button onclick="dbxAsk()">Demander</button></div>
+      <div class="ai-ask"><input id="dbx-ai-input" placeholder="Pose une question — l'assistant répond et peut agir (avec ta confirmation)…" onkeydown="if(event.key==='Enter')dbxAsk()"><button onclick="dbxAsk()">Demander</button></div>
     </div>
   </div>
   <?php endif; ?>
@@ -963,12 +963,18 @@ $nbTodo = count($todo);
       .then(function(r){return r.json();}).then(function(d){ if(d.ok){box.style.color='var(--text2)';box.textContent=d.texte;}else{box.style.color='var(--rd)';box.textContent=d.error||'Erreur';} })
       .catch(function(){ box.style.color='var(--rd)'; box.textContent='Erreur réseau.'; });
   };
-  window.dbxAsk=function(){
-    var i=document.getElementById('dbx-ai-input'); var q=(i.value||'').trim(); if(!q)return;
+  window.dbxAsk=function(preset){
+    var i=document.getElementById('dbx-ai-input');
+    var q=((preset!=null?preset:(i?i.value:''))||'').trim(); if(!q)return;
+    // Unifié : si l'assistant complet est présent (outils + actions confirmées), on lui délègue.
+    if(window.MedAI && typeof MedAI.open==='function' && typeof MedAI.send==='function'){
+      if(i)i.value=''; MedAI.open(); setTimeout(function(){ MedAI.send(q); },150); return;
+    }
+    // Repli : conversation inline via l'endpoint résumé (assistant indisponible).
     var th=document.getElementById('dbx-ai-thread');
     th.insertAdjacentHTML('beforeend','<div class="msg u"><span class="av">🧑</span><div class="bub">'+esc(q)+'</div></div>');
     var think=document.createElement('div'); think.className='msg a'; think.innerHTML='<span class="av">🤖</span><div class="bub dots"><i></i><i></i><i></i></div>'; th.appendChild(think);
-    i.value='';
+    if(i)i.value='';
     var body='q='+encodeURIComponent(q)+'&csrf_token='+encodeURIComponent(CSRF);
     fetch('dashboard.php?ajax=copilote',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded','X-CSRF-Token':CSRF},body:body})
       .then(function(r){return r.json();}).then(function(d){ think.innerHTML='<span class="av">🤖</span><div class="bub">'+(d.ok?esc(d.texte):('⚠️ '+esc(d.error||'Erreur')))+'</div>'; think.scrollIntoView({block:'nearest'}); })
