@@ -178,10 +178,12 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'scan_photo') {
         if (!$scan_actif) { echo json_encode(['error' => 'Reconnaissance photo désactivée.']); exit; }
     } catch (Exception $e) {}
 
-    // Récupérer clé API
+    // Récupérer clé API + modèle configuré (Admin → IA)
     $api_key = '';
+    $scan_model = 'claude-haiku-4-5-20251001';
     try {
         $api_key = $pdo->query("SELECT valeur FROM ai_settings WHERE cle='api_key'")->fetchColumn();
+        $scan_model = $pdo->query("SELECT valeur FROM ai_settings WHERE cle='model'")->fetchColumn() ?: $scan_model;
     } catch (Exception $e) {}
     if (!$api_key) { echo json_encode(['error' => 'Clé API non configurée.']); exit; }
 
@@ -214,7 +216,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'scan_photo') {
 Si une information nest pas lisible ou absente, mets null. Pour la date, convertis au format YYYY-MM-DD.';
 
     $payload = [
-        'model'      => 'claude-haiku-4-5-20251001',
+        'model'      => $scan_model,
         'max_tokens' => 500,
         'messages'   => [[
             'role'    => 'user',
@@ -243,8 +245,8 @@ Si une information nest pas lisible ou absente, mets null. Pour la date, convert
             'anthropic-version: 2023-06-01',
         ],
         CURLOPT_TIMEOUT        => 30,
-        CURLOPT_SSL_VERIFYPEER => false,
-        CURLOPT_SSL_VERIFYHOST => false,
+        CURLOPT_SSL_VERIFYPEER => str_contains($_SERVER['HTTP_HOST'] ?? '', 'cadurix.fr'),
+        CURLOPT_SSL_VERIFYHOST => str_contains($_SERVER['HTTP_HOST'] ?? '', 'cadurix.fr') ? 2 : 0,
     ]);
 
     $response = curl_exec($ch);
