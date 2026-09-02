@@ -202,6 +202,8 @@ require_once 'includes/header.php';
   </div>
 </div>
 
+<?php $bio_active = 'equipements'; include __DIR__.'/biomed/_nav.php'; ?>
+
 <!-- KPIs -->
 <div class="grid-4" style="margin-bottom:1.25rem">
   <div class="kpi-card" style="border-top:3px solid #10b981">

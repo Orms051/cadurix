@@ -139,10 +139,11 @@ require_once '../includes/header.php';
     <div class="page-sub">Bonjour <?= h(trim(($_SESSION['user_prenom']??'').' '.($_SESSION['user_nom']??''))) ?> — <?= date('d/m/Y') ?></div>
   </div>
   <div style="display:flex;gap:8px">
-    <a href="../materiel.php" class="btn btn-ghost btn-sm">📋 Tous les équipements</a>
     <a href="../materiel_intervention.php" class="btn btn-primary btn-sm">🔧 Nouvelle intervention</a>
   </div>
 </div>
+
+<?php $bio_active = 'portail'; include __DIR__.'/_nav.php'; ?>
 
 <!-- KPIs du jour -->
 <div class="bio-kpis">
