@@ -837,23 +837,18 @@ window.VAPID_PUBLIC_KEY = <?php
     <?php endif; ?>
 
     <?php endif; ?>
-    <!-- ── Biomédical ── -->
-    <?php if (nav_peut($nav_perms,'equipements') || nav_peut($nav_perms,'biomed') || (isAdmin() && module_actif('biomedical'))): ?>
-    <div class="nav-label">Biomédical</div>
-    <?php if (nav_peut($nav_perms,'equipements')): ?>
-    <a href="/materiel.php" class="nav-link <?= $currentPage==='materiel' && !str_contains($_SERVER['PHP_SELF'],'admin') ?'active':'' ?>" onclick="closeSidebar()">
-      <span class="nav-icon">🔧</span> Équipements
+    <!-- ── Biomédical (entrée unique, la barre d'onglets gère Portail ↔ Équipements) ── -->
+    <?php if (nav_peut($nav_perms,'equipements') || nav_peut($nav_perms,'biomed') || (isAdmin() && module_actif('biomedical'))):
+      $bioHref   = nav_peut($nav_perms,'biomed') ? '/biomed/dashboard.php' : '/materiel.php';
+      $bioActive = str_contains($_SERVER['PHP_SELF'],'biomed') || ($currentPage==='materiel' && !str_contains($_SERVER['PHP_SELF'],'admin'));
+    ?>
+    <a href="<?= $bioHref ?>" class="nav-link <?= $bioActive?'active':'' ?>" onclick="closeSidebar()">
+      <span class="nav-icon">🔧</span> Biomédical
       <?php try {
         $nb_hs = (int)$pdo->query("SELECT COUNT(*) FROM materiels WHERE site_id=".intval(site_actif())." AND statut='hors_service'")->fetchColumn();
         if ($nb_hs > 0): ?><span class="nav-badge" style="background:#ef4444"><?= $nb_hs ?></span><?php endif;
       } catch(Exception $e) {} ?>
     </a>
-    <?php endif; ?>
-    <?php if (nav_peut($nav_perms,'biomed')): ?>
-    <a href="/biomed/dashboard.php" class="nav-link <?= str_contains($_SERVER['PHP_SELF'],'biomed') ?'active':'' ?>" onclick="closeSidebar()">
-      <span class="nav-icon">👨‍🔬</span> Portail biomédical
-    </a>
-    <?php endif; ?>
     <?php endif; ?>
     <!-- ── IA — accessible via widget flottant uniquement ── -->
     <!-- ── Messagerie ── -->
