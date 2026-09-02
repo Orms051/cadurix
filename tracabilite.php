@@ -265,11 +265,13 @@ if ($vue === 'activite') {
 require_once 'includes/header.php';
 ?>
 <style>
-/* ── Stats ── */
-.tr-stats { display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-bottom:24px; }
-.tr-stat  { background:var(--bg2); border:1px solid var(--border); border-radius:12px; padding:16px; text-align:center; }
-.tr-stat-n{ font-size:1.8rem; font-weight:800; line-height:1.1; }
-.tr-stat-l{ font-size:.72rem; text-transform:uppercase; letter-spacing:.06em; color:var(--text3); margin-top:4px; }
+/* ── Stats (compactes, style dashboard) ── */
+.tr-stats { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:20px; }
+.tr-stat  { display:flex; align-items:center; gap:12px; background:var(--bg2); border:1px solid var(--border); border-radius:13px; padding:12px 15px; position:relative; overflow:hidden; box-shadow:0 1px 2px rgba(20,30,60,.04); }
+.tr-stat::before { content:""; position:absolute; left:0; top:0; bottom:0; width:3px; background:var(--sc,var(--primary)); }
+.tr-stat .ic { width:34px; height:34px; border-radius:10px; flex-shrink:0; display:flex; align-items:center; justify-content:center; font-size:1rem; }
+.tr-stat-n{ font-size:1.5rem; font-weight:800; line-height:1; font-variant-numeric:tabular-nums; }
+.tr-stat-l{ font-size:.68rem; text-transform:uppercase; letter-spacing:.05em; color:var(--text3); margin-top:3px; }
 
 /* ── Rappels ── */
 .rappel-banner { background:rgba(239,68,68,.08); border:1px solid rgba(239,68,68,.3); border-radius:12px; padding:14px 18px; margin-bottom:20px; }
@@ -388,21 +390,21 @@ require_once 'includes/header.php';
 
 <!-- Stats -->
 <div class="tr-stats">
-  <div class="tr-stat">
-    <div class="tr-stat-n"><?= $total_row ?></div>
-    <div class="tr-stat-l">Entrées tracées</div>
+  <div class="tr-stat" style="--sc:#3b82f6">
+    <span class="ic" style="background:#3b82f61f;color:#3b82f6">📦</span>
+    <div><div class="tr-stat-n"><?= $total_row ?></div><div class="tr-stat-l">Entrées tracées</div></div>
   </div>
-  <div class="tr-stat" style="background:rgba(239,68,68,.06);border-color:rgba(239,68,68,.25)">
-    <div class="tr-stat-n" style="color:#f87171"><?= $stats['expires'] ?></div>
-    <div class="tr-stat-l">⏰ Périmés</div>
+  <div class="tr-stat" style="--sc:#ef4444">
+    <span class="ic" style="background:#ef44441f;color:#ef4444">⏰</span>
+    <div><div class="tr-stat-n" style="color:#ef4444"><?= (int)$stats['expires'] ?></div><div class="tr-stat-l">Périmés</div></div>
   </div>
-  <div class="tr-stat" style="background:rgba(245,158,11,.06);border-color:rgba(245,158,11,.25)">
-    <div class="tr-stat-n" style="color:#fbbf24"><?= $stats['bientot'] ?></div>
-    <div class="tr-stat-l">⚠️ Expirent &lt; 30j</div>
+  <div class="tr-stat" style="--sc:#f59e0b">
+    <span class="ic" style="background:#f59e0b1f;color:#f59e0b">⚠️</span>
+    <div><div class="tr-stat-n" style="color:#f59e0b"><?= (int)$stats['bientot'] ?></div><div class="tr-stat-l">Expirent &lt; 30j</div></div>
   </div>
-  <div class="tr-stat" style="background:rgba(239,68,68,.06);border-color:rgba(239,68,68,.25)">
-    <div class="tr-stat-n" style="color:#f87171"><?= count($rappels) ?></div>
-    <div class="tr-stat-l">🚨 Rappels actifs</div>
+  <div class="tr-stat" style="--sc:<?= count($rappels)>0?'#ef4444':'#10b981' ?>">
+    <span class="ic" style="background:<?= count($rappels)>0?'#ef4444':'#10b981' ?>1f;color:<?= count($rappels)>0?'#ef4444':'#10b981' ?>">🚨</span>
+    <div><div class="tr-stat-n" style="color:<?= count($rappels)>0?'#ef4444':'#10b981' ?>"><?= count($rappels) ?></div><div class="tr-stat-l">Rappels actifs</div></div>
   </div>
 </div>
 
@@ -452,13 +454,14 @@ require_once 'includes/header.php';
     $type_colors = ['Médicament'=>'#ef4444','SSE/NRBC'=>'#8b5cf6','Matériel'=>'#3b82f6'];
     $tc = $type_colors[$r['type_label']] ?? '#64748b';
   ?>
+  <?php $sevcol = $expire ? '#ef4444' : ($bientot ? '#f59e0b' : 'transparent'); ?>
   <tr class="<?= $is_rappel?'rappel-row':'' ?>">
-    <td>
+    <td style="box-shadow:inset 3px 0 0 <?= $sevcol ?>">
       <span class="lot-badge <?= $is_rappel?'danger':'' ?>"><?= h($r['lot']) ?></span>
       <?php if ($is_rappel): ?><span style="font-size:.7rem;color:#f87171;display:block;margin-top:2px">🚨 Rappel actif</span><?php endif; ?>
     </td>
     <td>
-      <div style="font-weight:600"><?= h($r['nom']) ?></div>
+      <a href="?vue=activite&q=<?= urlencode($r['nom']) ?>" title="Voir l'historique de ce produit" style="font-weight:600;color:var(--text);text-decoration:none;border-bottom:1px dotted var(--border2)"><?= h($r['nom']) ?></a>
     </td>
     <td>
       <span class="type-pill" style="background:<?= $tc ?>18;color:<?= $tc ?>;border:1px solid <?= $tc ?>33">
