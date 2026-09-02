@@ -27,7 +27,7 @@ $types=['equipement'=>'⚙️ Équipement','consommable'=>'📦 Consommable','ap
 ?>
 <div class="page-header">
   <div class="page-title-group"><div class="page-title">🏷️ Catégories SSE / NRBC</div></div>
-  <div class="page-actions"><a href="/sse.php" class="btn btn-sm btn-ghost">← Dashboard</a><button onclick="document.getElementById('modal-add').style.display='flex'" class="btn btn-sm btn-primary">+ Ajouter</button></div>
+  <div class="page-actions"><button onclick="document.getElementById('modal-add').style.display='flex'" class="btn btn-sm btn-primary">+ Ajouter</button></div>
 </div>
 <?php $sse_active = 'categories'; include __DIR__.'/_nav.php'; ?>
 <?php if ($success): ?><div class="flash flash-success">✅ <?= h($success) ?></div><?php endif; ?>

@@ -39,12 +39,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
     } elseif ($action === 'delete') {
-        $pdo->prepare("UPDATE sse_consommables SET statut='retire' WHERE id=? AND site_id=?")->execute([(int)$_POST['id'],$site_id]);
+        $did = (int)$_POST['id'];
+        $dold = $pdo->prepare("SELECT nom,quantite FROM sse_consommables WHERE id=? AND site_id=?"); $dold->execute([$did,$site_id]); $dold=$dold->fetch(PDO::FETCH_ASSOC);
+        $pdo->prepare("UPDATE sse_consommables SET statut='retire' WHERE id=? AND site_id=?")->execute([$did,$site_id]);
+        if ($dold) audit_log($pdo,'SSE_CONSO_RETRAIT','sse_consommables',$did,$dold,['statut'=>'retire']);
         $success = 'Consommable retiré.';
     } elseif ($action === 'adjust_qty') {
         $id  = (int)($_POST['id']??0);
         $qty = max(0,(int)($_POST['quantite']??0));
-        $pdo->prepare("UPDATE sse_consommables SET quantite=?,modifie_le=NOW() WHERE id=? AND site_id=?")->execute([$qty,$id,$site_id]);
+        $old = $pdo->prepare("SELECT quantite,nom FROM sse_consommables WHERE id=? AND site_id=?"); $old->execute([$id,$site_id]); $old=$old->fetch(PDO::FETCH_ASSOC);
+        if ($old) {
+            $pdo->prepare("UPDATE sse_consommables SET quantite=?,modifie_le=NOW() WHERE id=? AND site_id=?")->execute([$qty,$id,$site_id]);
+            audit_log($pdo,'SSE_CONSO_QTE','sse_consommables',$id,['quantite'=>$old['quantite'],'nom'=>$old['nom']],['quantite'=>$qty]);
+        }
         header('Content-Type: application/json');
         echo json_encode(['ok'=>true,'qty'=>$qty]); exit;
     }
@@ -151,7 +158,6 @@ if (!nav_peut($nav_perms, 'sse')) { ob_end_clean(); accessDenied(); exit; }
     <div class="page-sub"><?= $nb_total ?> produit(s) actif(s)</div>
   </div>
   <div class="page-actions">
-    <a href="/sse.php" class="btn btn-sm btn-ghost">← Dashboard</a>
     <a href="/sse/export.php?type=consommables" class="btn btn-sm btn-ghost">⬇️ Export</a>
     <button onclick="document.getElementById('modal-add').style.display='flex'" class="btn btn-sm btn-primary">+ Ajouter</button>
   </div>
