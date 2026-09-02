@@ -77,13 +77,12 @@ require_once 'includes/header.php';
 if (!nav_peut($nav_perms, 'sse')) { ob_end_clean(); accessDenied(); exit; }
 ?>
 <style>
-.sse-kpi { display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:14px; margin-bottom:24px; }
-.sse-kpi-card { background:var(--bg2); border:1px solid var(--border); border-radius:12px; padding:16px; text-align:center; }
-.sse-kpi-card.danger  { border-color:rgba(239,68,68,.4); background:rgba(239,68,68,.06); }
-.sse-kpi-card.warning { border-color:rgba(245,158,11,.4); background:rgba(245,158,11,.06); }
-.sse-kpi-card.ok      { border-color:rgba(16,185,129,.4); background:rgba(16,185,129,.06); }
-.sse-kpi-num  { font-size:2rem; font-weight:800; line-height:1; }
-.sse-kpi-label{ font-size:.72rem; color:var(--text3); margin-top:4px; text-transform:uppercase; letter-spacing:.05em; }
+.sse-kpi { display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:12px; margin-bottom:22px; }
+.sse-kpi-card { position:relative; display:flex; align-items:center; gap:12px; background:var(--bg2); border:1px solid var(--border); border-radius:13px; padding:12px 15px; overflow:hidden; box-shadow:0 1px 2px rgba(20,30,60,.04); }
+.sse-kpi-card::before { content:""; position:absolute; left:0; top:0; bottom:0; width:3px; background:var(--kc,var(--primary)); }
+.sse-kpi-card .ic { width:36px; height:36px; border-radius:10px; flex-shrink:0; display:flex; align-items:center; justify-content:center; font-size:1.05rem; }
+.sse-kpi-num  { font-size:1.5rem; font-weight:800; line-height:1; font-variant-numeric:tabular-nums; }
+.sse-kpi-label{ font-size:.68rem; color:var(--text3); margin-top:3px; text-transform:uppercase; letter-spacing:.04em; font-weight:700; }
 .sse-badge { display:inline-block; padding:2px 10px; border-radius:20px; font-size:.72rem; font-weight:600; }
 .sse-badge.danger  { background:rgba(239,68,68,.15); color:#f87171; }
 .sse-badge.warning { background:rgba(245,158,11,.15); color:#fbbf24; }
@@ -117,32 +116,25 @@ if (!nav_peut($nav_perms, 'sse')) { ob_end_clean(); accessDenied(); exit; }
 
 <!-- KPIs -->
 <div class="sse-kpi">
-  <div class="sse-kpi-card <?= $kpi['eq_hs']>0?'danger':($kpi['eq_ctrl_due']>0?'warning':'ok') ?>">
-    <div class="sse-kpi-num" style="color:<?= $kpi['eq_hs']>0?'#f87171':($kpi['eq_ctrl_due']>0?'#fbbf24':'#34d399') ?>"><?= $kpi['eq_total'] ?></div>
-    <div class="sse-kpi-label">Équipements</div>
-    <?php if ($kpi['eq_hs']>0): ?><div class="sse-badge danger"><?= $kpi['eq_hs'] ?> HS</div><?php endif; ?>
+  <?php
+  $ssekpis = [
+    ['⚙️', $kpi['eq_total'],      'Équipements',   $kpi['eq_hs']>0?'#ef4444':($kpi['eq_ctrl_due']>0?'#f59e0b':'#10b981'), $kpi['eq_hs']>0 ? ['danger', $kpi['eq_hs'].' HS'] : null],
+    ['💀', $kpi['eq_perime'],     'Équip. périmés', $kpi['eq_perime']>0?'#ef4444':'#10b981', null],
+    ['✅', $kpi['eq_ctrl_due'],   'Contrôles dus', $kpi['eq_ctrl_due']>0?'#f59e0b':'#10b981', null],
+    ['📦', $kpi['conso_total'],   'Consommables',  $kpi['conso_perime']>0?'#ef4444':($kpi['conso_critique']>0?'#f59e0b':'#10b981'), $kpi['conso_perime']>0 ? ['danger', $kpi['conso_perime'].' périmés'] : null],
+    ['📉', $kpi['stock_bas'],     'Stock bas',     $kpi['stock_bas']>0?'#f59e0b':'#10b981', null],
+    ['⚠️', $kpi['conso_critique'],'Expire < 30j',  $kpi['conso_critique']>0?'#f59e0b':'#10b981', null],
+  ];
+  foreach ($ssekpis as [$ic,$val,$lbl,$c,$badge]): ?>
+  <div class="sse-kpi-card" style="--kc:<?= $c ?>">
+    <span class="ic" style="background:<?= $c ?>1f;color:<?= $c ?>"><?= $ic ?></span>
+    <div style="min-width:0">
+      <div class="sse-kpi-num" style="color:<?= $c ?>"><?= $val ?></div>
+      <div class="sse-kpi-label"><?= $lbl ?></div>
+      <?php if ($badge): ?><div class="sse-badge <?= $badge[0] ?>" style="margin-top:4px"><?= $badge[1] ?></div><?php endif; ?>
+    </div>
   </div>
-  <div class="sse-kpi-card <?= $kpi['eq_perime']>0?'danger':'ok' ?>">
-    <div class="sse-kpi-num" style="color:<?= $kpi['eq_perime']>0?'#f87171':'#34d399' ?>"><?= $kpi['eq_perime'] ?></div>
-    <div class="sse-kpi-label">Équip. périmés</div>
-  </div>
-  <div class="sse-kpi-card <?= $kpi['eq_ctrl_due']>0?'warning':'ok' ?>">
-    <div class="sse-kpi-num" style="color:<?= $kpi['eq_ctrl_due']>0?'#fbbf24':'#34d399' ?>"><?= $kpi['eq_ctrl_due'] ?></div>
-    <div class="sse-kpi-label">Contrôles dus</div>
-  </div>
-  <div class="sse-kpi-card <?= $kpi['conso_perime']>0?'danger':($kpi['conso_critique']>0?'warning':'ok') ?>">
-    <div class="sse-kpi-num" style="color:<?= $kpi['conso_perime']>0?'#f87171':($kpi['conso_critique']>0?'#fbbf24':'#34d399') ?>"><?= $kpi['conso_total'] ?></div>
-    <div class="sse-kpi-label">Consommables</div>
-    <?php if ($kpi['conso_perime']>0): ?><div class="sse-badge danger"><?= $kpi['conso_perime'] ?> périmés</div><?php endif; ?>
-  </div>
-  <div class="sse-kpi-card <?= $kpi['stock_bas']>0?'warning':'ok' ?>">
-    <div class="sse-kpi-num" style="color:<?= $kpi['stock_bas']>0?'#fbbf24':'#34d399' ?>"><?= $kpi['stock_bas'] ?></div>
-    <div class="sse-kpi-label">Stock bas</div>
-  </div>
-  <div class="sse-kpi-card <?= $kpi['conso_critique']>0?'warning':'ok' ?>">
-    <div class="sse-kpi-num" style="color:<?= $kpi['conso_critique']>0?'#fbbf24':'#34d399' ?>"><?= $kpi['conso_critique'] ?></div>
-    <div class="sse-kpi-label">Expire &lt; 30j</div>
-  </div>
+  <?php endforeach; ?>
 </div>
 
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
