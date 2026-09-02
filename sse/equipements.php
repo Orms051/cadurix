@@ -157,6 +157,8 @@ $sse_statuts = [
   </div>
 </div>
 
+<?php $sse_active = 'equipements'; include __DIR__.'/_nav.php'; ?>
+
 <?php if ($success): ?><div class="flash flash-success">✅ <?= h($success) ?></div><?php endif; ?>
 <?php if ($error):   ?><div class="flash flash-error">⚠️ <?= h($error) ?></div><?php endif; ?>
 
