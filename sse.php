@@ -71,6 +71,34 @@ $stmt_ctrl = $pdo->prepare("
 $stmt_ctrl->execute([$site_id]);
 $derniers_controles = $stmt_ctrl->fetchAll(PDO::FETCH_ASSOC);
 
+// ── Analyse IA de l'état SSE ──
+if (($_GET['ajax'] ?? '') === 'ia') {
+    if (function_exists('ob_get_level')) { while (ob_get_level()) ob_end_clean(); }
+    header('Content-Type: application/json');
+    if (!function_exists('csrf_verifier') || !csrf_verifier()) { echo json_encode(['error'=>'Session expirée, recharge la page.']); exit; }
+    $ai_actif = $pdo->query("SELECT valeur FROM ai_settings WHERE cle='actif'")->fetchColumn();
+    $api_key  = $pdo->query("SELECT valeur FROM ai_settings WHERE cle='api_key'")->fetchColumn();
+    $model    = $pdo->query("SELECT valeur FROM ai_settings WHERE cle='model'")->fetchColumn() ?: 'claude-haiku-4-5-20251001';
+    if ($ai_actif !== '1' || !$api_key) { echo json_encode(['error'=>'IA non configurée (Admin → IA).']); exit; }
+    $ctx  = "Module SSE / NRBC.\n";
+    $ctx .= "Equipements : {$kpi['eq_total']} (HS/revision : {$kpi['eq_hs']}, perimes : {$kpi['eq_perime']}, controles dus : {$kpi['eq_ctrl_due']}).\n";
+    $ctx .= "Consommables : {$kpi['conso_total']} (perimes : {$kpi['conso_perime']}, sous 30j/stock bas : {$kpi['conso_critique']}, stock bas : {$kpi['stock_bas']}).\n";
+    if ($equipements_alerte) { $ctx .= "Equipements en alerte :\n"; foreach ($equipements_alerte as $e){ $ctx .= "- ".$e['nom']." (statut ".$e['statut'].($e['date_prochain_ctrl']?", ctrl ".$e['date_prochain_ctrl']:'').($e['date_peremption']?", per ".$e['date_peremption']:'').").\n"; } }
+    if ($consommables_alerte) { $ctx .= "Consommables en alerte :\n"; foreach ($consommables_alerte as $c){ $low=($c['quantite_min']>0 && $c['quantite']<=$c['quantite_min']); $ctx .= "- ".$c['nom']." (qte ".$c['quantite']."/".$c['quantite_min'].($low?" STOCK BAS":'').($c['date_peremption']?", per ".$c['date_peremption']:'').").\n"; } }
+    $prompt = "Tu es le copilote de Cadurix (materiel medical SDIS/SSSM), module SSE/NRBC. A partir des donnees ci-dessous, redige en francais un point clair et priorise : 1 phrase de synthese puis 3 a 5 actions concretes a mener en priorite (controles a faire, equipements HS a traiter, consommables a remplacer ou reapprovisionner). Court, professionnel, sans markdown, sans rien inventer, pas de conseil medical.\n\nDONNEES :\n$ctx";
+    $is_prod = str_contains($_SERVER['HTTP_HOST'] ?? '', 'cadurix.fr');
+    $ch = curl_init('https://api.anthropic.com/v1/messages');
+    curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER=>true, CURLOPT_POST=>true,
+        CURLOPT_POSTFIELDS=>json_encode(['model'=>$model,'max_tokens'=>500,'messages'=>[['role'=>'user','content'=>$prompt]]]),
+        CURLOPT_HTTPHEADER=>['Content-Type: application/json','x-api-key: '.$api_key,'anthropic-version: 2023-06-01'],
+        CURLOPT_TIMEOUT=>40, CURLOPT_SSL_VERIFYPEER=>$is_prod, CURLOPT_SSL_VERIFYHOST=>$is_prod?2:0]);
+    $resp=curl_exec($ch); $http=curl_getinfo($ch,CURLINFO_HTTP_CODE); $cerr=curl_error($ch); curl_close($ch);
+    if ($resp===false||$cerr){ echo json_encode(['error'=>"Reseau IA : $cerr"]); exit; }
+    $jr=json_decode($resp,true);
+    if ($http!==200||empty($jr['content'][0]['text'])){ echo json_encode(['error'=>($jr['error']['message']??"Erreur IA HTTP $http")]); exit; }
+    echo json_encode(['ok'=>true,'texte'=>$jr['content'][0]['text']], JSON_UNESCAPED_UNICODE); exit;
+}
+
 require_once 'includes/header.php';
 
 // Check permission après header.php — $nav_perms et nav_peut() sont maintenant disponibles
@@ -88,6 +116,10 @@ if (!nav_peut($nav_perms, 'sse')) { ob_end_clean(); accessDenied(); exit; }
 .sse-badge.warning { background:rgba(245,158,11,.15); color:#fbbf24; }
 .sse-badge.ok      { background:rgba(16,185,129,.15); color:#34d399; }
 .sse-badge.info    { background:rgba(99,102,241,.15);  color:#818cf8; }
+.sse-ia{border:1px solid var(--border);border-radius:14px;background:linear-gradient(135deg,rgba(59,130,246,.09),rgba(139,92,246,.07)),var(--bg2);padding:16px 18px}
+.sse-ia-h{display:flex;align-items:center;gap:10px;font-size:.95rem;margin-bottom:8px}
+.sse-ia-orb{width:34px;height:34px;border-radius:10px;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#3b82f6,#8b5cf6);font-size:1rem}
+.sse-ia-b{font-size:.87rem;color:var(--text2);line-height:1.6;white-space:pre-wrap}
 </style>
 
 <div class="page-header">
@@ -125,6 +157,12 @@ if (!nav_peut($nav_perms, 'sse')) { ob_end_clean(); accessDenied(); exit; }
   </div>
   <?php endforeach; ?>
 </div>
+
+<!-- Analyse IA -->
+<div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
+  <button type="button" id="sse-ia-btn" onclick="sseIA()" class="btn" style="background:linear-gradient(135deg,#3b82f6,#8b5cf6);color:#fff;border:none">🤖 Analyser l'état (IA)</button>
+</div>
+<div id="sse-ia-panel" style="display:none;margin-bottom:16px"></div>
 
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
 
@@ -240,4 +278,18 @@ if (!nav_peut($nav_perms, 'sse')) { ob_end_clean(); accessDenied(); exit; }
 
 </div>
 
+<script>
+var SSE_CSRF = <?= json_encode(function_exists('csrf_token') ? csrf_token() : '') ?>;
+function sseIA(){
+  var b=document.getElementById('sse-ia-btn'), p=document.getElementById('sse-ia-panel');
+  if(!p)return;
+  p.style.display='block';
+  p.innerHTML='<div class="sse-ia"><div class="sse-ia-h"><span class="sse-ia-orb">🤖</span><b>Analyse de l\'état SSE</b></div><div class="sse-ia-b">⏳ Analyse en cours…</div></div>';
+  if(b)b.disabled=true;
+  fetch('sse.php?ajax=ia',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded','X-CSRF-Token':SSE_CSRF},body:'csrf_token='+encodeURIComponent(SSE_CSRF)})
+    .then(function(r){return r.json();})
+    .then(function(d){ if(b)b.disabled=false; var x=p.querySelector('.sse-ia-b'); if(d.ok){x.textContent=d.texte;}else{x.innerHTML='<span style="color:#ef4444">⚠️ '+(d.error||'Erreur')+'</span>';} })
+    .catch(function(){ if(b)b.disabled=false; var x=p.querySelector('.sse-ia-b'); if(x)x.innerHTML='<span style="color:#ef4444">⚠️ Erreur réseau.</span>'; });
+}
+</script>
 <?php require_once 'includes/footer.php'; ?>
