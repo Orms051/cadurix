@@ -37,7 +37,10 @@ $types=['equipement'=>'⚙️ Équipement','consommable'=>'📦 Consommable','ap
     <span style="font-size:2rem"><?= $cat['icone'] ?></span>
     <div><div style="font-weight:700"><?= h($cat['nom']) ?></div><div style="font-size:.75rem;color:var(--text3)"><?= $types[$cat['type']]??$cat['type'] ?></div></div>
   </div>
-  <div style="font-size:.78rem;color:var(--text2);margin-bottom:10px"><?= $cat['nb_eq'] ?> équip. · <?= $cat['nb_cs'] ?> conso.</div>
+  <div style="font-size:.78rem;margin-bottom:10px;display:flex;gap:12px">
+    <a href="/sse/equipements.php?categorie=<?= $cat['id'] ?>" style="color:var(--text2);text-decoration:none" title="Voir les équipements"><b style="color:var(--text)"><?= $cat['nb_eq'] ?></b> équip.</a>
+    <a href="/sse/consommables.php?cat=<?= $cat['id'] ?>" style="color:var(--text2);text-decoration:none" title="Voir les consommables"><b style="color:var(--text)"><?= $cat['nb_cs'] ?></b> conso.</a>
+  </div>
   <div style="display:flex;gap:6px">
     <a href="?edit=<?= $cat['id'] ?>" class="btn btn-xs btn-ghost" style="flex:1;text-align:center">✏️</a>
     <form method="post" style="display:inline" onsubmit="return confirm('Archiver ?')"><input type="hidden" name="action" value="delete"><input type="hidden" name="id" value="<?= $cat['id'] ?>"><?= csrf_field() ?><button type="submit" style="padding:2px 8px;border-radius:6px;background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3);color:#f87171;cursor:pointer;font-size:.78rem">🗑️</button></form>
