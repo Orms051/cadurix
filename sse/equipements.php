@@ -153,7 +153,7 @@ $sse_statuts = [
   <div class="page-actions">
     <a href="/sse/export.php?type=equipements" class="btn btn-sm btn-ghost">⬇️ Export</a>
     <a href="/qrcodes.php?type=sse" class="btn btn-sm btn-ghost">🏷️ QR Codes</a>
-    <button onclick="document.getElementById('modal-add').style.display='flex'" class="btn btn-sm btn-primary">+ Ajouter</button>
+    <button onclick="document.getElementById('modal-add').classList.add('open')" class="btn btn-sm btn-primary">+ Ajouter</button>
   </div>
 </div>
 
@@ -256,11 +256,11 @@ $sse_statuts = [
 <?php endif; ?>
 
 <!-- Modal ajout/édition -->
-<div id="modal-add" style="display:<?= $edit?'flex':'none' ?>;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9999;align-items:center;justify-content:center" onclick="if(event.target===this)this.style.display='none'">
+<div id="modal-add" class="ui-modal<?= $edit?' open':'' ?>" onclick="if(event.target===this)this.classList.remove('open')">
   <div style="background:var(--bg2);border:1px solid var(--border);border-radius:16px;padding:28px;width:90%;max-width:640px;max-height:90vh;overflow-y:auto">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
       <div style="font-size:1.1rem;font-weight:700">⚙️ <?= $edit?'Modifier':'Ajouter' ?> un équipement</div>
-      <button onclick="document.getElementById('modal-add').style.display='none'" style="background:none;border:none;font-size:1.2rem;cursor:pointer;color:var(--text2)">✕</button>
+      <button onclick="document.getElementById('modal-add').classList.remove('open')" style="background:none;border:none;font-size:1.2rem;cursor:pointer;color:var(--text2)">✕</button>
     </div>
     <form method="post">
       <?= csrf_field() ?>
@@ -323,7 +323,7 @@ $sse_statuts = [
       </div>
       <div style="display:flex;gap:8px;margin-top:16px">
         <button type="submit" class="btn btn-primary">💾 Enregistrer</button>
-        <button type="button" onclick="document.getElementById('modal-add').style.display='none'" class="btn btn-ghost">Annuler</button>
+        <button type="button" onclick="document.getElementById('modal-add').classList.remove('open')" class="btn btn-ghost">Annuler</button>
       </div>
     </form>
   </div>

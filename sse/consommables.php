@@ -159,7 +159,7 @@ if (!nav_peut($nav_perms, 'sse')) { ob_end_clean(); accessDenied(); exit; }
   </div>
   <div class="page-actions">
     <a href="/sse/export.php?type=consommables" class="btn btn-sm btn-ghost">⬇️ Export</a>
-    <button onclick="document.getElementById('modal-add').style.display='flex'" class="btn btn-sm btn-primary">+ Ajouter</button>
+    <button onclick="document.getElementById('modal-add').classList.add('open')" class="btn btn-sm btn-primary">+ Ajouter</button>
   </div>
 </div>
 
@@ -290,11 +290,11 @@ if (!nav_peut($nav_perms, 'sse')) { ob_end_clean(); accessDenied(); exit; }
 </div>
 
 <!-- Modal -->
-<div id="modal-add" style="display:<?= $edit?'flex':'none' ?>;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9999;align-items:center;justify-content:center" onclick="if(event.target===this)this.style.display='none'">
+<div id="modal-add" class="ui-modal<?= $edit?' open':'' ?>" onclick="if(event.target===this)this.classList.remove('open')">
   <div style="background:var(--bg2);border:1px solid var(--border);border-radius:16px;padding:28px;width:90%;max-width:600px;max-height:90vh;overflow-y:auto">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
       <b style="font-size:1.05rem">📦 <?= $edit?'Modifier':'Ajouter' ?> un consommable</b>
-      <button onclick="document.getElementById('modal-add').style.display='none'" style="background:none;border:none;font-size:1.2rem;cursor:pointer;color:var(--text2)">✕</button>
+      <button onclick="document.getElementById('modal-add').classList.remove('open')" style="background:none;border:none;font-size:1.2rem;cursor:pointer;color:var(--text2)">✕</button>
     </div>
     <form method="post">
       <?= csrf_field() ?><input type="hidden" name="action" value="save"><input type="hidden" name="id" value="<?= $edit['id']??0 ?>">
@@ -319,7 +319,7 @@ if (!nav_peut($nav_perms, 'sse')) { ob_end_clean(); accessDenied(); exit; }
       </div>
       <div style="display:flex;gap:8px;margin-top:16px">
         <button type="submit" class="btn btn-primary">💾 Enregistrer</button>
-        <button type="button" onclick="document.getElementById('modal-add').style.display='none'" class="btn btn-ghost">Annuler</button>
+        <button type="button" onclick="document.getElementById('modal-add').classList.remove('open')" class="btn btn-ghost">Annuler</button>
       </div>
     </form>
   </div>
