@@ -9,6 +9,8 @@ if (isset($_SESSION['user_id'])) {
     header('Location: https://' . $_SERVER['HTTP_HOST'] . '/dashboard.php');
     exit;
 }
+// Jeton anti-CSRF du login (auto-suffisant, basé session — page publique sans auth.php)
+if (empty($_SESSION['login_csrf'])) { $_SESSION['login_csrf'] = bin2hex(random_bytes(16)); }
 
 // ============================================================
 //  Fonctions anti brute-force (auth.php non inclus ici — page publique)
@@ -44,6 +46,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!empty($_POST['website'])) {
         sleep(2); // Ralentir les bots
         $error = 'Identifiants incorrects.';
+        goto end_login;
+    }
+    // Anti-CSRF : le jeton du formulaire doit correspondre à celui de la session
+    if (!hash_equals($_SESSION['login_csrf'] ?? '', (string)($_POST['_lcsrf'] ?? ''))) {
+        $error = 'Session expirée — rechargez la page et réessayez.';
         goto end_login;
     }
     security_middleware($pdo); // Sous-système sécurité : IP bannie + lockdown + anti-injection SQL
@@ -667,6 +674,7 @@ form.fade-up, form.fade-up * {
 
       <!-- Honeypot anti-bot (champ caché, doit rester vide) -->
       <input type="text" name="website" style="display:none" tabindex="-1" autocomplete="off">
+      <input type="hidden" name="_lcsrf" value="<?= htmlspecialchars($_SESSION['login_csrf'] ?? '', ENT_QUOTES) ?>">
 
       <div class="form-group">
         <label class="form-label" for="login">Identifiant</label>

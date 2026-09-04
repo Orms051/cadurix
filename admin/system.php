@@ -190,9 +190,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                   . "<p>Ce message confirme que la configuration email fonctionne correctement.</p>"
                   . "<p style='color:#6B7280;font-size:13px;'>Envoyé le " . date('d/m/Y à H:i') . "</p>"
                   . "</div>";
-            $ok = mail($dest, "✅ Cadurix — Test de configuration mail", $html,
-                "MIME-Version: 1.0\r\nContent-type: text/html; charset=UTF-8\r\nFrom: Cadurix <" . ($settings['mail_from'] ?? 'noreply@cadurix.fr') . ">");
-            $message = $ok ? "Mail de test envoyé à $dest." : "Échec de l'envoi. Vérifiez la config mail du serveur.";
+            require_once __DIR__ . '/../includes/mailer.php';
+            if (function_exists('cadurix_send_mail')) {
+                $ok = cadurix_send_mail($pdo, $dest, '', "✅ Cadurix — Test de configuration mail", $html, 'test');
+            } else {
+                $ok = mail($dest, "✅ Cadurix — Test de configuration mail", $html,
+                    "MIME-Version: 1.0\r\nContent-type: text/html; charset=UTF-8\r\nFrom: Cadurix <" . ($settings['mail_from'] ?? 'noreply@cadurix.fr') . ">");
+            }
+            $message = $ok ? "Mail de test envoyé à $dest (via SMTP)." : "Échec de l'envoi. Vérifiez la config mail (Admin → Emails).";
         } else {
             $erreur = "Email invalide.";
         }
