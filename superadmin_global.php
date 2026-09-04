@@ -43,14 +43,17 @@ $orgs = $pdo->query("
 ")->fetchAll(PDO::FETCH_ASSOC);
 
 // Sites les plus critiques
+// (enveloppé dans une sous-requête : filtre en WHERE sur les alias → 100% portable MySQL/MariaDB)
 $sites_crit = $pdo->query("
-    SELECT s.id, s.nom, o.nom AS org_nom,
-           (SELECT COUNT(*) FROM produits p JOIN emplacements e ON e.id=p.emplacement_id WHERE e.site_id=s.id AND p.statut='actif' AND p.date_peremption<CURDATE()) AS perime,
-           (SELECT COUNT(*) FROM produits p JOIN emplacements e ON e.id=p.emplacement_id WHERE e.site_id=s.id AND p.statut='actif' AND DATEDIFF(p.date_peremption,CURDATE()) BETWEEN 0 AND 7) AS critique,
-           (SELECT COUNT(*) FROM utilisateurs u JOIN user_site_permissions usp ON usp.user_id=u.id WHERE usp.site_id=s.id AND u.derniere_connexion < DATE_SUB(NOW(), INTERVAL 30 DAY)) AS inactifs
-    FROM sites s JOIN organisations o ON o.id=s.organisation_id
-    WHERE s.actif=1
-    HAVING (perime+critique) > 0
+    SELECT * FROM (
+        SELECT s.id, s.nom, o.nom AS org_nom,
+               (SELECT COUNT(*) FROM produits p JOIN emplacements e ON e.id=p.emplacement_id WHERE e.site_id=s.id AND p.statut='actif' AND p.date_peremption<CURDATE()) AS perime,
+               (SELECT COUNT(*) FROM produits p JOIN emplacements e ON e.id=p.emplacement_id WHERE e.site_id=s.id AND p.statut='actif' AND DATEDIFF(p.date_peremption,CURDATE()) BETWEEN 0 AND 7) AS critique,
+               (SELECT COUNT(*) FROM utilisateurs u JOIN user_site_permissions usp ON usp.user_id=u.id WHERE usp.site_id=s.id AND u.derniere_connexion < DATE_SUB(NOW(), INTERVAL 30 DAY)) AS inactifs
+        FROM sites s JOIN organisations o ON o.id=s.organisation_id
+        WHERE s.actif=1
+    ) t
+    WHERE (perime + critique) > 0
     ORDER BY perime DESC, critique DESC
     LIMIT 10
 ")->fetchAll(PDO::FETCH_ASSOC);

@@ -7,7 +7,6 @@ require_once __DIR__ . '/scanner/barcode_lookup.php';
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     header('Content-Type: application/json');
     $site_id_ajax = site_actif();
-    if (function_exists('app_log')) app_log('DEBUG','[ajax] site_id='.$site_id_ajax.' action='.($_POST['action']??'?'),__FILE__,__LINE__);
     if (($_GET['ajax'] ?? '') === 'search') {
         $q = trim($_GET['q'] ?? '');
         if (strlen($q) < 2) { echo '[]'; exit; }
@@ -19,7 +18,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     try {
         switch ($_POST['action']) {
             case 'save_intervention':
-                if (function_exists('app_log')) app_log('DEBUG','[save_intervention] début',__FILE__,__LINE__,'',['lignes_raw'=>substr($_POST['lignes']??'',0,200)]);
                 if (!canEdit()) { echo json_encode(['ok'=>false,'error'=>'Droits insuffisants']); exit; }
                 $lignes = json_decode($_POST['lignes'] ?? '[]', true);
                 $ref    = trim($_POST['reference'] ?? '');

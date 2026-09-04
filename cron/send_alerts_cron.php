@@ -49,8 +49,20 @@ foreach ($sites as $site) {
     $warning  = $pdo->query($base . "DATEDIFF(p.date_peremption,CURDATE()) BETWEEN 8 AND " . $seuil . " ORDER BY p.date_peremption")->fetchAll(PDO::FETCH_ASSOC);
     $lowstock = $pdo->query($base . "p.quantite_min>0 AND p.quantite<=p.quantite_min ORDER BY p.nom")->fetchAll(PDO::FETCH_ASSOC);
 
+    // Rappel stupéfiants : coffre non contrôlé depuis > 30 j (ou jamais), si solde > 0
+    $stupNote = '';
+    try {
+        $solde = (float)$pdo->query("SELECT COALESCE(SUM(p.quantite),0) FROM produits p JOIN emplacements e ON e.id=p.emplacement_id WHERE p.stupefiant=1 AND e.type='coffre' AND e.site_id=$sid")->fetchColumn();
+        if ($solde > 0) {
+            $last = $pdo->query("SELECT MAX(sc.cree_le) FROM stupefiants_controles sc JOIN produits p ON p.id=sc.produit_id JOIN emplacements e ON e.id=p.emplacement_id WHERE e.type='coffre' AND e.site_id=$sid")->fetchColumn();
+            $days = $last ? floor((time() - strtotime($last)) / 86400) : null;
+            if ($days === null)  $stupNote = "🔒 Le coffre à stupéfiants n'a jamais été contrôlé — contrôle recommandé.";
+            elseif ($days > 30)  $stupNote = "🔒 Le coffre à stupéfiants n'a pas été contrôlé depuis " . (int)$days . " jours — contrôle recommandé.";
+        }
+    } catch (\Throwable $e) {}
+
     $total = count($expired) + count($critical) + count($warning) + count($lowstock);
-    if ($total === 0) { cron_log("Site $sid (" . $site['nom'] . ") : rien a signaler."); continue; }
+    if ($total === 0 && $stupNote === '') { cron_log("Site $sid (" . $site['nom'] . ") : rien a signaler."); continue; }
 
     // Destinataires : utilisateurs actifs du site avec un email
     $ds = $pdo->prepare("
@@ -67,7 +79,7 @@ foreach ($sites as $site) {
 
     $include = ['expired', 'critical', 'warning', 'lowstock'];
     $subject = '🔔 Alertes Cadurix — ' . $site['nom'] . ' — ' . date('d/m/Y');
-    $html = buildAlertEmail($site['nom'], date('d/m/Y'), '', $include, $expired, $critical, $warning, $lowstock);
+    $html = buildAlertEmail($site['nom'], date('d/m/Y'), $stupNote, $include, $expired, $critical, $warning, $lowstock);
 
     $ok_site = 0;
     foreach ($dest as $u) {
