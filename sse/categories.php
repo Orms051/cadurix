@@ -27,7 +27,7 @@ $types=['equipement'=>'⚙️ Équipement','consommable'=>'📦 Consommable','ap
 ?>
 <div class="page-header">
   <div class="page-title-group"><div class="page-title">🏷️ Catégories SSE / NRBC</div></div>
-  <div class="page-actions"><button onclick="document.getElementById('modal-add').style.display='flex'" class="btn btn-sm btn-primary">+ Ajouter</button></div>
+  <div class="page-actions"><button onclick="document.getElementById('modal-add').classList.add('open')" class="btn btn-sm btn-primary">+ Ajouter</button></div>
 </div>
 <?php $sse_active = 'categories'; include __DIR__.'/_nav.php'; ?>
 <?php if ($success): ?><div class="flash flash-success">✅ <?= h($success) ?></div><?php endif; ?>
@@ -49,9 +49,9 @@ $types=['equipement'=>'⚙️ Équipement','consommable'=>'📦 Consommable','ap
 </div>
 <?php endforeach; ?>
 </div>
-<div id="modal-add" style="display:<?= $edit?'flex':'none' ?>;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9999;align-items:center;justify-content:center" onclick="if(event.target===this)this.style.display='none'">
+<div id="modal-add" class="ui-modal<?= $edit?' open':'' ?>" onclick="if(event.target===this)this.classList.remove('open')">
 <div style="background:var(--bg2);border:1px solid var(--border);border-radius:16px;padding:28px;width:90%;max-width:480px">
-  <div style="display:flex;justify-content:space-between;margin-bottom:20px"><b>🏷️ Catégorie</b><button onclick="document.getElementById('modal-add').style.display='none'" style="background:none;border:none;font-size:1.2rem;cursor:pointer">✕</button></div>
+  <div style="display:flex;justify-content:space-between;margin-bottom:20px"><b>🏷️ Catégorie</b><button onclick="document.getElementById('modal-add').classList.remove('open')" style="background:none;border:none;font-size:1.2rem;cursor:pointer">✕</button></div>
   <form method="post">
     <?= csrf_field() ?><input type="hidden" name="action" value="save"><input type="hidden" name="id" value="<?= $edit['id']??0 ?>">
     <?php foreach([['nom','Nom','text'],['icone','Icône (emoji)','text']] as [$n,$l,$t]): ?>
@@ -59,7 +59,7 @@ $types=['equipement'=>'⚙️ Équipement','consommable'=>'📦 Consommable','ap
     <?php endforeach; ?>
     <div style="margin-bottom:12px"><label style="font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;display:block;margin-bottom:4px">Type</label><select name="type" style="width:100%;background:var(--glass);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px 12px"><?php foreach ($types as $k=>$v): ?><option value="<?= $k ?>" <?= ($edit['type']??'equipement')===$k?'selected':'' ?>><?= $v ?></option><?php endforeach; ?></select></div>
     <div style="margin-bottom:16px"><label style="font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;display:block;margin-bottom:4px">Description</label><textarea name="description" rows="2" style="width:100%;background:var(--glass);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px 12px;resize:vertical"><?= h($edit['description']??'') ?></textarea></div>
-    <div style="display:flex;gap:8px"><button type="submit" class="btn btn-primary">💾</button><button type="button" onclick="document.getElementById('modal-add').style.display='none'" class="btn btn-ghost">Annuler</button></div>
+    <div style="display:flex;gap:8px"><button type="submit" class="btn btn-primary">💾</button><button type="button" onclick="document.getElementById('modal-add').classList.remove('open')" class="btn btn-ghost">Annuler</button></div>
   </form>
 </div></div>
 <?php require_once '../includes/footer.php'; ?>
