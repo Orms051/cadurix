@@ -121,23 +121,20 @@ require_once '../includes/header.php';
 </div>
 
 <!-- KPIs -->
-<div class="grid-4" style="margin-bottom:1.5rem">
-  <div class="kpi-card" style="border-top:3px solid #10b981">
-    <div class="kpi-label">En service</div>
-    <div class="kpi-value" style="color:#10b981"><?= $stats_statut['en_service']??0 ?></div>
-  </div>
-  <div class="kpi-card" style="border-top:3px solid #f59e0b">
-    <div class="kpi-label">En maintenance</div>
-    <div class="kpi-value" style="color:#f59e0b"><?= $stats_statut['maintenance']??0 ?></div>
-  </div>
-  <div class="kpi-card" style="border-top:3px solid #ef4444">
-    <div class="kpi-label">Hors service</div>
-    <div class="kpi-value" style="color:#ef4444"><?= count($hs) ?></div>
-  </div>
-  <div class="kpi-card" style="border-top:3px solid var(--primary)">
-    <div class="kpi-label">Biomédicaux</div>
-    <div class="kpi-value"><?= count($biomedicals) ?></div>
-  </div>
+<style>
+.akpi-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:1.5rem}
+@media(max-width:900px){.akpi-grid{grid-template-columns:1fr 1fr}}
+.akpi{position:relative;display:flex;align-items:center;gap:12px;background:var(--bg2);border:1px solid var(--border);border-radius:13px;padding:12px 15px;overflow:hidden;box-shadow:0 1px 2px rgba(20,30,60,.04)}
+.akpi::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--kc,var(--primary))}
+.akpi .ic{width:36px;height:36px;border-radius:10px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:1.05rem}
+.akpi .n{font-size:1.5rem;font-weight:800;line-height:1;font-variant-numeric:tabular-nums}
+.akpi .l{font-size:.68rem;color:var(--text3);text-transform:uppercase;letter-spacing:.04em;font-weight:700;margin-top:3px}
+</style>
+<div class="akpi-grid">
+  <div class="akpi" style="--kc:#10b981"><span class="ic" style="background:#10b9811f;color:#10b981">✅</span><div><div class="n" style="color:#10b981"><?= $stats_statut['en_service']??0 ?></div><div class="l">En service</div></div></div>
+  <div class="akpi" style="--kc:#f59e0b"><span class="ic" style="background:#f59e0b1f;color:#f59e0b">🔧</span><div><div class="n" style="color:#f59e0b"><?= $stats_statut['maintenance']??0 ?></div><div class="l">En maintenance</div></div></div>
+  <div class="akpi" style="--kc:#ef4444"><span class="ic" style="background:#ef44441f;color:#ef4444">🔴</span><div><div class="n" style="color:#ef4444"><?= count($hs) ?></div><div class="l">Hors service</div></div></div>
+  <div class="akpi" style="--kc:#3b82f6"><span class="ic" style="background:#3b82f61f;color:#3b82f6">🩺</span><div><div class="n" style="color:#3b82f6"><?= count($biomedicals) ?></div><div class="l">Biomédicaux</div></div></div>
 </div>
 
 <div class="grid-2" style="margin-bottom:1.25rem">

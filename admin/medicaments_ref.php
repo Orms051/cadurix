@@ -121,27 +121,21 @@ if (!defined('ADMIN_HUB')) require_once '../includes/header.php';
 </div>
 
 <!-- KPIs -->
-<div class="grid-4" style="margin-bottom:20px">
-  <div class="kpi-card" style="border-top:3px solid var(--primary)">
-    <div class="kpi-label">💊 Total</div>
-    <div class="kpi-value" style="color:var(--primary)"><?= $stats['total'] ?></div>
-    <div class="kpi-foot">médicaments référencés</div>
-  </div>
-  <div class="kpi-card" style="border-top:3px solid #10B981">
-    <div class="kpi-label">✅ Actifs</div>
-    <div class="kpi-value" style="color:#10B981"><?= $stats['actifs'] ?></div>
-    <div class="kpi-foot">dans l'autocomplétion</div>
-  </div>
-  <div class="kpi-card" style="border-top:3px solid #60a5fa">
-    <div class="kpi-label">❄️ Chaîne du froid</div>
-    <div class="kpi-value" style="color:#60a5fa"><?= $stats['froid'] ?></div>
-    <div class="kpi-foot">nécessitent réfrigération</div>
-  </div>
-  <div class="kpi-card" style="border-top:3px solid var(--violet)">
-    <div class="kpi-label">📂 Catégories</div>
-    <div class="kpi-value" style="color:var(--violet)"><?= $stats['nb_cats'] ?></div>
-    <div class="kpi-foot">familles thérapeutiques</div>
-  </div>
+<style>
+.akpi-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px}
+@media(max-width:900px){.akpi-grid{grid-template-columns:1fr 1fr}}
+.akpi{position:relative;display:flex;align-items:center;gap:12px;background:var(--bg2);border:1px solid var(--border);border-radius:13px;padding:12px 15px;overflow:hidden;box-shadow:0 1px 2px rgba(20,30,60,.04)}
+.akpi::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--kc,var(--primary))}
+.akpi .ic{width:36px;height:36px;border-radius:10px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:1.05rem}
+.akpi .n{font-size:1.5rem;font-weight:800;line-height:1;font-variant-numeric:tabular-nums}
+.akpi .l{font-size:.68rem;color:var(--text3);text-transform:uppercase;letter-spacing:.04em;font-weight:700;margin-top:3px}
+.akpi .f{font-size:.68rem;color:var(--text3);margin-top:1px}
+</style>
+<div class="akpi-grid">
+  <div class="akpi" style="--kc:#3b82f6"><span class="ic" style="background:#3b82f61f;color:#3b82f6">💊</span><div><div class="n" style="color:#3b82f6"><?= $stats['total'] ?></div><div class="l">Total</div><div class="f">médicaments référencés</div></div></div>
+  <div class="akpi" style="--kc:#10b981"><span class="ic" style="background:#10b9811f;color:#10b981">✅</span><div><div class="n" style="color:#10b981"><?= $stats['actifs'] ?></div><div class="l">Actifs</div><div class="f">dans l'autocomplétion</div></div></div>
+  <div class="akpi" style="--kc:#60a5fa"><span class="ic" style="background:#60a5fa1f;color:#60a5fa">❄️</span><div><div class="n" style="color:#60a5fa"><?= $stats['froid'] ?></div><div class="l">Chaîne du froid</div><div class="f">réfrigération</div></div></div>
+  <div class="akpi" style="--kc:#8b5cf6"><span class="ic" style="background:#8b5cf61f;color:#8b5cf6">📂</span><div><div class="n" style="color:#8b5cf6"><?= $stats['nb_cats'] ?></div><div class="l">Catégories</div><div class="f">familles thérapeutiques</div></div></div>
 </div>
 
 <!-- Formulaire -->
