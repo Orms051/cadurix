@@ -98,14 +98,14 @@ if (!defined('ADMIN_HUB')) require_once '../includes/header.php';
 ?>
 
 <style>
-.ref-card { background:var(--bg2); border:1px solid var(--border); border-radius:10px; overflow:hidden; margin-bottom:14px; }
-.ref-cat-header { display:flex; align-items:center; justify-content:space-between; padding:10px 16px; background:var(--bg3); border-bottom:1px solid var(--border); cursor:pointer; user-select:none; }
-.ref-cat-title { font-size:12px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--text2); }
+.ref-card { background:var(--bg2); border:1px solid var(--border); border-radius:14px; overflow:hidden; margin-bottom:12px; box-shadow:0 1px 2px rgba(20,30,60,.04); }
+.ref-cat-header { display:flex; align-items:center; justify-content:space-between; padding:12px 16px; background:var(--bg3); border-bottom:1px solid var(--border); cursor:pointer; user-select:none; }
+.ref-cat-title { font-size:.9rem; font-weight:800; letter-spacing:-.01em; color:var(--text); text-transform:none; }
 .ref-table { width:100%; border-collapse:collapse; }
-.ref-table th { padding:7px 14px; font-size:10px; font-weight:600; letter-spacing:.06em; text-transform:uppercase; color:var(--text3); border-bottom:1px solid var(--border); text-align:left; background:var(--bg3); }
-.ref-table td { padding:9px 14px; border-bottom:1px solid var(--border); font-size:13px; vertical-align:middle; }
+.ref-table th { padding:8px 14px; font-size:.64rem; font-weight:700; letter-spacing:.05em; text-transform:uppercase; color:var(--text3); border-bottom:1px solid var(--border); text-align:left; background:transparent; }
+.ref-table td { padding:10px 14px; border-bottom:1px solid var(--border); font-size:13px; vertical-align:middle; }
 .ref-table tr:last-child td { border-bottom:none; }
-.ref-table tr:hover td { background:var(--glass); }
+.ref-table tr:hover td { background:var(--bg3); }
 .ref-table tr.inactive td { opacity:.45; }
 .form-panel { background:var(--bg2); border:1px solid var(--border); border-radius:12px; padding:20px; margin-bottom:20px; }
 </style>
