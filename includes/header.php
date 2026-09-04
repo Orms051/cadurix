@@ -632,6 +632,25 @@ tbody tr:last-child td { border-bottom:none; }
     font-size: 16px !important; /* Empêche zoom automatique iOS */
   }
 }
+
+/* ═══ Composants UI unifiés (modale + recherche) — à réutiliser partout ═══ */
+.ui-search{display:flex;align-items:center;gap:8px;background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:8px 13px;transition:border-color .15s;min-width:0}
+.ui-search:focus-within{border-color:var(--primary,#3b82f6)}
+.ui-search .ui-search-ic{color:var(--text3);font-size:.95rem;flex-shrink:0;line-height:1}
+.ui-search input{background:none;border:none;outline:none;flex:1;min-width:0;font-family:inherit;font-size:.88rem;color:var(--text)}
+.ui-search input::placeholder{color:var(--text3)}
+.ui-search .ui-search-clear{color:var(--text3);text-decoration:none;font-size:.9rem;flex-shrink:0}
+
+.ui-modal{display:none;position:fixed;inset:0;z-index:9999;background:rgba(10,15,25,.55);-webkit-backdrop-filter:blur(3px);backdrop-filter:blur(3px);align-items:center;justify-content:center;padding:20px}
+.ui-modal.open{display:flex}
+.ui-modal__box{background:var(--bg2);border:1px solid var(--border);border-radius:16px;box-shadow:0 24px 60px -20px rgba(0,0,0,.5);width:100%;max-width:560px;max-height:90vh;overflow:auto;padding:0}
+.ui-modal__box.lg{max-width:680px}
+.ui-modal__head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:18px 22px;border-bottom:1px solid var(--border)}
+.ui-modal__title{font-size:1.05rem;font-weight:800;letter-spacing:-.01em;display:flex;align-items:center;gap:9px}
+.ui-modal__close{background:none;border:none;font-size:1.2rem;line-height:1;cursor:pointer;color:var(--text2);padding:4px;border-radius:8px}
+.ui-modal__close:hover{background:var(--bg3);color:var(--text)}
+.ui-modal__body{padding:20px 22px}
+.ui-modal__foot{display:flex;gap:8px;justify-content:flex-end;padding:16px 22px;border-top:1px solid var(--border)}
 </style>
 <script>
 // Clé VAPID publique — sera remplie quand le site sera en prod
