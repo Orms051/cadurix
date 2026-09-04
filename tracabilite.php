@@ -350,7 +350,7 @@ require_once 'includes/header.php';
     <div class="page-sub"><?= $vue==='activite' ? "Journal de tout ce qui est fait — qui, quoi, quand" : 'Catalogue des lots — Médicaments · SSE/NRBC · Matériel' ?> — <?= h($site_actif_nom ?? '') ?></div>
   </div>
   <div class="page-actions">
-    <?php if ($vue==='lots'): ?><button onclick="document.getElementById('modal-rappel').classList.add('on')" class="btn btn-danger">⚠️ Créer alerte rappel</button><?php endif; ?>
+    <?php if ($vue==='lots'): ?><button onclick="document.getElementById('modal-rappel').classList.add('open')" class="btn btn-danger">⚠️ Créer alerte rappel</button><?php endif; ?>
   </div>
 </div>
 
@@ -418,10 +418,10 @@ require_once 'includes/header.php';
 
 <!-- Toolbar -->
 <form method="get" class="tr-toolbar">
-  <div class="tr-search">
-    <span style="color:var(--text3)">🔍</span>
+  <div class="ui-search">
+    <span class="ui-search-ic">🔍</span>
     <input type="text" name="q" value="<?= h($search) ?>" placeholder="Rechercher lot, nom, référence…" oninput="this.form.submit()">
-    <?php if ($search): ?><a href="?" style="color:var(--text3);text-decoration:none;font-size:.85rem">✕</a><?php endif; ?>
+    <?php if ($search): ?><a href="?" class="ui-search-clear">✕</a><?php endif; ?>
   </div>
   <input type="hidden" name="type" value="<?= h($filtre) ?>">
 </form>
@@ -535,7 +535,7 @@ require_once 'includes/header.php';
   <input type="hidden" name="vue" value="activite">
   <input type="hidden" name="cat" value="<?= h($cat) ?>">
   <div class="tr-search" style="flex:1;min-width:180px">
-    <span style="color:var(--text3)">🔍</span>
+    <span class="ui-search-ic">🔍</span>
     <input type="text" name="q" value="<?= h($search) ?>" placeholder="Médicament, action…">
   </div>
   <div><label class="tr-mini-l">Du</label><input type="date" name="from" value="<?= h($fFrom) ?>" class="tr-input" style="width:auto"></div>
@@ -613,16 +613,16 @@ require_once 'includes/header.php';
 <?php endif; /* fin vue 'activite' */ ?>
 
 <!-- Modal rappel -->
-<div class="tr-modal" id="modal-rappel" onclick="if(event.target===this)this.classList.remove('on')">
-  <div class="tr-modal-box">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
+<div class="ui-modal" id="modal-rappel" onclick="if(event.target===this)this.classList.remove('open')">
+  <div class="ui-modal__box">
+    <div class="ui-modal__head">
       <div>
-        <div style="font-size:1.05rem;font-weight:700">🚨 Créer une alerte rappel</div>
-        <div style="font-size:.78rem;color:var(--text3)">Rappel ANSM ou décision interne</div>
+        <div class="ui-modal__title">🚨 Créer une alerte rappel</div>
+        <div style="font-size:.78rem;color:var(--text3);font-weight:400;margin-top:2px">Rappel ANSM ou décision interne</div>
       </div>
-      <button onclick="document.getElementById('modal-rappel').classList.remove('on')" style="background:none;border:none;font-size:1.2rem;cursor:pointer;color:var(--text2)">✕</button>
+      <button class="ui-modal__close" onclick="document.getElementById('modal-rappel').classList.remove('open')">✕</button>
     </div>
-    <form method="post" style="display:flex;flex-direction:column;gap:14px">
+    <form method="post" class="ui-modal__body" style="display:flex;flex-direction:column;gap:14px">
       <?= csrf_field() ?>
       <input type="hidden" name="action" value="create_rappel">
       <div>
@@ -647,7 +647,7 @@ require_once 'includes/header.php';
       </div>
       <div style="display:flex;gap:10px;padding-top:8px;border-top:1px solid var(--border)">
         <button type="submit" class="btn btn-danger" style="background:rgba(239,68,68,.15);color:#f87171;border:1px solid rgba(239,68,68,.3)">🚨 Créer l'alerte</button>
-        <button type="button" onclick="document.getElementById('modal-rappel').classList.remove('on')" class="btn btn-ghost">Annuler</button>
+        <button type="button" onclick="document.getElementById('modal-rappel').classList.remove('open')" class="btn btn-ghost">Annuler</button>
       </div>
     </form>
   </div>
@@ -657,7 +657,7 @@ require_once 'includes/header.php';
 function openRappel(lot, source) {
   document.getElementById('rappel-lot').value    = lot;
   document.getElementById('rappel-source').value = source;
-  document.getElementById('modal-rappel').classList.add('on');
+  document.getElementById('modal-rappel').classList.add('open');
 }
 var TR_CAT  = <?= json_encode($cat) ?>;
 var TR_Q    = <?= json_encode($search) ?>;
