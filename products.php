@@ -2,6 +2,7 @@
 // © Cadurix v5.4 — Tous droits réservés. Utilisation non autorisée interdite.
 
 require_once 'includes/auth.php';
+require_once __DIR__ . '/includes/medref.php'; // medref_apprendre() — auto-apprentissage base de réf.
 @include_once __DIR__ . '/scanner/barcode_lookup.php'; // parse_gs1() / barcode_candidates()
 $site_id = site_actif();
 if (!$site_id) { header('Location: dashboard.php'); exit; }
@@ -162,6 +163,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'saisie_rapide' && $_SERVER['REQUE
         $new_id = (int)$pdo->lastInsertId();
         if ($qte > 0) $stmt_mv->execute([$new_id, currentUserId(), 'entree', 0, $qte, $qte]);
         audit_log($pdo, 'CREATION_PRODUIT', 'produits', $new_id, null, ['nom'=>$nom,'saisie_rapide'=>true]);
+        medref_apprendre($pdo, ['nom'=>$nom,'unite'=>$l['unite']??'unité','chaine_froid'=>isset($l['froid'])&&$l['froid']?1:0]);
         $ok++;
     }
     echo json_encode(['ok' => $ok, 'errors' => $errors]);
@@ -561,6 +563,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && canEdit()) {
             }
 
             audit_log($pdo, 'CREATION_PRODUIT', 'produits', $newId, null, $f);
+            medref_apprendre($pdo, $f); // enrichit la base de référence si nouveau
             flashSuccess("Produit « {$f['nom']} » créé.");
         }
     }
