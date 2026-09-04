@@ -292,13 +292,16 @@ if (!defined('ADMIN_HUB')) require_once '../includes/header.php';
 .metric-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:1.5rem; }
 @media(max-width:900px) { .metric-grid { grid-template-columns:1fr 1fr; } }
 .metric-card {
-  background:var(--bg3); border:1px solid var(--border); border-radius:12px; padding:16px;
-  transition:border-color .2s, transform .2s;
+  position:relative; display:flex; align-items:center; gap:12px;
+  background:var(--bg2); border:1px solid var(--border); border-radius:13px; padding:12px 15px;
+  overflow:hidden; box-shadow:0 1px 2px rgba(20,30,60,.04); transition:transform .15s;
 }
-.metric-card:hover { border-color:var(--border2); transform:translateY(-2px); }
-.metric-val { font-size:1.8rem; font-weight:800; letter-spacing:-1px; }
-.metric-lbl { font-size:.7rem; color:var(--text3); text-transform:uppercase; letter-spacing:1px; font-weight:600; margin-top:4px; }
-.metric-sub { font-size:.75rem; color:var(--text2); margin-top:3px; }
+.metric-card::before { content:""; position:absolute; left:0; top:0; bottom:0; width:3px; background:var(--mc,var(--primary)); }
+.metric-card:hover { transform:translateY(-2px); }
+.metric-card .ic { width:36px; height:36px; border-radius:10px; flex-shrink:0; display:flex; align-items:center; justify-content:center; font-size:1.05rem; }
+.metric-val { font-size:1.5rem; font-weight:800; letter-spacing:-.5px; line-height:1; font-variant-numeric:tabular-nums; }
+.metric-lbl { font-size:.68rem; color:var(--text3); text-transform:uppercase; letter-spacing:.04em; font-weight:700; margin-top:3px; }
+.metric-sub { font-size:.68rem; color:var(--text3); margin-top:1px; }
 
 .sys-info-row { display:flex; align-items:center; justify-content:space-between; padding:.625rem 0; border-bottom:1px solid rgba(255,255,255,.04); font-size:.875rem; }
 .sys-info-row:last-child { border-bottom:none; }
@@ -349,26 +352,23 @@ if (!defined('ADMIN_HUB')) require_once '../includes/header.php';
 <?php if ($erreur):  ?><div class="flash flash-error">✗ <?= htmlspecialchars($erreur) ?></div><?php endif; ?>
 
 <!-- Métriques rapides -->
+<?php $mAl = $stats['expires']>0 ? '#ef4444' : ($stats['alertes']>0 ? '#f59e0b' : '#10b981'); ?>
 <div class="metric-grid">
-  <div class="metric-card">
-    <div class="metric-val"><?= $stats['utilisateurs'] ?></div>
-    <div class="metric-lbl">Utilisateurs</div>
-    <div class="metric-sub"><?= count($sessions) ?> connecté(s)</div>
+  <div class="metric-card" style="--mc:#3b82f6">
+    <span class="ic" style="background:#3b82f61f;color:#3b82f6">👥</span>
+    <div><div class="metric-val" style="color:#3b82f6"><?= $stats['utilisateurs'] ?></div><div class="metric-lbl">Utilisateurs</div><div class="metric-sub"><?= count($sessions) ?> connecté(s)</div></div>
   </div>
-  <div class="metric-card">
-    <div class="metric-val" style="color:<?= $stats['expires']>0?'var(--red)':'var(--text)' ?>"><?= $stats['alertes'] ?></div>
-    <div class="metric-lbl">Alertes actives</div>
-    <div class="metric-sub"><?= $stats['expires'] ?> périmé(s)</div>
+  <div class="metric-card" style="--mc:<?= $mAl ?>">
+    <span class="ic" style="background:<?= $mAl ?>1f;color:<?= $mAl ?>">⚠️</span>
+    <div><div class="metric-val" style="color:<?= $mAl ?>"><?= $stats['alertes'] ?></div><div class="metric-lbl">Alertes actives</div><div class="metric-sub"><?= $stats['expires'] ?> périmé(s)</div></div>
   </div>
-  <div class="metric-card">
-    <div class="metric-val"><?= $db_size ?> Mo</div>
-    <div class="metric-lbl">Base de données</div>
-    <div class="metric-sub"><?= $stats['audit_logs'] ?> logs audit</div>
+  <div class="metric-card" style="--mc:#8b5cf6">
+    <span class="ic" style="background:#8b5cf61f;color:#8b5cf6">🗄️</span>
+    <div><div class="metric-val" style="color:#8b5cf6"><?= $db_size ?> Mo</div><div class="metric-lbl">Base de données</div><div class="metric-sub"><?= $stats['audit_logs'] ?> logs audit</div></div>
   </div>
-  <div class="metric-card">
-    <div class="metric-val"><?= $stats['produits'] ?></div>
-    <div class="metric-lbl">Produits actifs</div>
-    <div class="metric-sub"><?= $stats['emplacements'] ?> emplacements</div>
+  <div class="metric-card" style="--mc:#10b981">
+    <span class="ic" style="background:#10b9811f;color:#10b981">💊</span>
+    <div><div class="metric-val" style="color:#10b981"><?= $stats['produits'] ?></div><div class="metric-lbl">Produits actifs</div><div class="metric-sub"><?= $stats['emplacements'] ?> emplacements</div></div>
   </div>
 </div>
 
