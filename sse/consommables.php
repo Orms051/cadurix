@@ -196,7 +196,7 @@ if (!nav_peut($nav_perms, 'sse')) { ob_end_clean(); accessDenied(); exit; }
 
   <!-- Contenu -->
   <div>
-    <input type="text" class="conso-search" id="conso-search" placeholder="🔍 Rechercher produit, référence, lot, localisation…" oninput="filtrerConso(this.value)">
+    <div class="ui-search" style="margin-bottom:14px"><span class="ui-search-ic">🔍</span><input type="text" id="conso-search" placeholder="Rechercher produit, référence, lot, localisation…" oninput="filtrerConso(this.value)"></div>
 
     <div class="conso-filters">
       <a href="?<?= $cat_filtre?"cat=$cat_filtre":'' ?>" class="cf <?= !$filtre?'active':'' ?>">Tous (<?= $nb_total ?>)</a>
