@@ -164,7 +164,7 @@ $sse_statuts = [
 
 <!-- Barre recherche + filtres -->
 <div class="sse-toolbar">
-  <input type="text" class="sse-search" id="sse-search" placeholder="🔍 Rechercher nom, N° série, localisation…" oninput="filtrerSSE(this.value)">
+  <div class="ui-search" style="flex:1;min-width:200px"><span class="ui-search-ic">🔍</span><input type="text" id="sse-search" placeholder="Rechercher nom, N° série, localisation…" oninput="filtrerSSE(this.value)"></div>
   <a href="?" class="sse-filter <?= !$f_statut&&!$f_alerte?'active':'' ?>">Tous (<?= array_sum($stats) ?>)</a>
   <?php foreach ($sse_statuts as $k=>[$ico,$lbl,$col]): if (!($stats[$k]??0)) continue; ?>
   <a href="?statut=<?= $k ?>" class="sse-filter <?= $f_statut===$k?'active':'' ?>"><?= $ico ?> <?= $lbl ?> (<?= $stats[$k] ?>)</a>
