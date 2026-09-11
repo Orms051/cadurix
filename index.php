@@ -11,6 +11,8 @@ if (isset($_SESSION['user_id'])) {
 }
 // Jeton anti-CSRF du login (auto-suffisant, basé session — page publique sans auth.php)
 if (empty($_SESSION['login_csrf'])) { $_SESSION['login_csrf'] = bin2hex(random_bytes(16)); }
+// Défi anti-robot : nb d'échecs de cette session (le défi n'apparaît qu'après 1 échec)
+$login_fails = (int)($_SESSION['login_fails'] ?? 0);
 
 // ============================================================
 //  Fonctions anti brute-force (auth.php non inclus ici — page publique)
@@ -51,6 +53,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // Anti-CSRF : le jeton du formulaire doit correspondre à celui de la session
     if (!hash_equals($_SESSION['login_csrf'] ?? '', (string)($_POST['_lcsrf'] ?? ''))) {
         $error = 'Session expirée — rechargez la page et réessayez.';
+        goto end_login;
+    }
+    // Défi anti-robot : exigé dès qu'il y a eu au moins 1 échec dans la session
+    if ($login_fails >= 1 && (string)($_POST['captcha'] ?? '') !== (string)($_SESSION['captcha_ans'] ?? '__x__')) {
+        $error = 'Vérification anti-robot incorrecte. Réessayez.';
         goto end_login;
     }
     security_middleware($pdo); // Sous-système sécurité : IP bannie + lockdown + anti-injection SQL
@@ -129,6 +136,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } catch(Exception $e) {} // Fail silently
 
 
+        // Connexion réussie → on efface le défi anti-robot
+        unset($_SESSION['login_fails'], $_SESSION['captcha_ans']);
         // Vérifier si 2FA activée (+ forçage super_admin si sec_force_2fa)
         $force2fa = false;
         try { $force2fa = ($pdo->query("SELECT valeur FROM parametres WHERE cle='sec_force_2fa'")->fetchColumn() === '1'); } catch (Throwable $e) {}
@@ -154,10 +163,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } else {
         // Échec → sous-système sécurité : score IP, ban auto au seuil, événement, lockdown auto
         init_security($pdo)->recordLoginFail($login);
+        $_SESSION['login_fails'] = $login_fails + 1; // active le défi anti-robot
         sleep(1); // léger ralentissement
         $error = 'Identifiants incorrects.';
     }
     end_login:
+}
+
+// Génère le défi anti-robot pour l'affichage (uniquement après un échec)
+$need_captcha = ((int)($_SESSION['login_fails'] ?? 0)) >= 1;
+$captcha_q = '';
+if ($need_captcha) {
+    $ca = random_int(1, 9); $cb = random_int(1, 9);
+    $_SESSION['captcha_ans'] = (string)($ca + $cb);
+    $captcha_q = "$ca + $cb";
 }
 ?>
 <!DOCTYPE html>
@@ -708,6 +727,16 @@ form.fade-up, form.fade-up * {
           >
         </div>
       </div>
+
+      <?php if ($need_captcha): ?>
+      <div class="form-group">
+        <label class="form-label" for="captcha">V&eacute;rification anti-robot &mdash; combien font <?= $captcha_q ?> ?</label>
+        <div class="form-input-icon">
+          <span class="icon">&#129302;</span>
+          <input class="form-input" type="text" id="captcha" name="captcha" inputmode="numeric" placeholder="R&eacute;ponse" required autocomplete="off">
+        </div>
+      </div>
+      <?php endif; ?>
 
       <button type="submit" class="btn-login">
         Acc&eacute;der &agrave; Cadurix &rarr;
