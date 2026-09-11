@@ -1686,8 +1686,8 @@ $advActive = (in_array($filterStatus,$advStatuses,true)?1:0) + ($horizon!=='1'?1
 ?>
 <!-- ══ BARRE MOBILE (compacte) + fenêtre Filtres & tri — mobile only ══ -->
 <div class="pxm">
-  <form class="pxm-search" method="get" action="products.php">
-    <span aria-hidden="true">🔎</span>
+  <form class="ui-search" style="width:100%" method="get" action="products.php">
+    <span class="ui-search-ic" aria-hidden="true">🔎</span>
     <input type="text" name="q" value="<?= h($qSearch) ?>" placeholder="Nom, lot, réf…" autocomplete="off">
     <?php if ($statutLot!=='actif'): ?><input type="hidden" name="statut_lot" value="<?= h($statutLot) ?>"><?php endif; ?>
     <?php if ($filterEmpl): ?><input type="hidden" name="emplacement" value="<?= (int)$filterEmpl ?>"><?php endif; ?>
@@ -1775,8 +1775,8 @@ $advActive = (in_array($filterStatus,$advStatuses,true)?1:0) + ($horizon!=='1'?1
     <a href="<?= h(pf_url(['statut_lot'=>'archive'])) ?>" class="px-tab <?= $statutLot==='archive'?'on':'' ?>">Archivés <span class="c"><?= $cntStatut['archive'] ?></span></a>
     <a href="<?= h(pf_url(['statut_lot'=>'retire'])) ?>"  class="px-tab <?= $statutLot==='retire'?'on':'' ?>">Retirés <span class="c"><?= $cntStatut['retire'] ?></span></a>
   </div>
-  <form class="px-search" method="get" action="products.php">
-    <span aria-hidden="true">🔎</span>
+  <form class="ui-search" style="flex:1;min-width:200px" method="get" action="products.php">
+    <span class="ui-search-ic" aria-hidden="true">🔎</span>
     <input type="text" name="q" value="<?= h($qSearch) ?>" placeholder="Nom, lot, réf…" autocomplete="off">
     <?php if ($statutLot!=='actif'): ?><input type="hidden" name="statut_lot" value="<?= h($statutLot) ?>"><?php endif; ?>
     <?php if ($filterEmpl): ?><input type="hidden" name="emplacement" value="<?= (int)$filterEmpl ?>"><?php endif; ?>

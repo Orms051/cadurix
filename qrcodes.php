@@ -209,8 +209,8 @@ require_once 'includes/header.php';
         <button onclick="selectAll(false)">Aucun</button>
       </div>
     </div>
-    <div class="qr-search">
-      <input type="text" id="qr-search" placeholder="🔍 Rechercher…" oninput="filtrerListe(this.value)">
+    <div class="ui-search"><span class="ui-search-ic">🔍</span>
+      <input type="text" id="qr-search" placeholder="Rechercher…" oninput="filtrerListe(this.value)">
     </div>
     <div class="qr-list" id="qr-list"></div>
     <div class="qr-panel-foot">

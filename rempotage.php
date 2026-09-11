@@ -474,7 +474,7 @@ require_once 'includes/header.php';
         </div>
       </div>
       <?php if ($ia_photo_on): ?><input type="file" id="rmp-photo-input" accept="image/*" capture="environment" style="display:none" onchange="RMP.onPhoto(this)"><?php endif; ?>
-      <input type="text" id="rmp-search" class="rmp-search" placeholder="🔎 Rechercher (premières lettres)…" disabled>
+      <div class="ui-search" style="margin-bottom:10px"><span class="ui-search-ic">🔎</span><input type="text" id="rmp-search" placeholder="Rechercher (premières lettres)…" disabled></div>
       <div class="rmp-cat" id="rmp-cat"><div class="rmp-empty">Choisis d'abord un sac.</div></div>
     </div>
 
