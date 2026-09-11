@@ -534,7 +534,7 @@ require_once 'includes/header.php';
 <form method="get" class="tr-toolbar" style="align-items:flex-end;margin-bottom:14px">
   <input type="hidden" name="vue" value="activite">
   <input type="hidden" name="cat" value="<?= h($cat) ?>">
-  <div class="tr-search" style="flex:1;min-width:180px">
+  <div class="ui-search" style="flex:1;min-width:180px">
     <span class="ui-search-ic">🔍</span>
     <input type="text" name="q" value="<?= h($search) ?>" placeholder="Médicament, action…">
   </div>

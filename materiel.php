@@ -384,7 +384,7 @@ require_once 'includes/header.php';
 
 <!-- Barre recherche + filtres -->
 <div class="mat-toolbar">
-  <input type="text" class="mat-search" id="mat-search" placeholder="🔍 Rechercher nom, marque, N° série…" oninput="filtrerTableau(this.value)">
+  <div class="ui-search" style="flex:1;min-width:200px"><span class="ui-search-ic">🔍</span><input type="text" id="mat-search" placeholder="Rechercher nom, marque, N° série…" oninput="filtrerTableau(this.value)"></div>
   <a href="materiel.php" class="mat-filter-btn <?= !$filtre_statut?'active':'' ?>">Tous (<?= $total ?>)</a>
   <?php foreach ($statuts as $k=>$s): if (!($stats[$k]??0)) continue; ?>
   <a href="materiel.php?statut=<?= $k ?>" class="mat-filter-btn <?= $filtre_statut===$k?'active':'' ?>">

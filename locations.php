@@ -427,8 +427,8 @@ require_once 'includes/header.php';
         <?php endif; ?>
       </div>
     </div>
-    <div class="sidebar-search">
-      <span aria-hidden="true" style="font-size:15px">🔎</span>
+    <div class="ui-search">
+      <span class="ui-search-ic" aria-hidden="true">🔎</span>
       <input type="text" id="searchTree" placeholder="Rechercher un emplacement…" autocomplete="off" aria-label="Rechercher un emplacement">
     </div>
     <div class="tree-container" id="treeContainer">
