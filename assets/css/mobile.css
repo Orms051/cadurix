@@ -386,6 +386,9 @@
     padding: 0 16px;
   }
   .table-wrap table { min-width: 520px !important; }
+  /* Filet global : toute table (même sans .table-wrap) scrolle au lieu de deborder la page */
+  table { display: block; max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .table-wrap table { display: table; overflow: visible; }
 
 /* ════════════════════════════════════════════════════════════
    CARDS & GRILLES

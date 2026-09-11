@@ -184,6 +184,8 @@ if (isset($_GET['ajax'])) {
 .modal-acts{display:flex;gap:8px;justify-content:flex-end;margin-top:20px}
 
 .info-ban{display:flex;align-items:flex-start;gap:10px;padding:12px 16px;border-radius:10px;margin-bottom:20px;background:rgba(59,130,246,.08);border:1px solid rgba(59,130,246,.2);font-size:13px;color:#60A5FA;line-height:1.5}
+.cout-2col{display:grid;grid-template-columns:1fr 300px;gap:20px;align-items:start}
+@media(max-width:768px){.cout-2col{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
@@ -233,7 +235,7 @@ if (isset($_GET['ajax'])) {
   </div>
 </div>
 
-<div style="display:grid;grid-template-columns:1fr 300px;gap:20px;align-items:start">
+<div class="cout-2col">
 <div>
 
 <!-- GRAPHIQUE -->
