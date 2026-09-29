@@ -20,6 +20,18 @@ require_once __DIR__ . '/../config/modules.php';
 require_once __DIR__ . '/../config/audit.php';
 require_once __DIR__ . '/security.php';
 
+// ── Hachage des mots de passe (bcrypt cost 12, cohérent avec le login) ──
+if (!function_exists('cdx_password_hash')) {
+    function cdx_password_hash(string $mdp): string {
+        return password_hash($mdp, PASSWORD_BCRYPT, ['cost' => 12]);
+    }
+}
+if (!function_exists('cdx_password_verify')) {
+    function cdx_password_verify(string $mdp, string $hash): bool {
+        return password_verify($mdp, $hash);
+    }
+}
+
 // Headers sécurité HTTP (envoyés une seule fois, avant tout output)
 if (!headers_sent()) headers_securite();
 
